@@ -18,8 +18,8 @@ A Macintosh Plus emulator port for Cheap-Yellow-Display board (ESP32), with some
 
 ## Getting Started
 
-1. **Print**: 3D print the enclosure from [`./enclosure`](./enclosure)
-2. **Flash**: See [Building](#building) to build and flash the firmware/ROM/disk image
+1. **Flash**: See [Building](#building) to build and flash the firmware/ROM/disk image
+2. **Print**: 3D print the enclosure from [`./enclosure`](./enclosure)
 3. **Assemble**: Mount the CYD into the enclosure and secure with four M2x3 self-tapping screws
 
 ## Prerequisites for Emulator
@@ -102,11 +102,11 @@ mise run format:check
 
 The ESP32 exposes a command interface via memory-mapped region at `0xF00000`. Mac applications read/write this shared memory to communicate with ESP32:
 
-| App     | Commands                                            |
-| ------- | --------------------------------------------------- |
-| Weather | `GET_WEATHER_DATA` ...                              |
-| CydCtl  | `GET_HW_STATE`, `SET_BACKLIGHT` , `SET_LED_RGB` ... |
-| WiFi    | `GET_WIFI_LIST`, `GET_WIFI_STATUS` ...              |
+| App     | Commands                                           |
+| ------- | -------------------------------------------------- |
+| Weather | `GET_WEATHER_DATA` ...                             |
+| CydCtl  | `GET_HW_STATE`, `SET_BACKLIGHT`, `SET_LED_RGB` ... |
+| WiFi    | `GET_WIFI_LIST`, `GET_WIFI_STATUS` ...             |
 
 See `include/umac_ipc.h` and `mac-app/common/esp_ipc.h` for full command definitions.
 
@@ -130,7 +130,7 @@ flowchart LR
 
 #### Home Assistant Setup
 
-You need to setup MQTT and a weather integration in Home Assistant to use the Weather app.
+You need to set up MQTT and a weather integration in Home Assistant to use the Weather app.
 
 - [MQTT Integration](https://www.home-assistant.io/integrations/mqtt/)
 - [Weather Integrations](https://www.home-assistant.io/integrations/#weather)
@@ -197,5 +197,6 @@ pio run -t uploadfs
 
 ## Related Projects
 
+- [likeablob/denki-kurage](https://github.com/likeablob/denki-kurage): Another CYD-based gadget
 - Macbar (WIP):  ESP32-S3 port utilizing PSRAM
 - Macbento (WIP)
