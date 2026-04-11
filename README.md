@@ -92,10 +92,11 @@ mise run format:check
 | CydCtl  | Hardware control (backlight, RGB LED) |
 | WiFi    | WiFi status and scan                  |
 
+<div>
 <img src="./assets/cydintosh_app_weather.jpg" height="300px">
 <img src="./assets/cydintosh_app_cydctl.jpg" height="300px">
 <img src="./assets/cydintosh_app_wifi.jpg" height="300px">
-
+</div>
 
 ### ESP32-Mac IPC Interface
 
@@ -172,8 +173,10 @@ pio run -t uploadfs
 
 ## Gallery
 
+<div>
 <img src="./assets/cydintosh_front_3.jpg" height="300px">
 <img src="./assets/cydintosh_back.jpg" height="300px">
+</div>
 
 ## Acknowledgements
 
