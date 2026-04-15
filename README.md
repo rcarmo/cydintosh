@@ -116,6 +116,7 @@ This fork also includes a browser-based flasher in [`web/`](./web):
 - flasher page: [`web/index.html`](./web/index.html)
 - manifest: [`web/manifest.json`](./web/manifest.json)
 - preserved stable merged firmware: [`web/merged-firmware-stable-mqtt-v1.bin`](./web/merged-firmware-stable-mqtt-v1.bin)
+- preserved stable filesystem image: [`web/littlefs-stable-mqtt-v1.bin`](./web/littlefs-stable-mqtt-v1.bin)
 
 A tiny local server can be started for development, for example:
 
@@ -125,6 +126,18 @@ python3 -m http.server 8765
 ```
 
 Then open `http://127.0.0.1:8765/` in Chrome or Edge.
+
+For manual flashing with `esptool`, use:
+
+```bash
+# firmware + bootloader + ROM bundle
+esptool --port <serial-port> --baud 115200 write_flash \
+  0x0000 web/merged-firmware-stable-mqtt-v1.bin
+
+# filesystem image containing the Mac disk payload
+esptool --port <serial-port> --baud 115200 write_flash \
+  0x230000 web/littlefs-stable-mqtt-v1.bin
+```
 
 To use the Weather app, continue with [Home Assistant Setup](#home-assistant-setup).
 

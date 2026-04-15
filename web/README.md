@@ -15,12 +15,16 @@ These files were copied after a successful local build of the shared MQTT home-c
 - `partitions-stable-mqtt-v1.bin`
 - `firmware-stable-mqtt-v1.bin`
 - `merged-firmware-stable-mqtt-v1.bin`
+- `littlefs-stable-mqtt-v1.bin`
 
 The merged image includes:
 - bootloader
 - partitions
 - app firmware
 - patched ROM at `0x210000`
+
+The separate filesystem image should be flashed at:
+- `0x230000` → `littlefs-stable-mqtt-v1.bin`
 
 ## Notes
 
