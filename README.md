@@ -71,15 +71,20 @@ See also the [pico-mac](https://github.com/evansm7/pico-mac) repo for ROM and di
 
 A repository-level [`Makefile`](./Makefile) is included to make common flows explicit and repeatable.
 
+**IMPORTANT:** Always use full-flash images when flashing. The merged firmware image
+(without filesystem) pads up to `0x230000`, which can overwrite the start of the
+filesystem partition. Full-flash images include everything in one file and avoid this.
+
 Useful targets:
 
 ```bash
 make help
+make prepare
 make build
 make stable-artifacts
 make original-artifacts
-make flash-stable-all SERIAL_PORT=/dev/cu.usbserial-210
-make flash-original-all SERIAL_PORT=/dev/cu.usbserial-210
+make flash-stable SERIAL_PORT=/dev/cu.usbserial-210
+make flash-original SERIAL_PORT=/dev/cu.usbserial-210
 ```
 
 ```bash
@@ -140,25 +145,21 @@ python3 -m http.server 8765
 
 Then open `http://127.0.0.1:8765/` in Chrome or Edge.
 
-For manual flashing with `esptool`, use:
+For manual flashing with `esptool`, always use the full-flash images:
 
 ```bash
-# firmware + bootloader + ROM bundle
+# Custom/fork build (recommended single command):
 esptool --port <serial-port> --baud 115200 write_flash \
-  0x0000 web/merged-firmware-stable-mqtt-v1.bin
+  0x0000 web/full-flash-stable-mqtt-v1.bin
 
-# filesystem image containing the Mac disk payload
+# Original/upstream-equivalent (recommended single command):
 esptool --port <serial-port> --baud 115200 write_flash \
-  0x230000 web/littlefs-stable-mqtt-v1.bin
+  0x0000 web/full-flash-original.bin
 ```
 
-For the upstream-equivalent/original artifacts:
-
-```bash
-esptool --port <serial-port> --baud 115200 write_flash \
-  0x0000 web/merged-firmware-original.bin \
-  0x230000 web/littlefs-original.bin
-```
+**WARNING:** Do not flash the merged firmware image alone — it pads up to `0x230000`
+and will overwrite the filesystem partition. Always use `full-flash-*.bin` images
+or flash firmware and filesystem together in one command.
 
 To use the Weather app, continue with [Home Assistant Setup](#home-assistant-setup).
 
