@@ -2,7 +2,7 @@
 
 #include "esp_log.h"
 #include "hw_control.h"
-#include "mqtt_weather.h"
+#include "mqtt_home.h"
 #include "string.h"
 #include "wifi_info.h"
 
@@ -32,10 +32,10 @@ static void process_command(void) {
     case CMD_GET_WEATHER_DATA:
         if (req.len >= 1) {
             uint8_t last_seq = req.data[0];
-            uint8_t current_seq = mqtt_weather_get_seq();
+            uint8_t current_seq = mqtt_home_get_weather_seq();
 
             if (current_seq != last_seq) {
-                WeatherData *weather = mqtt_weather_get_data();
+                WeatherData *weather = mqtt_home_get_weather_data();
                 size_t data_size = sizeof(WeatherData);
                 if (data_size <= 254) {
                     memcpy(resp.data, weather, data_size);
@@ -73,6 +73,110 @@ static void process_command(void) {
                 }
             } else {
                 resp.status = HW_STATUS_NOT_CHANGED;
+            }
+        } else {
+            resp.status = 0xFF;
+        }
+        break;
+
+    case CMD_GET_LIGHT_STATES:
+        if (req.len >= 1) {
+            uint8_t last_seq = req.data[0];
+            uint8_t current_seq = mqtt_home_get_light_seq();
+            if (current_seq != last_seq) {
+                LightSnapshot *snapshot = mqtt_home_get_light_snapshot();
+                size_t data_size = sizeof(LightSnapshot);
+                if (data_size <= 254) {
+                    memcpy(resp.data, snapshot, data_size);
+                    resp.len = data_size;
+                    resp.status = MQTT_HOME_LIGHT_STATUS_UPDATED;
+                } else {
+                    resp.status = 0xFF;
+                }
+            } else {
+                resp.status = MQTT_HOME_LIGHT_STATUS_NOT_CHANGED;
+            }
+        } else {
+            resp.status = 0xFF;
+        }
+        break;
+
+    case CMD_SET_LIGHT_STATE:
+        if (req.len >= 2) {
+            resp.status = mqtt_home_set_light_state(req.data[0], req.data[1] != 0);
+        } else {
+            resp.status = 0xFF;
+        }
+        break;
+
+    case CMD_SET_LIGHT_BRIGHTNESS:
+        if (req.len >= 2) {
+            resp.status = mqtt_home_set_light_brightness(req.data[0], req.data[1]);
+        } else {
+            resp.status = 0xFF;
+        }
+        break;
+
+    case CMD_GET_POWER_STATES:
+        if (req.len >= 1) {
+            uint8_t last_seq = req.data[0];
+            uint8_t current_seq = mqtt_home_get_power_seq();
+            if (current_seq != last_seq) {
+                PowerSnapshot *snapshot = mqtt_home_get_power_snapshot();
+                size_t data_size = sizeof(PowerSnapshot);
+                if (data_size <= 254) {
+                    memcpy(resp.data, snapshot, data_size);
+                    resp.len = data_size;
+                    resp.status = MQTT_HOME_POWER_STATUS_UPDATED;
+                } else {
+                    resp.status = 0xFF;
+                }
+            } else {
+                resp.status = MQTT_HOME_POWER_STATUS_NOT_CHANGED;
+            }
+        } else {
+            resp.status = 0xFF;
+        }
+        break;
+
+    case CMD_GET_DOOR_STATES:
+        if (req.len >= 1) {
+            uint8_t last_seq = req.data[0];
+            uint8_t current_seq = mqtt_home_get_door_seq();
+            if (current_seq != last_seq) {
+                DoorSnapshot *snapshot = mqtt_home_get_door_snapshot();
+                size_t data_size = sizeof(DoorSnapshot);
+                if (data_size <= 254) {
+                    memcpy(resp.data, snapshot, data_size);
+                    resp.len = data_size;
+                    resp.status = MQTT_HOME_DOOR_STATUS_UPDATED;
+                } else {
+                    resp.status = 0xFF;
+                }
+            } else {
+                resp.status = MQTT_HOME_DOOR_STATUS_NOT_CHANGED;
+            }
+        } else {
+            resp.status = 0xFF;
+        }
+        break;
+
+    case CMD_GET_DOOR_EVENTS:
+        if (req.len >= 1) {
+            uint8_t last_seq = req.data[0];
+            uint8_t current_seq = mqtt_home_get_door_event_seq();
+            if (current_seq != last_seq) {
+                DoorEventSnapshot *snapshot = mqtt_home_get_door_event_snapshot();
+                size_t data_size = sizeof(DoorEventSnapshot);
+                if (data_size <= 254) {
+                    memcpy(resp.data, snapshot, data_size);
+                    resp.len = data_size;
+                    resp.status = MQTT_HOME_DOOR_STATUS_UPDATED;
+                } else {
+                    resp.status = 0xFF;
+                }
+            } else {
+                resp.status = MQTT_HOME_DOOR_STATUS_NOT_CHANGED;
             }
         } else {
             resp.status = 0xFF;

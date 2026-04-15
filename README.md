@@ -5,12 +5,46 @@
 
 # Cydintosh
 
-A Macintosh Plus emulator port for Cheap-Yellow-Display board (ESP32), with some little 68k Mac applications.
+> **About this fork**
+>
+> This fork is focused on turning Cydintosh into a small smart-home Macintosh appliance:
+>
+> - browser-flashable firmware artifacts
+> - MQTT-backed ESP32 services
+> - classic Mac apps for lights, power, and door monitoring
+> - a cleaner publishable path for ongoing custom development
+>
+> Replace placeholder fork URLs/names below before publishing.
+
+A Macintosh Plus emulator port for the ESP32 Cheap Yellow Display family, with classic 68k Mac applications that use the ESP32 as a hardware/network coprocessor.
+
+This fork extends the original project toward a more appliance-like smart-home workstation:
 
 - Macintosh Plus emulation using umac and Musashi 68k emulator
-- 240x320 LCD with touchpad emulation for mouse control
-- *Homebrew* Mac applications built with Retro68 (Weather, WiFi status, etc.)
-- IPC between Mac and ESP32 (WiFi scan, MQTT weather data)
+- 240x320 ILI9341 LCD with XPT2046 touchpad emulation for mouse control
+- *Homebrew* Mac applications built with Retro68
+- IPC between Mac and ESP32 for WiFi, MQTT, hardware control, and smart-home data
+- browser-based flashing flow with preserved stable firmware snapshots under [`web/`](./web)
+
+## Fork status
+
+This repository is an actively evolving fork intended for publishing and continued development.
+
+### Current additions in this fork
+
+- shared MQTT-backed ESP32 service layer for smart-home integrations
+- initial Office Lights classic Mac application source and build artifacts
+- browser flasher page and manifest under [`web/`](./web)
+- preserved stable firmware images for browser flashing
+
+### Current implementation status
+
+- Existing shipped Mac apps: **Weather**, **WiFi**, **CydCtl**
+- New MQTT-backed infrastructure: **in progress**
+- New smart-home Mac apps planned:
+  - **Office Lights**
+  - **Socket Power Monitor**
+  - **Door Events**
 
 ## Hardware BOM
 
@@ -37,7 +71,7 @@ See also the [pico-mac](https://github.com/evansm7/pico-mac) repo for ROM and di
 
 ```bash
 # Clone and initialize submodules
-git clone --recursive https://github.com/likeablob/cydintosh
+git clone --recursive <your-fork-url>
 cd cydintosh
 
 # If you cloned without --recursive, initialize submodules:
@@ -53,9 +87,8 @@ git submodule update --init --recursive
 cp include/user_config.h.tmpl include/user_config.h
 # Edit include/user_config.h with your WiFi/MQTT settings
 
-# Generate and flash patched ROM
+# Generate patched ROM
 python3 tools/generate_patched_rom.py path/to/rom.bin -o rom_patched.bin
-esptool --port /dev/ttyUSB0 --baud 921600 write_flash 0x210000 rom_patched.bin
 
 # Prepare disk image
 # The cyd_800k.dsk includes pre-built Mac applications (CydCtl, Weather, WiFi).
@@ -66,12 +99,32 @@ esptool --port /dev/ttyUSB0 --baud 921600 write_flash 0x210000 rom_patched.bin
 # Finally, copy the prepared disk to data/disk.img
 cp cyd_800k.dsk data/disk.img
 
-# Build and upload firmware
-pio run -t upload
+# Build firmware
+pio run
+
+# Optional: upload directly if you have a serial device attached
+pio run -t upload --upload-port /dev/ttyUSB0
 
 # Upload disk image
-pio run -t uploadfs
+pio run -t uploadfs --upload-port /dev/ttyUSB0
 ```
+
+### Browser flashing
+
+This fork also includes a browser-based flasher in [`web/`](./web):
+
+- flasher page: [`web/index.html`](./web/index.html)
+- manifest: [`web/manifest.json`](./web/manifest.json)
+- preserved stable merged firmware: [`web/merged-firmware-stable-mqtt-v1.bin`](./web/merged-firmware-stable-mqtt-v1.bin)
+
+A tiny local server can be started for development, for example:
+
+```bash
+cd web
+python3 -m http.server 8765
+```
+
+Then open `http://127.0.0.1:8765/` in Chrome or Edge.
 
 To use the Weather app, continue with [Home Assistant Setup](#home-assistant-setup).
 
@@ -89,11 +142,12 @@ mise run format:check
 
 *Homebrew* Mac applications for Cydintosh.
 
-| App     | Description                           |
-| ------- | ------------------------------------- |
-| Weather | Weather display via MQTT              |
-| CydCtl  | Hardware control (backlight, RGB LED) |
-| WiFi    | WiFi status and scan                  |
+| App          | Status              | Description                                      |
+| ------------ | ------------------- | ------------------------------------------------ |
+| Weather      | shipped             | Weather display via MQTT                         |
+| CydCtl       | shipped             | Hardware control (backlight, RGB LED)            |
+| WiFi         | shipped             | WiFi status and scan                             |
+| OfficeLights | fork / in progress  | Office light control over Zigbee2MQTT via ESP32 |
 
 <div>
 <img src="./assets/cydintosh_app_weather.jpg" height="300px">
@@ -105,11 +159,14 @@ mise run format:check
 
 The ESP32 exposes a command interface via memory-mapped region at `0xF00000`. Mac applications read/write this shared memory to communicate with ESP32:
 
-| App     | Commands                                           |
-| ------- | -------------------------------------------------- |
-| Weather | `GET_WEATHER_DATA` ...                             |
-| CydCtl  | `GET_HW_STATE`, `SET_BACKLIGHT`, `SET_LED_RGB` ... |
-| WiFi    | `GET_WIFI_LIST`, `GET_WIFI_STATUS` ...             |
+| App / Domain   | Commands                                                         |
+| -------------- | ---------------------------------------------------------------- |
+| Weather        | `GET_WEATHER_DATA` ...                                           |
+| CydCtl         | `GET_HW_STATE`, `SET_BACKLIGHT`, `SET_LED_RGB` ...               |
+| WiFi           | `GET_WIFI_LIST`, `GET_WIFI_STATUS` ...                           |
+| OfficeLights   | `GET_LIGHT_STATES`, `SET_LIGHT_STATE`, `SET_LIGHT_BRIGHTNESS` ... |
+| Planned power  | `GET_POWER_STATES` ...                                           |
+| Planned doors  | `GET_DOOR_STATES`, `GET_DOOR_EVENTS` ...                         |
 
 See `include/umac_ipc.h` and `mac-app/common/esp_ipc.h` for full command definitions.
 
@@ -164,11 +221,17 @@ WiFi and MQTT broker credentials are configured in [`include/user_config.h`](inc
 #define MQTT_PASSWORD   "YOUR_MQTT_PASSWORD"
 ```
 
+In this fork, MQTT is no longer just for weather. The same ESP32-side client is being generalized to serve multiple classic Mac apps over IPC.
+
 ### Updating the Disk Image Manually
 
 ```bash
 # Rebuild applications and update disk image
 ./tools/update-disk.sh data/disk.img
+
+# Current note:
+# disk-image update tooling may depend on classic HFS utilities being available
+# in your host/container environment.
 
 # Re-upload disk image
 pio run -t uploadfs
@@ -196,7 +259,36 @@ pio run -t uploadfs
 
 ## TODO
 
+- [ ] Finish generalized MQTT-backed app infrastructure
+- [ ] Complete Office Lights UI/device validation on hardware
+- [ ] Add Socket Power Monitor app
+- [ ] Add Door Events app
+- [ ] Improve HFS disk-image tooling portability across Linux environments
 - [ ] Better icons for mac-apps
+
+## Publishing checklist for this fork
+
+Before publishing the fork, review and replace project-specific placeholders:
+
+- [ ] Replace `git clone --recursive <your-fork-url>` with the real repository URL
+- [ ] Review `README.md` for any remaining upstream-specific wording that should now refer to the fork
+- [ ] Decide whether `CYD2USB` should remain the preferred board name in docs, or whether `ESP32-2432S028` should be primary
+- [ ] Confirm the browser flasher should point at `stable-mqtt-v1` by default
+- [ ] Decide whether stable firmware artifacts in `web/` should be committed or generated during release
+- [ ] Review whether `rom.bin` / patched ROM workflow wording is legally and operationally appropriate for public release
+- [ ] Verify `tools/update-disk.sh` behavior and document host requirements for HFS tooling
+- [ ] Add screenshots for new fork-specific apps once they are running on hardware
+- [ ] Update any future fork homepage, issue tracker, or release links once created
+
+## Additional repository review notes
+
+Current assumptions worth revisiting before publishing:
+
+- The build section still assumes a developer-managed ROM workflow and local serial flashing path.
+- The browser flasher is currently geared toward local/stable artifacts in `web/`, which is great for development but may need a release/versioning policy.
+- The new Office Lights app is source-complete enough to mention, but should ideally be hardware-validated before being presented as a primary feature.
+- HFS disk update tooling remains environment-sensitive on Linux and should be called out clearly in release notes or docs.
+- MQTT configuration is still driven by `include/user_config.h`; longer term, a clearer fork-specific configuration story may help public adoption.
 
 ## Related Projects
 

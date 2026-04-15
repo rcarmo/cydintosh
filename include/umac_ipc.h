@@ -11,6 +11,7 @@
 // 0x1x: WiFi (WiFiApp)
 // 0x2x: Weather (WeatherApp)
 // 0x3x: Hardware Control (CydCtlApp)
+// 0x4x: Home automation / MQTT-backed apps
 
 #define CMD_PING 0x00
 
@@ -22,6 +23,13 @@
 #define CMD_GET_HW_STATE  0x30
 #define CMD_SET_BACKLIGHT 0x31
 #define CMD_SET_LED_RGB   0x32
+
+#define CMD_GET_LIGHT_STATES      0x40
+#define CMD_SET_LIGHT_STATE       0x41
+#define CMD_SET_LIGHT_BRIGHTNESS  0x42
+#define CMD_GET_POWER_STATES      0x43
+#define CMD_GET_DOOR_STATES       0x44
+#define CMD_GET_DOOR_EVENTS       0x45
 
 #define WEATHER_STATUS_UPDATED     0x00
 #define WEATHER_STATUS_NOT_CHANGED 0x01
