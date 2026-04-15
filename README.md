@@ -85,6 +85,7 @@ make stable-artifacts
 make original-artifacts
 make flash-stable SERIAL_PORT=/dev/cu.usbserial-210
 make flash-original SERIAL_PORT=/dev/cu.usbserial-210
+make capture-logs SERIAL_PORT=/dev/cu.usbserial-210
 ```
 
 ```bash
@@ -169,6 +170,24 @@ esptool --port <serial-port> --baud 460800 verify_flash \
   incomplete writes. Use `460800` or higher.
 - Do not flash the merged firmware image alone — it pads up to `0x230000`
   and will overwrite the filesystem partition.
+
+## Capturing boot logs
+
+To reset the board and capture 10 seconds of serial logs to a file without using `screen`:
+
+```bash
+make capture-logs SERIAL_PORT=/dev/cu.usbserial-210
+```
+
+Or directly:
+
+```bash
+python3 tools/capture_serial_logs.py \
+  --port /dev/cu.usbserial-210 \
+  --baud 115200 \
+  --duration 10 \
+  --output logs/boot-log.txt
+```
 
 To use the Weather app, continue with [Home Assistant Setup](#home-assistant-setup).
 

@@ -37,10 +37,15 @@ BAUD ?= 460800
 .PHONY: help prepare build firmware fs \
 	full-flash-stable stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts full-flash-original flash-original \
-	build-office-lights disk-update clean
+	build-office-lights disk-update capture-logs clean
 
 help:
 	@echo "Cydintosh build/flash targets"
+	@echo ""
+	@echo "Reference flash commands:"
+	@echo "  esptool --port $(SERIAL_PORT) --baud $(BAUD) erase_flash"
+	@echo "  esptool --port $(SERIAL_PORT) --baud $(BAUD) write_flash 0x0000 web/full-flash-original.bin"
+	@echo "  esptool --port $(SERIAL_PORT) --baud $(BAUD) verify_flash 0x0000 web/full-flash-original.bin"
 	@echo ""
 	@echo "  RECOMMENDED: use full-flash targets (single image, single command)"
 	@echo ""
@@ -61,6 +66,7 @@ help:
 	@echo "Mac app / disk targets:"
 	@echo "  make build-office-lights - build OfficeLights Mac app via Retro68 Docker image"
 	@echo "  make disk-update         - update data/disk.img with built Mac apps using Retro68 container HFS tools"
+	@echo "  make capture-logs        - reset board and capture 10s of serial logs to logs/*.log"
 	@echo ""
 	@echo "Variables: SERIAL_PORT=$(SERIAL_PORT) BAUD=$(BAUD)"
 
@@ -174,6 +180,9 @@ disk-update:
 	/Retro68-build/toolchain/bin/hcopy -m mac-app/OfficeLightsApp/build/OfficeLights.bin :OfficeLights; \
 	/Retro68-build/toolchain/bin/hdir; \
 	/Retro68-build/toolchain/bin/humount'
+
+capture-logs:
+	python3 tools/capture_serial_logs.py --port $(SERIAL_PORT) --baud 115200 --duration 10
 
 # ---- Cleanup ----
 
