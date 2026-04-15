@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cydintosh Web Flasher</title>
+    <script
+      type="module"
+      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    ></script>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --panel-2: #1f2937;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --accent: #22c55e;
+        --accent-2: #16a34a;
+        --border: #334155;
+        --danger: #f59e0b;
+        --esp-tools-button-color: #22c55e;
+        --esp-tools-button-text-color: #08110b;
+        --esp-tools-button-border-radius: 12px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #020617, var(--bg));
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 32px 20px 56px;
+      }
+      .hero, .card {
+        background: rgba(17, 24, 39, 0.92);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+      }
+      .hero {
+        padding: 28px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 2rem;
+      }
+      h2 {
+        margin-top: 0;
+        font-size: 1.15rem;
+      }
+      p { line-height: 1.6; color: var(--text); }
+      .muted { color: var(--muted); }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 20px;
+      }
+      .card {
+        padding: 22px;
+      }
+      ol, ul {
+        margin: 0;
+        padding-left: 1.2rem;
+        line-height: 1.7;
+      }
+      code {
+        background: #0b1220;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 2px 6px;
+        color: #bfdbfe;
+      }
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        align-items: center;
+        margin: 22px 0 8px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #0b1220;
+        border: 1px solid #1e293b;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .warning {
+        margin-top: 16px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        background: rgba(120, 53, 15, 0.18);
+        color: #fde68a;
+      }
+      .footer {
+        margin-top: 18px;
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+      a { color: #86efac; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <span class="pill">Browser flasher • ESP Web Tools / Web Serial</span>
+        <h1>Cydintosh Web Flasher</h1>
+        <p>
+          Flash the locally built <strong>Cydintosh</strong> firmware to an ESP32 Cheap Yellow Display board
+          directly from Chrome or Edge, with no native install required on the client machine.
+        </p>
+        <div class="cta">
+          <esp-web-install-button manifest="./manifest.json">
+            <button slot="activate">Connect and Flash Cydintosh</button>
+            <span slot="unsupported">Use Chrome or Edge on desktop. Firefox and Safari do not support Web Serial here.</span>
+            <span slot="not-allowed">This page must be served over <code>https://</code> or from a trusted local origin.</span>
+          </esp-web-install-button>
+        </div>
+        <div class="warning">
+          This flashes firmware built from the current local workspace. It includes a merged ESP32 image plus the LittleFS image.
+          Keep the board in bootloader/flashing mode before connecting if auto-reset does not work.
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>How to use</h2>
+          <ol>
+            <li>Open this page in <strong>Chrome</strong> or <strong>Edge</strong>.</li>
+            <li>Connect the CYD board over USB with a data-capable cable.</li>
+            <li>If needed, put the board into flashing mode before clicking the button.</li>
+            <li>Click <strong>Connect and Flash Cydintosh</strong>.</li>
+            <li>Select the serial device presented by your OS.</li>
+            <li>Choose <strong>Install</strong> and wait for flashing to complete.</li>
+          </ol>
+        </article>
+
+        <article class="card">
+          <h2>Included images</h2>
+          <ul>
+            <li><code>merged-firmware.bin</code> at offset <code>0x000000</code></li>
+            <li><code>littlefs.bin</code> at offset <code>0x290000</code></li>
+          </ul>
+          <p class="footer">
+            The merged image contains the bootloader, partitions, application firmware, and patched Mac ROM.
+          </p>
+        </article>
+
+        <article class="card">
+          <h2>Notes</h2>
+          <ul>
+            <li>Inspired by the same browser flashing pattern used by projects like <a href="https://trmnl.com/flash" target="_blank" rel="noreferrer">TRMNL</a>.</li>
+            <li>Uses <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noreferrer">ESP Web Tools</a>, which wraps Espressif flashing flows via Web Serial.</li>
+            <li>If flashing fails, retry with the device manually held in boot mode and re-open the page.</li>
+          </ul>
+        </article>
+      </section>
+    </div>
+  </body>
+</html>
