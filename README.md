@@ -69,6 +69,19 @@ See also the [pico-mac](https://github.com/evansm7/pico-mac) repo for ROM and di
 
 ## Building
 
+A repository-level [`Makefile`](./Makefile) is included to make common flows explicit and repeatable.
+
+Useful targets:
+
+```bash
+make help
+make build
+make stable-artifacts
+make original-artifacts
+make flash-stable-all SERIAL_PORT=/dev/cu.usbserial-210
+make flash-original-all SERIAL_PORT=/dev/cu.usbserial-210
+```
+
 ```bash
 # Clone and initialize submodules
 git clone --recursive <your-fork-url>
@@ -137,6 +150,14 @@ esptool --port <serial-port> --baud 115200 write_flash \
 # filesystem image containing the Mac disk payload
 esptool --port <serial-port> --baud 115200 write_flash \
   0x230000 web/littlefs-stable-mqtt-v1.bin
+```
+
+For the upstream-equivalent/original artifacts:
+
+```bash
+esptool --port <serial-port> --baud 115200 write_flash \
+  0x0000 web/merged-firmware-original.bin \
+  0x230000 web/littlefs-original.bin
 ```
 
 To use the Weather app, continue with [Home Assistant Setup](#home-assistant-setup).
