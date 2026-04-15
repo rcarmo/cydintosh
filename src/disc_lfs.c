@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 
 static const char *TAG = "disc_lfs";
 
@@ -43,14 +44,26 @@ void disc_lfs_deinit(void) {
 
 static int disc_lfs_read(void *ctx, uint8_t *data, unsigned int offset, unsigned int len) {
     FILE *f = (FILE *)ctx;
+    static int read_log_count = 0;
     if (!f) {
         ESP_LOGE(TAG, "read: file is NULL");
         return -1;
     }
 
-    fseek(f, offset, SEEK_SET);
+    if (fseek(f, offset, SEEK_SET) != 0) {
+        ESP_LOGE(TAG, "read: fseek failed offset=%u", offset);
+        return -1;
+    }
+
     size_t read = fread(data, 1, len, f);
-    ESP_LOGD(TAG, "read: offset=%u len=%u read=%u", offset, len, (unsigned)read);
+    if (read_log_count < 16) {
+        ESP_LOGI(TAG,
+                 "read[%d]: offset=%u len=%u read=%u first=%02x %02x %02x %02x",
+                 read_log_count, offset, len, (unsigned)read,
+                 read > 0 ? data[0] : 0, read > 1 ? data[1] : 0,
+                 read > 2 ? data[2] : 0, read > 3 ? data[3] : 0);
+        read_log_count++;
+    }
     return (read == len) ? 0 : -1;
 }
 
@@ -74,6 +87,18 @@ int disc_lfs_open(disc_descr_t *disc, const char *filename, int read_only) {
 
     char path[64];
     snprintf(path, sizeof(path), "/disk/%s", filename);
+
+    DIR *dir = opendir("/disk");
+    if (dir) {
+        struct dirent *ent;
+        ESP_LOGI(TAG, "Directory listing for /disk:");
+        while ((ent = readdir(dir)) != NULL) {
+            ESP_LOGI(TAG, "  %s", ent->d_name);
+        }
+        closedir(dir);
+    } else {
+        ESP_LOGE(TAG, "Failed to opendir /disk");
+    }
 
     FILE *f = fopen(path, read_only ? "rb" : "r+b");
     if (!f) {

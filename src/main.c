@@ -67,7 +67,7 @@ static disc_descr_t discs[DISC_NUM_DRIVES] = {0};
 
 static void disc_setup(void) {
     if (disc_lfs_open(&discs[0], "disk.img", 1) == 0) {
-        ESP_LOGI(TAG, "Using LittleFS disk image (read-only)");
+        ESP_LOGI(TAG, "Using LittleFS disk image (read-only), size=%u", (unsigned)discs[0].size);
     } else {
         ESP_LOGW(TAG, "No disk image, using fallback");
         discs[0].base = (void *)umac_disc_fallback;
