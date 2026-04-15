@@ -148,18 +148,27 @@ Then open `http://127.0.0.1:8765/` in Chrome or Edge.
 For manual flashing with `esptool`, always use the full-flash images:
 
 ```bash
-# Custom/fork build (recommended single command):
-esptool --port <serial-port> --baud 115200 write_flash \
+# Erase flash first (recommended for clean state):
+esptool --port <serial-port> --baud 460800 erase_flash
+
+# Custom/fork build:
+esptool --port <serial-port> --baud 460800 write_flash \
   0x0000 web/full-flash-stable-mqtt-v1.bin
 
-# Original/upstream-equivalent (recommended single command):
-esptool --port <serial-port> --baud 115200 write_flash \
+# Original/upstream-equivalent:
+esptool --port <serial-port> --baud 460800 write_flash \
+  0x0000 web/full-flash-original.bin
+
+# Verify after flashing (optional but recommended):
+esptool --port <serial-port> --baud 460800 verify_flash \
   0x0000 web/full-flash-original.bin
 ```
 
-**WARNING:** Do not flash the merged firmware image alone — it pads up to `0x230000`
-and will overwrite the filesystem partition. Always use `full-flash-*.bin` images
-or flash firmware and filesystem together in one command.
+**Notes:**
+- The full-flash image is 4MB. At `115200` baud this takes ~6 minutes and risks
+  incomplete writes. Use `460800` or higher.
+- Do not flash the merged firmware image alone — it pads up to `0x230000`
+  and will overwrite the filesystem partition.
 
 To use the Weather app, continue with [Home Assistant Setup](#home-assistant-setup).
 

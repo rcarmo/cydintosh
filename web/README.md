@@ -21,15 +21,16 @@ partition table, firmware, patched ROM, and LittleFS filesystem in one file.
 ### Flash command
 
 ```bash
-esptool --port <serial-port> --baud 115200 write_flash \
+# Erase flash first (recommended for clean state):
+esptool --port <serial-port> --baud 460800 erase_flash
+
+# Flash full image:
+esptool --port <serial-port> --baud 460800 write_flash \
   0x0000 web/full-flash-original.bin
-```
 
-or:
-
-```bash
-esptool --port <serial-port> --baud 115200 write_flash \
-  0x0000 web/full-flash-stable-mqtt-v1.bin
+# Verify (optional but recommended):
+esptool --port <serial-port> --baud 460800 verify_flash \
+  0x0000 web/full-flash-original.bin
 ```
 
 ## Flash memory layout

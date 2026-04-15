@@ -32,7 +32,7 @@ PIO := /home/agent/.local/share/uv/tools/platformio/bin/pio
 ESPTOOL := /home/agent/.local/share/uv/tools/esptool/bin/esptool
 RETRO68_IMAGE := ghcr.io/autc04/retro68
 SERIAL_PORT ?= /dev/cu.usbserial-210
-BAUD ?= 115200
+BAUD ?= 460800
 
 .PHONY: help prepare build firmware fs \
 	full-flash-stable stable-artifacts flash-stable \
@@ -106,7 +106,10 @@ stable-artifacts: build fs
 	@echo "Flash with: make flash-stable"
 
 flash-stable:
+	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) erase_flash
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) write_flash \
+	  0x0000 web/full-flash-stable-mqtt-v1.bin
+	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) verify_flash \
 	  0x0000 web/full-flash-stable-mqtt-v1.bin
 
 # ---- Original/upstream-equivalent artifacts ----
@@ -144,7 +147,10 @@ original-artifacts: original-build
 	@echo "Flash with: make flash-original"
 
 flash-original:
+	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) erase_flash
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) write_flash \
+	  0x0000 web/full-flash-original.bin
+	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) verify_flash \
 	  0x0000 web/full-flash-original.bin
 
 # ---- Mac app builds ----
