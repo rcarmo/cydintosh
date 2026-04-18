@@ -344,9 +344,28 @@ static void umac_task(void *arg) {
 void app_main(void) {
     ESP_LOGI(TAG, "Cydintosh starting...");
 
-    // Initialize LCD FIRST (before any large allocations)
+    // Allocate Mac RAM early (before LCD init which fragments heap).
+    // Use MALLOC_CAP_8BIT (not DMA) to preserve DMA-capable regions for LCD.
+    umac_ram = (uint8_t *)heap_caps_malloc(RAM_SIZE, MALLOC_CAP_8BIT);
+    if (umac_ram == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes from internal RAM!", RAM_SIZE);
+        return;
+    }
+    ESP_LOGI(TAG, "Allocated %d bytes Mac RAM at %p", RAM_SIZE, umac_ram);
+    memset(umac_ram, 0, RAM_SIZE);
+
+    // Initialize LCD (needs DMA-capable regions intact)
     lcd_cyd_init();
     display_init();
+
+    // Allocate framebuffer AFTER LCD init (needs DMA capability)
+    umac_fb = (uint8_t *)heap_caps_malloc(FB_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (umac_fb == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes for framebuffer!", FB_SIZE);
+        return;
+    }
+    ESP_LOGI(TAG, "Allocated %d bytes framebuffer at %p (internal DMA)", FB_SIZE, umac_fb);
+    memset(umac_fb, 0, FB_SIZE);
 
     // Initialize RGB LED
     led_pwm_init();
@@ -359,23 +378,7 @@ void app_main(void) {
     gpio_set_direction(BOOT_BUTTON_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BOOT_BUTTON_PIN, GPIO_PULLUP_ONLY);
 
-    // Internal RAM - allocate Mac RAM BEFORE WiFi (WiFi consumes RAM)
-    umac_ram = (uint8_t *)heap_caps_malloc(RAM_SIZE, MALLOC_CAP_INTERNAL);
-    if (umac_ram == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate %d bytes from internal RAM!", RAM_SIZE);
-        return;
-    }
-    ESP_LOGI(TAG, "Allocated %d bytes Mac RAM at %p (internal)", RAM_SIZE, umac_ram);
-    memset(umac_ram, 0, RAM_SIZE);
-
-    // Allocate separate framebuffer
-    umac_fb = (uint8_t *)heap_caps_malloc(FB_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
-    if (umac_fb == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate %d bytes for framebuffer!", FB_SIZE);
-        return;
-    }
-    ESP_LOGI(TAG, "Allocated %d bytes framebuffer at %p (internal DMA)", FB_SIZE, umac_fb);
-    memset(umac_fb, 0, FB_SIZE);
+    // (Mac RAM and framebuffer already allocated above)
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
