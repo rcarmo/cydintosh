@@ -36,7 +36,7 @@ static const ili9341_lcd_init_cmd_t lcd_init_cmds[] = {
                  0x0F},
      15,                                                 0},
     {0xB6, (uint8_t[]){0x08, 0x82, 0x27},             3, 0},
-    {0x36, (uint8_t[]){0x08}, 1, 0}, // MADCTL: BGR (native portrait)
+    {0x36, (uint8_t[]){0x88}, 1, 0}, // MADCTL: MY+BGR
     {0x21, NULL,                                      0, 0},
 };
 
