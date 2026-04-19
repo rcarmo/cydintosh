@@ -341,6 +341,13 @@ static void umac_task(void *arg) {
     }
 }
 
+// Override umac default disc-eject handler (which resets the emulator).
+// The Mac ROM ejects disks during normal startup probing before reading them.
+// Resetting on eject causes an infinite boot loop.
+void umac_disc_ejected(void) {
+    // no-op: let the Mac ROM continue its normal boot sequence
+}
+
 void app_main(void) {
     ESP_LOGI(TAG, "Cydintosh starting...");
 
