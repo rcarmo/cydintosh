@@ -72,18 +72,20 @@ static void display_task(void *arg) {
             const int lcd_width = DISP_WIDTH;
             const int lcd_height = DISP_HEIGHT;
 
-            // Portrait rendering with 90° CCW software rotation
-            // LCD pixel (x, y) ← Mac pixel (col=y, row=239-x)
+            // Portrait rendering: no software rotation, direct mapping
+            // MADCTL handles all rotation. LCD(x,y) ← Mac(col=x, row=y)
             for (int x = 0; x < lcd_width; x += RGB_BUF_LINES) {
                 int lines = (x + RGB_BUF_LINES > lcd_width) ? (lcd_width - x) : RGB_BUF_LINES;
 
                 for (int line = 0; line < lines; line++) {
-                    int mac_row = (lcd_width - 1) - (x + line);
+                    int px = x + line;
+                    int byte_offset_base = px / 8;
+                    int bit_offset = 7 - (px % 8);
 
                     for (int y = 0; y < lcd_height; y++) {
-                        int mac_col = y;
-                        int byte_offset = mac_row * mac_bytes_per_row + mac_col / 8;
-                        int bit_offset = 7 - (mac_col % 8);
+                        int mac_col = px;
+                        int mac_row = y;
+                        int byte_offset = mac_row * mac_bytes_per_row + byte_offset_base;
                         uint8_t pixel = (fb_copy[byte_offset] >> bit_offset) & 1;
                         rgb_buf[y * lines + line] = pixel ? 0xFFFF : 0x0000;
                     }
