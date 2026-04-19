@@ -72,24 +72,24 @@ static void display_task(void *arg) {
             const int lcd_width = DISP_WIDTH;
             const int lcd_height = DISP_HEIGHT;
 
-            // Batch vertical line transfer with synchronous completion
+            // Portrait column-strip rendering with 90° CCW rotation
+            // LCD pixel (x, y) ← Mac pixel (col=y, row=239-x)
+            // This rotates the 240×320 Mac landscape into portrait orientation
             for (int x = 0; x < lcd_width; x += RGB_BUF_LINES) {
                 int lines = (x + RGB_BUF_LINES > lcd_width) ? (lcd_width - x) : RGB_BUF_LINES;
 
-                // Collect RGB_BUF_LINES vertical lines into buffer
                 for (int line = 0; line < lines; line++) {
-                    int px = x + line;
-                    int byte_offset_base = px / 8;
-                    int bit_offset = 7 - (px % 8);
+                    int mac_row = (lcd_width - 1) - (x + line);
 
                     for (int y = 0; y < lcd_height; y++) {
-                        int byte_offset = y * mac_bytes_per_row + byte_offset_base;
+                        int mac_col = y;
+                        int byte_offset = mac_row * mac_bytes_per_row + mac_col / 8;
+                        int bit_offset = 7 - (mac_col % 8);
                         uint8_t pixel = (fb_copy[byte_offset] >> bit_offset) & 1;
                         rgb_buf[y * lines + line] = pixel ? 0xFFFF : 0x0000;
                     }
                 }
 
-                // Draw batch vertical lines and wait for completion
                 lcd_draw_bitmap(x, 0, lines, lcd_height, (const uint8_t *)rgb_buf);
                 lcd_wait_trans_complete();
             }
