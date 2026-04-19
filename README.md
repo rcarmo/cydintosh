@@ -59,6 +59,56 @@ This repository is an actively evolving fork intended for publishing and continu
 2. **Print**: 3D print the enclosure from [`./enclosure`](./enclosure)
 3. **Assemble**: Mount the CYD into the enclosure and secure with four M2x3 self-tapping screws
 
+
+## Hardware Notes
+
+### Board: CYD2USB (ESP32-2432S028)
+
+Tested and verified with the following hardware revision:
+
+| Component | Detail |
+|---|---|
+| Board | ESP32-2432S028 (CYD2USB variant) |
+| SoC | ESP32-D0WD-V3 (revision v3.0) |
+| Features | Wi-Fi, BT, Dual Core, 240MHz |
+| Flash | 4MB (manufacturer 0x5e, device 0x4016) |
+| Crystal | 40MHz |
+| USB-serial | CH340 (QinHeng Electronics, VID:1a86 PID:7523) |
+| Display | ILI9341, 240×320, SPI |
+| Touch | XPT2046, SPI (separate bus) |
+| RAM | No PSRAM (128KB Mac RAM allocated from internal DRAM) |
+
+### Display Configuration
+
+The CYD2USB display requires specific MADCTL and rendering settings:
+
+- **MADCTL register (0x36):** `0x08` (BGR color order, native portrait scan)
+- **Display Inversion:** ON (command `0x21` in init sequence)
+- **Rendering:** column-strip transfer with 90° CCW rotation in software
+  - LCD pixel `(x, y)` ← Mac framebuffer pixel `(col=y, row=239-x)`
+  - This maps the Mac's 240×320 portrait framebuffer to the panel's native scan order
+
+### SPI Pin Mapping
+
+| Function | GPIO |
+|---|---|
+| TFT MOSI | 13 |
+| TFT SCLK | 14 |
+| TFT CS | 15 |
+| TFT DC | 2 |
+| TFT RST | -1 (not connected) |
+| TFT Backlight | 21 |
+| Touch MOSI | 32 |
+| Touch MISO | 39 |
+| Touch CLK | 25 |
+| Touch CS | 33 |
+
+### Known Issues
+
+- **Heap fragmentation:** Mac RAM (128KB) must be allocated before `lcd_cyd_init()` or the contiguous block allocation fails on newer ESP-IDF toolchains.
+- **Sony eject suppression:** The Mac ROM's Sony driver probes and ejects disks during startup. The eject handler must not clear `dsDiskInPlace` or the disk will never mount.
+- **System version:** System 6.x exceeds the 128KB Mac RAM limit ("Can't load a needed resource"). Use System 3.2 (Finder 5.3) which fits comfortably.
+
 ## Prerequisites for Emulator
 
 - Mac Plus ROM v3 (4D1F8172, 128KB) — place as `vendor/rom.bin`
