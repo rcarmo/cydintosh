@@ -288,20 +288,17 @@ static void umac_task(void *arg) {
                 frame_count = 0;
             }
 
-            // Check for mouse events from touch task (accumulate all pending
-            // deltas)
+            // Trackpad mode: accumulate touch deltas for relative mouse movement
             mouse_delta_t mouse;
             int32_t accum_dx = 0, accum_dy = 0;
             uint8_t touch_pressed = 0;
             uint8_t touch_event_count = 0;
             QueueHandle_t touch_mouse_queue = touch_get_mouse_queue();
 
-            // Read all pending mouse deltas and accumulate
             while (xQueueReceive(touch_mouse_queue, &mouse, 0)) {
                 touch_event_count++;
                 accum_dx += mouse.dx;
                 accum_dy += mouse.dy;
-                // If ANY event has pressed=1, keep touch_pressed=1 (sticky)
                 if (mouse.pressed)
                     touch_pressed = 1;
             }
