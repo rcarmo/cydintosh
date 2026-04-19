@@ -31,6 +31,7 @@
 
 # Others
 !/assets/
+!/data/
 !/tools/
 !/enclosure/
 !/cyd_800k.dsk
@@ -48,19 +49,11 @@ sdkconfig.esp*
 # ESP-IDF managed components
 managed_components/
 
-# User data
-data/disk.img
 
-# Copyrighted Apple system disk images
-assets/system-disks/
-rom.bin
-rom_patched.bin
-rom_128k.bin
-# Copyrighted Apple ROM and system disk images
-*.ROM
-*.rom
-web/full-flash-original.bin
-web/full-flash-original-debug.bin
-web/cyd_800k-original.dsk
-web/littlefs-original.bin
-web/merged-firmware-original.bin
+# Build data (patched ROM + disk image, generated from vendor/)
+data/*
+!data/.gitkeep
+
+# Vendor: copyrighted Apple ROM/disk images (user-supplied)
+vendor/*
+!vendor/.gitkeep

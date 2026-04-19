@@ -37,7 +37,7 @@ BAUD ?= 460800
 .PHONY: help prepare build firmware fs \
 	full-flash-stable stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts full-flash-original flash-original \
-	build-office-lights disk-update capture-logs clean
+	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
 help:
 	@echo "Cydintosh build/flash targets"
@@ -78,7 +78,7 @@ prepare:
 	make -C external/umac prepare
 	@test -f include/user_config.h || cp include/user_config.h.tmpl include/user_config.h
 	@mkdir -p data
-	@test -f data/disk.img || cp cyd_800k.dsk data/disk.img
+	@test -f data/disk.img || ( test -f vendor/disk.img && cp vendor/disk.img data/disk.img || echo 'Place a bootable 800K HFS disk image at vendor/disk.img or data/disk.img' )
 
 # ---- Build ----
 
@@ -103,7 +103,7 @@ stable-artifacts: build fs
 	  0x1000 web/bootloader-stable-mqtt-v1.bin \
 	  0x8000 web/partitions-stable-mqtt-v1.bin \
 	  0x10000 web/firmware-stable-mqtt-v1.bin \
-	  0x210000 rom_patched.bin \
+	  0x210000 data/rom_patched.bin \
 	  0x230000 web/littlefs-stable-mqtt-v1.bin
 	@test -f mac-app/OfficeLightsApp/build/OfficeLights.bin && \
 	  cp mac-app/OfficeLightsApp/build/OfficeLights.bin web/mac-apps/OfficeLights-stable-mqtt-v1.bin || true
@@ -128,14 +128,14 @@ original-worktree:
 	cd $(WORKTREE_ORIGINAL) && ln -sf ../../../../include/m68kconf.h external/umac/external/Musashi/m68kconf.h
 	cd $(WORKTREE_ORIGINAL) && make -C external/umac prepare
 	cd $(WORKTREE_ORIGINAL) && cp include/user_config.h.tmpl include/user_config.h
-	cd $(WORKTREE_ORIGINAL) && mkdir -p data && cp cyd_800k.dsk data/disk.img
-	@test -f rom.bin && cp rom.bin $(WORKTREE_ORIGINAL)/rom.bin || true
+	cd $(WORKTREE_ORIGINAL) && mkdir -p data && test -f vendor/disk.img && cp vendor/disk.img data/disk.img || echo "No disk image"
+	@test -f vendor/rom.bin && cp vendor/rom.bin $(WORKTREE_ORIGINAL)/rom.bin || true
 
 original-build: original-worktree
 	cd $(WORKTREE_ORIGINAL) && $(PIO) run
 	cd $(WORKTREE_ORIGINAL) && $(PIO) run -t uploadfs --disable-auto-clean || true
 	@test -f $(WORKTREE_ORIGINAL)/.pio/build/esp32dev/littlefs.bin
-	cd $(WORKTREE_ORIGINAL) && python3 tools/generate_patched_rom.py rom.bin -o rom_patched.bin
+	cd $(WORKTREE_ORIGINAL) && mkdir -p data && python3 tools/generate_patched_rom.py rom.bin -o data/rom_patched.bin
 	cd $(WORKTREE_ORIGINAL) && mkdir -p web
 
 original-artifacts: original-build
@@ -145,7 +145,7 @@ original-artifacts: original-build
 	  0x1000 $(WORKTREE_ORIGINAL)/.pio/build/esp32dev/bootloader.bin \
 	  0x8000 $(WORKTREE_ORIGINAL)/.pio/build/esp32dev/partitions.bin \
 	  0x10000 $(WORKTREE_ORIGINAL)/.pio/build/esp32dev/firmware.bin \
-	  0x210000 $(WORKTREE_ORIGINAL)/rom_patched.bin \
+	  0x210000 $(WORKTREE_ORIGINAL)/data/rom_patched.bin \
 	  0x230000 $(WORKTREE_ORIGINAL)/.pio/build/esp32dev/littlefs.bin
 	cp $(WORKTREE_ORIGINAL)/.pio/build/esp32dev/littlefs.bin web/littlefs-original.bin
 	@echo ""
@@ -191,3 +191,15 @@ clean:
 	  web/bootloader-*.bin web/firmware-*.bin web/partitions-*.bin \
 	  web/mac-apps/*.bin 2>/dev/null || true
 	@echo "Removed generated web artifacts."
+
+# ---- Vendor asset preparation ----
+
+prepare-rom:
+	@test -f vendor/rom.bin || ( echo "ERROR: Place Mac Plus ROM v3 (4D1F8172, 128KB) at vendor/rom.bin" && exit 1 )
+	python3 tools/generate_patched_rom.py vendor/rom.bin -o data/rom_patched.bin
+	@echo "Patched ROM written to data/rom_patched.bin"
+
+prepare-disk:
+	@test -f vendor/disk.img && echo "vendor/disk.img exists" || echo "NOTE: No vendor/disk.img. See README for disk image preparation."
+	@mkdir -p data
+	@test -f data/disk.img || ( test -f vendor/disk.img && cp vendor/disk.img data/disk.img && echo "Copied vendor/disk.img → data/disk.img" || echo "Place a bootable 800K HFS disk image at vendor/disk.img" )
