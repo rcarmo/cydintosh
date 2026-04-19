@@ -61,11 +61,26 @@ This repository is an actively evolving fork intended for publishing and continu
 
 ## Prerequisites for Emulator
 
-- Mac Plus ROM v3 (4D1F8172, 128KB) `rom.bin`
-- System 3.2 bootable disk image (400KB)
-- HFS disk image (800KB `cyd_800k.dsk` provided, includes pre-built Mac apps for Cydintosh)
+- Mac Plus ROM v3 (4D1F8172, 128KB) — place as `vendor/rom.bin`
+- System 3.2 bootable 800KB HFS disk image with System + Finder — place as `vendor/disk.img`
+- The `vendor/` directory is gitignored; you must supply these files yourself
 
 See also the [pico-mac](https://github.com/evansm7/pico-mac) repo for ROM and disk image requirements.
+
+### Preparing vendor assets
+
+```bash
+# 1. Place your Mac Plus ROM v3 (128KB, checksum 4D1F8172) in vendor/
+cp /path/to/MacPlusROM.bin vendor/rom.bin
+
+# 2. Generate the patched ROM (patches screen resolution for CYD 240x320)
+make prepare-rom
+
+# 3. Prepare a bootable 800KB disk image with System 3.2 + Finder 5.3
+#    Start from a System Tools 3.2 disk, add Cyd apps, place as vendor/disk.img
+#    Then seed data/disk.img for the build:
+make prepare-disk
+```
 
 ## Building
 
@@ -107,7 +122,7 @@ cp include/user_config.h.tmpl include/user_config.h
 # Edit include/user_config.h with your WiFi/MQTT settings
 
 # Generate patched ROM
-python3 tools/generate_patched_rom.py path/to/rom.bin -o rom_patched.bin
+make prepare-rom
 
 # Prepare disk image
 # The cyd_800k.dsk includes pre-built Mac applications (CydCtl, Weather, WiFi).
@@ -116,7 +131,7 @@ python3 tools/generate_patched_rom.py path/to/rom.bin -o rom_patched.bin
 #   Then copy System folder from system3.dsk to cyd_800k.dsk in the emulator
 
 # Finally, copy the prepared disk to data/disk.img
-cp cyd_800k.dsk data/disk.img
+make prepare-disk
 
 # Build firmware
 pio run
