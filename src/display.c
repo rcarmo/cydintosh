@@ -72,17 +72,16 @@ static void display_task(void *arg) {
             const int lcd_width = DISP_WIDTH;
             const int lcd_height = DISP_HEIGHT;
 
-            // Portrait column-strip rendering with 90° CCW rotation
-            // LCD pixel (x, y) ← Mac pixel (col=y, row=239-x)
-            // This rotates the 240×320 Mac landscape into portrait orientation
+            // Portrait rendering with 90° CW software rotation
+            // LCD pixel (x, y) ← Mac pixel (col=319-y, row=x)
             for (int x = 0; x < lcd_width; x += RGB_BUF_LINES) {
                 int lines = (x + RGB_BUF_LINES > lcd_width) ? (lcd_width - x) : RGB_BUF_LINES;
 
                 for (int line = 0; line < lines; line++) {
-                    int mac_row = (lcd_width - 1) - (x + line);
+                    int mac_row = x + line;
 
                     for (int y = 0; y < lcd_height; y++) {
-                        int mac_col = y;
+                        int mac_col = (lcd_height - 1) - y;
                         int byte_offset = mac_row * mac_bytes_per_row + mac_col / 8;
                         int bit_offset = 7 - (mac_col % 8);
                         uint8_t pixel = (fb_copy[byte_offset] >> bit_offset) & 1;
