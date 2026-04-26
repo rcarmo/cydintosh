@@ -80,13 +80,28 @@ Tested and verified with the following hardware revision:
 
 ### Display Configuration
 
-The CYD2USB display requires specific MADCTL and rendering settings:
+The CYD2USB display panel is addressed in native portrait orientation:
 
-- **MADCTL register (0x36):** `0x08` (BGR color order, native portrait scan)
+- **MADCTL register (0x36):** `0x08` (BGR color order, no mirrors, no axis swap)
 - **Display Inversion:** ON (command `0x21` in init sequence)
-- **Rendering:** column-strip transfer with 90° CCW rotation in software
-  - LCD pixel `(x, y)` ← Mac framebuffer pixel `(col=y, row=239-x)`
-  - This maps the Mac's 240×320 portrait framebuffer to the panel's native scan order
+- **Rendering:** direct 1:1 pixel mapping with column-strip SPI transfer
+  - LCD pixel `(x, y)` ← Mac framebuffer pixel `(col=x, row=y)`
+  - No software rotation needed — the Mac's 240×320 portrait framebuffer maps directly to the panel's native scan order
+- **Orientation:** portrait with USB connector at the bottom
+
+### Touch Configuration
+
+The XPT2046 touch controller operates in trackpad (relative) mode:
+
+| Setting | Value | Notes |
+|---|---|---|
+| `swap_xy` | 0 | No axis swap needed for portrait MADCTL |
+| `mirror_x` | 1 | Flip X to match portrait display scan |
+| `mirror_y` | 1 | Flip Y to match portrait display scan |
+| `x_max` | 240 | Matches `SCREEN_WIDTH` |
+| `y_max` | 320 | Matches `SCREEN_HEIGHT` |
+
+Touch input uses a trackpad/relative mode: sliding a finger moves the Mac cursor by the touch delta. Double-tap to click, double-tap and hold to drag.
 
 ### SPI Pin Mapping
 
@@ -103,11 +118,12 @@ The CYD2USB display requires specific MADCTL and rendering settings:
 | Touch CLK | 25 |
 | Touch CS | 33 |
 
-### Known Issues
+### Changes from Upstream / Known Issues
 
-- **Heap fragmentation:** Mac RAM (128KB) must be allocated before `lcd_cyd_init()` or the contiguous block allocation fails on newer ESP-IDF toolchains.
-- **Sony eject suppression:** The Mac ROM's Sony driver probes and ejects disks during startup. The eject handler must not clear `dsDiskInPlace` or the disk will never mount.
-- **System version:** System 6.x exceeds the 128KB Mac RAM limit ("Can't load a needed resource"). Use System 3.2 (Finder 5.3) which fits comfortably.
+- **Heap fragmentation:** Mac RAM (128KB) must be allocated with `MALLOC_CAP_8BIT` **before** `lcd_cyd_init()`, or the contiguous block allocation fails on newer ESP-IDF/PlatformIO toolchains. The smaller DMA-capable framebuffer (9.6KB) is allocated after LCD init.
+- **Sony eject suppression:** The Mac ROM's Sony driver probes and ejects disks during startup. The eject handler in `disc.c` (case 7) must not clear `dsDiskInPlace` or call `umac_disc_ejected()`, otherwise the disk will never mount. The `umac_disc_ejected()` default (which resets the emulator) is overridden with a no-op in `main.c`.
+- **System version:** System 6.x exceeds the 128KB Mac RAM limit ("Can't load a needed resource"). Use **System 3.2** (Finder 5.3) which fits comfortably with 389KB free on the 800KB disk alongside the Cyd apps.
+- **Musashi m68kconf.h:** The project's `include/m68kconf.h` must be copied or symlinked into `external/umac/external/Musashi/` before building, because Musashi's `m68kcpu.h` includes it via relative path and will find the wrong (default) version otherwise. The `make prepare` target handles this automatically.
 
 ## Prerequisites for Emulator
 
