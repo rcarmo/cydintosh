@@ -1,0 +1,33 @@
+diff --git a/src/disc.c b/src/disc.c
+index 8f513fb..e7ce69e 100644
+--- a/src/disc.c
++++ b/src/disc.c
+@@ -407,11 +407,10 @@ int16_t SonyControl(uint32_t pb, uint32_t dce)
+ 
+ 		case 7:			// Eject
+ 			if (ReadMacInt8(info->status + dsDiskInPlace) > 0) {
+-                                DERR("DISC: EJECT\n");
+-//				SysEject(info->fh);
+-				WriteMacInt8(info->status + dsDiskInPlace, 0);
+-
+-                                umac_disc_ejected();
++                                DERR("DISC: EJECT (suppressed)\n");
++                                // Don't clear dsDiskInPlace or call eject handler.
++                                // The Mac ROM probes/ejects during startup but we
++                                // want the disk to stay mounted for reading.
+ 			}
+ 			break;
+ 
+diff --git a/src/main.c b/src/main.c
+index 99ef794..5a9c49d 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -709,7 +709,7 @@ void    umac_reset(void)
+ }
+ 
+ /* Called by the disc code when an eject op happens. */
+-void    umac_disc_ejected(void)
++void __attribute__((weak)) umac_disc_ejected(void)
+ {
+ #ifdef SIM
+         exit(1);

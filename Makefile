@@ -31,6 +31,7 @@ UPSTREAM_BASE_COMMIT := cd5a6b2
 PIO := /home/agent/.local/share/uv/tools/platformio/bin/pio
 ESPTOOL := /home/agent/.local/share/uv/tools/esptool/bin/esptool
 RETRO68_IMAGE := ghcr.io/autc04/retro68
+UMAC_PATCHES := patches/umac-suppress-sony-eject.patch
 SERIAL_PORT ?= /dev/cu.usbserial-210
 BAUD ?= 460800
 
@@ -74,7 +75,18 @@ help:
 
 prepare:
 	git submodule update --init --recursive
-	ln -sf ../../../../include/m68kconf.h external/umac/external/Musashi/m68kconf.h
+	@for patch in $(UMAC_PATCHES); do \
+	  if git -C external/umac apply --check ../../$$patch 2>/dev/null; then \
+	    echo "Applying $$patch"; \
+	    git -C external/umac apply ../../$$patch; \
+	  elif git -C external/umac apply --reverse --check ../../$$patch 2>/dev/null; then \
+	    echo "$$patch already applied"; \
+	  else \
+	    echo "ERROR: cannot apply $$patch" >&2; \
+	    exit 1; \
+	  fi; \
+	done
+	ln -sfn ../../../../include/m68kconf.h external/umac/external/Musashi/m68kconf.h
 	make -C external/umac prepare
 	@test -f include/user_config.h || cp include/user_config.h.tmpl include/user_config.h
 	@mkdir -p data
