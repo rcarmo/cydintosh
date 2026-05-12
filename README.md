@@ -33,13 +33,16 @@ This repository is an actively evolving fork intended for publishing and continu
 ### Current additions in this fork
 
 - shared MQTT-backed ESP32 service layer for smart-home integrations
+- selectable board profiles under [`include/boards/`](./include/boards) for CYD2USB and ESP32-8048S043C hardware
 - initial Office Lights classic Mac application source and build artifacts
 - browser flasher page and manifest under [`web/`](./web)
-- preserved stable firmware images for browser flashing
+- board-specific full-flash firmware images for browser flashing
 
 ### Current implementation status
 
 - Existing shipped Mac apps: **Weather**, **WiFi**, **CydCtl**
+- CYD2USB/ESP32-2432S028 profile: existing ILI9341/XPT2046 target, build-compatible
+- ESP32-8048S043C profile: boots from the corrected ESP32-S3 full-flash image; PSRAM, backlight, RGB panel driver creation, and GT911 detection are confirmed in serial logs; visible RGB output/emulator-loop verification is still in progress
 - New MQTT-backed infrastructure: **in progress**
 - New smart-home Mac apps planned:
   - **Office Lights**
@@ -151,12 +154,42 @@ Tested/detected hardware for the new ESP32-S3 target:
 
 The Mac framebuffer remains **240×320** to match the patched ROM. On the 800×480 panel it is rotated clockwise, scaled 2× to 640×480, and centered horizontally with an 80px black margin on each side. Touch is still used as a relative trackpad; GT911 physical deltas are transformed back into Mac cursor deltas.
 
+#### ESP32-8048S043C bring-up status
+
+Confirmed after flashing the corrected 16MB full image:
+
+- ESP32-S3 ROM loads the second-stage bootloader from `0x0`
+- partition table uses `0x10000` app, `0x410000` ROM, `0x430000` LittleFS
+- app starts under ESP-IDF 5.5.2
+- 8MB octal PSRAM is detected and passes memory test
+- RGB panel driver initializes for 800×480
+- backlight GPIO2 reaches 100% duty
+- GT911 is found at I2C address `0x5d`
+
+Still pending:
+
+- visible RGB framebuffer output
+- explicit confirmation that `umac_task` starts and reaches ROM/disk/emulation logs
+- display-frame notification and draw-path verification
+
+### Board Profile Source Layout
+
+Shared board selection lives in [`include/board_profiles.h`](./include/board_profiles.h). It defaults to the CYD2USB profile for backwards compatibility and includes exactly one smaller board profile header:
+
+| Board macro | Profile header | Display backend | Touch backend |
+|---|---|---|---|
+| `CYD_BOARD_ESP32_2432S028` | [`include/boards/esp32_2432s028.h`](./include/boards/esp32_2432s028.h) | ILI9341 SPI | XPT2046 SPI |
+| `CYD_BOARD_ESP32_8048S043C` | [`include/boards/esp32_8048s043c.h`](./include/boards/esp32_8048s043c.h) | ESP-IDF RGB panel | GT911 I2C |
+
+`board_profiles.h` also contains compile-time sanity checks so new profiles must select exactly one LCD backend, avoid conflicting touch backends, define render dimensions, and keep the rendered Mac framebuffer inside the physical LCD bounds.
+
 ### Changes from Upstream / Known Issues
 
 - **Heap fragmentation:** Mac RAM (128KB) must be allocated with `MALLOC_CAP_8BIT` **before** `lcd_cyd_init()`, or the contiguous block allocation fails on newer ESP-IDF/PlatformIO toolchains. The smaller DMA-capable framebuffer (9.6KB) is allocated after LCD init.
 - **Sony eject suppression:** The Mac ROM's Sony driver probes and ejects disks during startup. The eject handler in `disc.c` (case 7) must not clear `dsDiskInPlace` or call `umac_disc_ejected()`, otherwise the disk will never mount. The `umac_disc_ejected()` default (which resets the emulator) is overridden with a no-op in `main.c`.
 - **System version:** System 6.x exceeds the 128KB Mac RAM limit ("Can't load a needed resource"). Use **System 3.2** (Finder 5.3) which fits comfortably with 389KB free on the 800KB disk alongside the Cyd apps.
-- **Musashi m68kconf.h:** The project's `include/m68kconf.h` must be copied or symlinked into `external/umac/external/Musashi/` before building, because Musashi's `m68kcpu.h` includes it via relative path and will find the wrong (default) version otherwise. The `make prepare` target handles this automatically.
+- **Musashi m68kconf.h:** The project's `include/m68kconf.h` must be copied or symlinked into `external/umac/external/Musashi/` before building, because Musashi's `m68kcpu.h` includes it via relative path and will find the wrong (default) version otherwise. The `make prepare` target handles this automatically and is now a dependency of `make build`.
+- **ESP32-S3 bootloader offset:** ESP32-S3 images must place the bootloader at `0x0`, unlike ESP32 images which use `0x1000`. `make stable-artifacts PIO_ENV=esp32-8048s043c` handles this via board-specific `BOOTLOADER_OFFSET`; do not hand-merge S3 images with the ESP32 offset.
 
 ## Prerequisites for Emulator
 
@@ -464,7 +497,7 @@ Before publishing the fork, review and replace project-specific placeholders:
 
 - [ ] Replace `git clone --recursive <your-fork-url>` with the real repository URL
 - [ ] Review `README.md` for any remaining upstream-specific wording that should now refer to the fork
-- [ ] Decide whether `CYD2USB` should remain the preferred board name in docs, or whether `ESP32-2432S028` should be primary
+- [x] Use `CYD2USB (ESP32-2432S028)` consistently for the original board profile
 - [ ] Confirm release/versioning policy for generated browser flasher artifacts
 - [ ] Decide whether stable firmware artifacts in `web/` should be committed or generated during release
 - [ ] Review whether `rom.bin` / patched ROM workflow wording is legally and operationally appropriate for public release
