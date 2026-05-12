@@ -441,7 +441,12 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "Touch and display tasks started on Core 0");
 
-    xTaskCreatePinnedToCore(umac_task, "umac", 32768, NULL, 5, NULL, 1);
+    BaseType_t umac_ret = xTaskCreatePinnedToCore(umac_task, "umac", 32768, NULL, 5, NULL, 1);
+    if (umac_ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create umac task (ret=%d)", (int)umac_ret);
+    } else {
+        ESP_LOGI(TAG, "umac task created on Core 1");
+    }
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
