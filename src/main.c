@@ -123,6 +123,7 @@ static int rom_mmap_from_partition(const uint8_t **rom_ptr, size_t *rom_size) {
 
 // LEDC PWM configuration for RGB LED fade effect
 static void led_pwm_init(void) {
+#if BOARD_HAS_RGB_LED
     // Configure timer
     ledc_timer_config_t ledc_timer = {.speed_mode = LEDC_MODE,
                                       .timer_num = LEDC_TIMER,
@@ -154,11 +155,15 @@ static void led_pwm_init(void) {
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_r));
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_g));
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_b));
+#else
+    ESP_LOGI(TAG, "RGB LED not present on %s", BOARD_NAME);
+#endif
 }
 
 // Set RGB LED brightness (0-100%)
 // Note: Active low - duty=0 is OFF, duty=max is ON
 static void led_set_rgb(uint8_t r_percent, uint8_t g_percent, uint8_t b_percent) {
+#if BOARD_HAS_RGB_LED
     const uint32_t max_duty = (1 << LEDC_DUTY_RES) - 1;
 
     uint32_t r_duty = max_duty - ((r_percent * max_duty) / 100);
@@ -172,6 +177,11 @@ static void led_set_rgb(uint8_t r_percent, uint8_t g_percent, uint8_t b_percent)
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_R);
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_G);
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_B);
+#else
+    (void)r_percent;
+    (void)g_percent;
+    (void)b_percent;
+#endif
 }
 
 // Smooth fade animation: fade in then fade out

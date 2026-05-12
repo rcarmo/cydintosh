@@ -21,7 +21,7 @@ A Macintosh Plus emulator port for the ESP32 Cheap Yellow Display family, with c
 This fork extends the original project toward a more appliance-like smart-home workstation:
 
 - Macintosh Plus emulation using umac and Musashi 68k emulator
-- 240x320 ILI9341 LCD with XPT2046 touchpad emulation for mouse control
+- selectable board profiles for 240×320 ILI9341/XPT2046 CYD boards and 800×480 RGB/GT911 ESP32-S3 panels
 - *Homebrew* Mac applications built with Retro68
 - IPC between Mac and ESP32 for WiFi, MQTT, hardware control, and smart-home data
 - browser-based flashing flow with preserved stable firmware snapshots under [`web/`](./web)
@@ -48,10 +48,11 @@ This repository is an actively evolving fork intended for publishing and continu
 
 ## Hardware BOM
 
-| Component                | Quantity | Notes                                         |
-| ------------------------ | :------- | :-------------------------------------------- |
-| CYD2USB (ESP32-2432S028) | 1        | ESP32 with ILI9341 240x320 LCD, XPT2046 touch |
-| M2x3 Self-Tapping screw  | 4        | For enclosure assembly                        |
+| Component | Quantity | Notes |
+| ---------- | :------- | :---- |
+| CYD2USB (ESP32-2432S028) | 1 | Original ESP32 target with ILI9341 240×320 LCD, XPT2046 touch |
+| Sunton ESP32-8048S043C | 1 | New ESP32-S3 N16R8 target with 800×480 RGB LCD, GT911 touch |
+| M2x3 Self-Tapping screw | 4 | For CYD enclosure assembly |
 
 ## Getting Started
 
@@ -118,6 +119,38 @@ Touch input uses a trackpad/relative mode: sliding a finger moves the Mac cursor
 | Touch CLK | 25 |
 | Touch CS | 33 |
 
+### Board: Sunton ESP32-8048S043C
+
+Tested/detected hardware for the new ESP32-S3 target:
+
+| Component | Detail |
+|---|---|
+| Board | Sunton ESP32-8048S043C |
+| SoC | ESP32-S3 QFN56, revision v0.2 |
+| Features | Wi-Fi, BT 5 LE, dual core + LP core, 240MHz |
+| Flash | 16MB (manufacturer 0x46, device 0x4018), 3.3V, quad eFuse; build uses DIO flash mode |
+| PSRAM | 8MB embedded PSRAM, configured as octal 80MHz |
+| USB-serial | CH340 (QinHeng Electronics, VID:1a86 PID:7523), observed on `/dev/ttyUSB1` |
+| Display | 800×480 RGB DPI LCD |
+| Touch | GT911 capacitive touch, I2C |
+
+#### ESP32-8048S043C RGB LCD Pin Mapping
+
+| Function | GPIO |
+|---|---|
+| Backlight PWM | 2 |
+| RGB DE | 40 |
+| RGB HSYNC | 39 |
+| RGB VSYNC | 41 |
+| RGB PCLK | 42 |
+| Red data | 45, 48, 47, 21, 14 |
+| Green data | 5, 6, 7, 15, 16, 4 |
+| Blue data | 8, 3, 46, 9, 1 |
+| GT911 SDA | 19 |
+| GT911 SCL | 20 |
+
+The Mac framebuffer remains **240×320** to match the patched ROM. On the 800×480 panel it is rotated clockwise, scaled 2× to 640×480, and centered horizontally with an 80px black margin on each side. Touch is still used as a relative trackpad; GT911 physical deltas are transformed back into Mac cursor deltas.
+
 ### Changes from Upstream / Known Issues
 
 - **Heap fragmentation:** Mac RAM (128KB) must be allocated with `MALLOC_CAP_8BIT` **before** `lcd_cyd_init()`, or the contiguous block allocation fails on newer ESP-IDF/PlatformIO toolchains. The smaller DMA-capable framebuffer (9.6KB) is allocated after LCD init.
@@ -152,21 +185,32 @@ make prepare-disk
 
 A repository-level [`Makefile`](./Makefile) is included to make common flows explicit and repeatable.
 
-**IMPORTANT:** Always use full-flash images when flashing. The merged firmware image
-(without filesystem) pads up to `0x230000`, which can overwrite the start of the
-filesystem partition. Full-flash images include everything in one file and avoid this.
+**IMPORTANT:** Always use full-flash images when flashing. Single firmware-only
+images can collide with board-specific ROM/filesystem offsets if used incorrectly.
+Full-flash images include bootloader, partition table, firmware, patched ROM, and
+filesystem in one file and avoid this.
 
 Useful targets:
 
 ```bash
 make help
 make prepare
-make build
-make stable-artifacts
+make build PIO_ENV=esp32-cyd2usb
+make build PIO_ENV=esp32-8048s043c
+make stable-artifacts PIO_ENV=esp32-cyd2usb
+make stable-artifacts PIO_ENV=esp32-8048s043c
 make original-artifacts
-make flash-stable SERIAL_PORT=/dev/cu.usbserial-210
+make flash-stable PIO_ENV=esp32-cyd2usb SERIAL_PORT=/dev/cu.usbserial-210
+make flash-stable PIO_ENV=esp32-8048s043c SERIAL_PORT=/dev/ttyUSB1
 make flash-original SERIAL_PORT=/dev/cu.usbserial-210
 make capture-logs SERIAL_PORT=/dev/cu.usbserial-210
+```
+
+Direct PlatformIO builds are also supported:
+
+```bash
+pio run -e esp32-cyd2usb
+pio run -e esp32-8048s043c
 ```
 
 ```bash
@@ -200,13 +244,12 @@ make prepare-rom
 make prepare-disk
 
 # Build firmware
-pio run
+pio run -e esp32-cyd2usb
+pio run -e esp32-8048s043c
 
-# Optional: upload directly if you have a serial device attached
-pio run -t upload --upload-port /dev/ttyUSB0
-
-# Upload disk image
-pio run -t uploadfs --upload-port /dev/ttyUSB0
+# Prefer full-flash artifacts over separate upload/uploadfs operations:
+make stable-artifacts PIO_ENV=esp32-cyd2usb
+make stable-artifacts PIO_ENV=esp32-8048s043c
 ```
 
 ### Browser flashing
@@ -235,7 +278,11 @@ esptool --port <serial-port> --baud 460800 erase_flash
 
 # Custom/fork build:
 esptool --port <serial-port> --baud 460800 write_flash \
-  0x0000 web/full-flash-stable-mqtt-v1.bin
+  0x0000 web/full-flash-esp32-cyd2usb.bin
+
+# ESP32-8048S043C build:
+esptool --port <serial-port> --baud 460800 write_flash \
+  0x0000 web/full-flash-esp32-8048s043c.bin
 
 # Original/upstream-equivalent:
 esptool --port <serial-port> --baud 460800 write_flash \
@@ -247,10 +294,10 @@ esptool --port <serial-port> --baud 460800 verify_flash \
 ```
 
 **Notes:**
-- The full-flash image is 4MB. At `115200` baud this takes ~6 minutes and risks
-  incomplete writes. Use `460800` or higher.
-- Do not flash the merged firmware image alone — it pads up to `0x230000`
-  and will overwrite the filesystem partition.
+- The CYD2USB full-flash image is 4MB; the ESP32-8048S043C full-flash image is 16MB.
+  At `115200` baud these are slow and risk incomplete writes. Use `460800` or higher.
+- Do not flash firmware-only images when you need ROM/disk contents. Use the board-specific
+  full-flash image generated by `make stable-artifacts PIO_ENV=...`.
 
 ## Capturing boot logs
 

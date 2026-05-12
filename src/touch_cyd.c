@@ -2,20 +2,40 @@
 
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_touch.h"
-#include "esp_lcd_touch_xpt2046.h"
 #include "esp_log.h"
 #include "hw.h"
 
-#include "driver/gpio.h"
+#if defined(TOUCH_CONTROLLER_XPT2046)
+#include "esp_lcd_touch_xpt2046.h"
 #include "driver/spi_master.h"
+#endif
+
+#if defined(TOUCH_CONTROLLER_GT911)
+#include "driver/i2c.h"
+#endif
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include <math.h>
+#include <string.h>
 
 static const char *TAG = "touch";
 
+#if defined(TOUCH_CONTROLLER_XPT2046)
 static esp_lcd_touch_handle_t touch_handle = NULL;
+#endif
+
+#if defined(TOUCH_CONTROLLER_GT911)
+#define GT911_REG_PRODUCT_ID 0x8140
+#define GT911_REG_STATUS 0x814E
+#define GT911_REG_POINTS 0x814F
+#define GT911_STATUS_BUFFER_READY 0x80
+#define GT911_STATUS_POINT_MASK 0x0F
+
+static uint8_t gt911_addr = 0;
+#endif
+
 static touch_event_t current_event = {0};
 static touch_event_t last_event = {0};
 static uint8_t has_pending_event = 0;
@@ -43,7 +63,54 @@ static uint32_t get_tick_ms(void) {
     return xTaskGetTickCount() * portTICK_PERIOD_MS;
 }
 
+#if defined(TOUCH_CONTROLLER_GT911)
+static esp_err_t gt911_write(uint16_t reg, const uint8_t *data, size_t len) {
+    uint8_t buf[2 + len];
+    buf[0] = (uint8_t)(reg >> 8);
+    buf[1] = (uint8_t)(reg & 0xff);
+    if (len > 0 && data != NULL) {
+        memcpy(&buf[2], data, len);
+    }
+    return i2c_master_write_to_device((i2c_port_t)TOUCH_I2C_PORT, gt911_addr, buf, sizeof(buf),
+                                      pdMS_TO_TICKS(100));
+}
+
+static esp_err_t gt911_read_from(uint8_t addr, uint16_t reg, uint8_t *data, size_t len) {
+    uint8_t reg_buf[2] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xff)};
+    return i2c_master_write_read_device((i2c_port_t)TOUCH_I2C_PORT, addr, reg_buf, sizeof(reg_buf),
+                                        data, len, pdMS_TO_TICKS(100));
+}
+
+static esp_err_t gt911_read(uint16_t reg, uint8_t *data, size_t len) {
+    return gt911_read_from(gt911_addr, reg, data, len);
+}
+
+static esp_err_t gt911_clear_status(void) {
+    uint8_t zero = 0;
+    return gt911_write(GT911_REG_STATUS, &zero, 1);
+}
+
+static esp_err_t gt911_probe(void) {
+    const uint8_t candidates[] = {TOUCH_GT911_ADDR1, TOUCH_GT911_ADDR2};
+    uint8_t id[4] = {0};
+
+    for (size_t i = 0; i < sizeof(candidates); i++) {
+        esp_err_t ret = gt911_read_from(candidates[i], GT911_REG_PRODUCT_ID, id, sizeof(id));
+        if (ret == ESP_OK) {
+            gt911_addr = candidates[i];
+            ESP_LOGI(TAG, "GT911 found at 0x%02x, product id: %c%c%c%c", gt911_addr, id[0], id[1],
+                     id[2], id[3]);
+            gt911_clear_status();
+            return ESP_OK;
+        }
+    }
+
+    return ESP_ERR_NOT_FOUND;
+}
+#endif
+
 void touch_init(void) {
+#if defined(TOUCH_CONTROLLER_XPT2046)
     ESP_LOGI(TAG, "Initializing XPT2046 touch controller on VSPI");
 
     spi_bus_config_t buscfg = {
@@ -77,10 +144,10 @@ void touch_init(void) {
         .int_gpio_num = -1,
         .flags =
             {
-                    .swap_xy = 0,
-                    .mirror_x = 1,
-                    .mirror_y = 1,
-                    },
+                .swap_xy = TOUCH_SWAP_XY,
+                .mirror_x = TOUCH_MIRROR_X,
+                .mirror_y = TOUCH_MIRROR_Y,
+            },
     };
 
     ESP_LOGI(TAG, "Initialize touch controller XPT2046");
@@ -91,9 +158,45 @@ void touch_init(void) {
     }
 
     ESP_LOGI(TAG, "Touch controller initialized");
+#elif defined(TOUCH_CONTROLLER_GT911)
+    ESP_LOGI(TAG, "Initializing GT911 touch controller on I2C SDA=%d SCL=%d", TOUCH_I2C_SDA,
+             TOUCH_I2C_SCL);
+
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = TOUCH_I2C_SDA,
+        .scl_io_num = TOUCH_I2C_SCL,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = TOUCH_I2C_FREQ_HZ,
+    };
+
+    esp_err_t ret = i2c_param_config((i2c_port_t)TOUCH_I2C_PORT, &conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure I2C: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ret = i2c_driver_install((i2c_port_t)TOUCH_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to install I2C driver: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ret = gt911_probe();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "GT911 probe failed: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ESP_LOGI(TAG, "Touch controller initialized");
+#else
+    ESP_LOGW(TAG, "No touch controller selected");
+#endif
 }
 
 int touch_update(void) {
+#if defined(TOUCH_CONTROLLER_XPT2046)
     if (touch_handle == NULL) {
         return 0;
     }
@@ -112,7 +215,44 @@ int touch_update(void) {
     if (ret_get == ESP_OK && count > 0) {
         current_event.x = touch_data[0].x;
         current_event.y = touch_data[0].y;
+#elif defined(TOUCH_CONTROLLER_GT911)
+    if (gt911_addr == 0) {
+        return 0;
+    }
 
+    uint8_t status = 0;
+    esp_err_t ret = gt911_read(GT911_REG_STATUS, &status, 1);
+    if (ret != ESP_OK) {
+        ESP_LOGD(TAG, "GT911 status read failed: %s", esp_err_to_name(ret));
+        return 0;
+    }
+
+    if ((status & GT911_STATUS_BUFFER_READY) && (status & GT911_STATUS_POINT_MASK)) {
+        uint8_t point[8] = {0};
+        ret = gt911_read(GT911_REG_POINTS, point, sizeof(point));
+        gt911_clear_status();
+        if (ret != ESP_OK) {
+            ESP_LOGD(TAG, "GT911 point read failed: %s", esp_err_to_name(ret));
+            return 0;
+        }
+
+        current_event.x = point[1] | (point[2] << 8);
+        current_event.y = point[3] | (point[4] << 8);
+
+        if (TOUCH_MIRROR_X) {
+            current_event.x = SCREEN_WIDTH - 1 - current_event.x;
+        }
+        if (TOUCH_MIRROR_Y) {
+            current_event.y = SCREEN_HEIGHT - 1 - current_event.y;
+        }
+        if (TOUCH_SWAP_XY) {
+            int16_t tmp = current_event.x;
+            current_event.x = current_event.y;
+            current_event.y = tmp;
+        }
+#else
+    if (0) {
+#endif
         if (last_event.pressed) {
             current_event.dx = current_event.x - last_event.x;
             current_event.dy = current_event.y - last_event.y;
@@ -121,6 +261,7 @@ int touch_update(void) {
                 current_event.dx = 0;
             if (abs(current_event.dy) < DEADZONE_PX)
                 current_event.dy = 0;
+            current_event.clicked = 0;
         } else {
             current_event.dx = 0;
             current_event.dy = 0;
@@ -135,6 +276,11 @@ int touch_update(void) {
 
         return 1;
     } else {
+#if defined(TOUCH_CONTROLLER_GT911)
+        if (status & GT911_STATUS_BUFFER_READY) {
+            gt911_clear_status();
+        }
+#endif
         if (last_event.pressed) {
             current_event.pressed = 0;
             current_event.dx = 0;
@@ -168,6 +314,18 @@ QueueHandle_t touch_get_mouse_queue(void) {
     return mouse_queue;
 }
 
+static void transform_mouse_delta(int16_t *dx, int16_t *dy) {
+#if TOUCH_DELTA_SCALE > 1
+    *dx /= TOUCH_DELTA_SCALE;
+    *dy /= TOUCH_DELTA_SCALE;
+#endif
+#if TOUCH_DELTA_ROTATE_CW
+    int16_t old_dx = *dx;
+    *dx = *dy;
+    *dy = -old_dx;
+#endif
+}
+
 static void touch_task(void *arg) {
     ESP_LOGI(TAG, "Touch task started on Core %d", xPortGetCoreID());
 
@@ -183,6 +341,7 @@ static void touch_task(void *arg) {
             if (ev->pressed && last_pressed) {
                 dx = ev->x - last_x;
                 dy = ev->y - last_y;
+                transform_mouse_delta(&dx, &dy);
             }
             if (ev->pressed) {
                 last_x = ev->x;

@@ -59,7 +59,8 @@ static void save_state(void) {
     nvs_commit(hw_nvs_handle);
 }
 
-static void ledc_init(void) {
+static void ledc_init_rgb(void) {
+#if BOARD_HAS_RGB_LED
     ledc_timer_config_t timer_conf = {.speed_mode = LEDC_MODE,
                                       .duty_resolution = LEDC_DUTY_RES,
                                       .timer_num = LEDC_TIMER,
@@ -84,9 +85,13 @@ static void ledc_init(void) {
     ledc_ch.channel = LEDC_CHANNEL_B;
     ledc_ch.gpio_num = LED_B_PIN;
     ledc_channel_config(&ledc_ch);
+#else
+    ESP_LOGI(TAG, "RGB LED not present on %s", BOARD_NAME);
+#endif
 }
 
 static void ledc_init_backlight(void) {
+#if TFT_BL >= 0
     ledc_timer_config_t timer_conf = {.speed_mode = LEDC_MODE,
                                       .duty_resolution = LEDC_DUTY_RES,
                                       .timer_num = LEDC_TIMER_1,
@@ -102,18 +107,24 @@ static void ledc_init_backlight(void) {
                                      .hpoint = 0,
                                      .gpio_num = TFT_BL};
     ledc_channel_config(&ledc_ch);
+#endif
 }
 
 static void set_led_channel(ledc_channel_t channel, uint8_t value) {
+#if BOARD_HAS_RGB_LED
     uint32_t duty = (8191 * value) / 255;
     ledc_set_duty(LEDC_MODE, channel, duty);
     ledc_update_duty(LEDC_MODE, channel);
+#else
+    (void)channel;
+    (void)value;
+#endif
 }
 
 void hw_control_init(void) {
     load_state();
 
-    ledc_init();
+    ledc_init_rgb();
     ledc_init_backlight();
 
     hw_set_backlight(hw_state.backlight);
@@ -131,13 +142,16 @@ void hw_set_backlight(uint8_t value) {
     hw_state.backlight = value;
     hw_state.seq++;
 
+#if TFT_BL >= 0
     uint32_t duty = (8191 * value) / 100;
     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_3, duty);
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_3);
+    ESP_LOGI(TAG, "Backlight set to %d%% (duty=%lu)", value, duty);
+#else
+    ESP_LOGI(TAG, "Backlight state set to %d%% (no PWM backlight)", value);
+#endif
 
     save_state();
-
-    ESP_LOGI(TAG, "Backlight set to %d%% (duty=%lu)", value, duty);
 }
 
 void hw_set_led_rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -152,7 +166,11 @@ void hw_set_led_rgb(uint8_t r, uint8_t g, uint8_t b) {
 
     save_state();
 
+#if BOARD_HAS_RGB_LED
     ESP_LOGI(TAG, "LED set to R:%d G:%d B:%d", r, g, b);
+#else
+    ESP_LOGI(TAG, "Stored LED state R:%d G:%d B:%d (no RGB LED)", r, g, b);
+#endif
 }
 
 HwState *hw_get_state(void) {

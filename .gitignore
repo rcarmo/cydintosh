@@ -17,7 +17,9 @@
 !/platformio.ini
 !/CMakeLists.txt
 !/sdkconfig.defaults
+!/sdkconfig.defaults.*
 !/partitions.csv
+!/partitions-*.csv
 !/.clang-format*
 !/LICENSE
 # External dependencies (submodules)

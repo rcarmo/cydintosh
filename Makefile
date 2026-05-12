@@ -17,23 +17,35 @@
 # - esptool (for merge/flash helper flows)
 # - docker (optional, for Retro68 Mac app builds and HFS disk image updates)
 #
-# Flash memory layout (ESP32, 4MB):
-#   0x001000  bootloader
-#   0x008000  partition table
-#   0x010000  application firmware
-#   0x210000  patched Mac Plus ROM
-#   0x230000  LittleFS filesystem (contains disk.img for the emulator)
+# Flash memory layout varies by board profile:
+#   esp32-cyd2usb:     4MB,  ROM at 0x210000, LittleFS at 0x230000
+#   esp32-8048s043c:  16MB,  ROM at 0x410000, LittleFS at 0x430000
 
 SHELL := /bin/bash
 
 WORKTREE_ORIGINAL := /workspace/tmp/cydintosh-upstream
 UPSTREAM_BASE_COMMIT := cd5a6b2
-PIO := /home/agent/.local/share/uv/tools/platformio/bin/pio
-ESPTOOL := /home/agent/.local/share/uv/tools/esptool/bin/esptool
+PIO ?= pio
+ESPTOOL ?= /workspace/.venvs/pio/bin/python -m esptool
 RETRO68_IMAGE := ghcr.io/autc04/retro68
 UMAC_PATCHES := patches/umac-suppress-sony-eject.patch
+PIO_ENV ?= esp32-cyd2usb
+BUILD_DIR := .pio/build/$(PIO_ENV)
+ARTIFACT_SUFFIX ?= $(PIO_ENV)
 SERIAL_PORT ?= /dev/cu.usbserial-210
 BAUD ?= 460800
+
+ifeq ($(PIO_ENV),esp32-8048s043c)
+ESP_CHIP ?= esp32s3
+FLASH_SIZE ?= 16MB
+ROM_OFFSET ?= 0x410000
+DISK_OFFSET ?= 0x430000
+else
+ESP_CHIP ?= esp32
+FLASH_SIZE ?= 4MB
+ROM_OFFSET ?= 0x210000
+DISK_OFFSET ?= 0x230000
+endif
 
 .PHONY: help prepare build firmware fs \
 	full-flash-stable stable-artifacts flash-stable \
@@ -52,10 +64,12 @@ help:
 	@echo ""
 	@echo "Custom/fork targets:"
 	@echo "  make prepare             - init submodules, generate Musashi ops, seed user_config.h and data/disk.img"
-	@echo "  make build               - build firmware in current tree"
+	@echo "  make build               - build firmware in current tree for PIO_ENV=$(PIO_ENV)"
+	@echo "  make build-cyd2usb       - build existing ESP32 CYD2USB profile"
+	@echo "  make build-8048s043c     - build ESP32-8048S043C/S3 profile"
 	@echo "  make firmware            - alias for make build"
-	@echo "  make fs                  - generate LittleFS image (.pio/build/esp32dev/littlefs.bin)"
-	@echo "  make stable-artifacts    - refresh all fork stable artifacts in web/"
+	@echo "  make fs                  - generate LittleFS image ($(BUILD_DIR)/littlefs.bin)"
+	@echo "  make stable-artifacts    - refresh fork artifacts in web/ for PIO_ENV=$(PIO_ENV)"
 	@echo "  make flash-stable        - flash full stable image (firmware + ROM + filesystem) [RECOMMENDED]"
 	@echo ""
 	@echo "Original/upstream-equivalent targets:"
@@ -69,7 +83,7 @@ help:
 	@echo "  make disk-update         - update data/disk.img with built Mac apps using Retro68 container HFS tools"
 	@echo "  make capture-logs        - reset board and capture 10s of serial logs to logs/*.log"
 	@echo ""
-	@echo "Variables: SERIAL_PORT=$(SERIAL_PORT) BAUD=$(BAUD)"
+	@echo "Variables: PIO_ENV=$(PIO_ENV) SERIAL_PORT=$(SERIAL_PORT) BAUD=$(BAUD)"
 
 # ---- Preparation ----
 
@@ -95,40 +109,46 @@ prepare:
 # ---- Build ----
 
 build firmware:
-	$(PIO) run
+	$(PIO) run -e $(PIO_ENV)
+
+build-cyd2usb:
+	$(MAKE) build PIO_ENV=esp32-cyd2usb
+
+build-8048s043c:
+	$(MAKE) build PIO_ENV=esp32-8048s043c
 
 fs:
-	$(PIO) run -t uploadfs --disable-auto-clean || true
-	@test -f .pio/build/esp32dev/littlefs.bin
-	@echo "LittleFS image: .pio/build/esp32dev/littlefs.bin"
+	$(PIO) run -e $(PIO_ENV) -t buildfs
+	@test -f $(BUILD_DIR)/littlefs.bin
+	@echo "LittleFS image: $(BUILD_DIR)/littlefs.bin"
 
 # ---- Stable/fork artifacts ----
 
 stable-artifacts: build fs
 	@mkdir -p web web/mac-apps
-	cp .pio/build/esp32dev/bootloader.bin web/bootloader-stable-mqtt-v1.bin
-	cp .pio/build/esp32dev/firmware.bin web/firmware-stable-mqtt-v1.bin
-	cp .pio/build/esp32dev/partitions.bin web/partitions-stable-mqtt-v1.bin
-	cp .pio/build/esp32dev/littlefs.bin web/littlefs-stable-mqtt-v1.bin
-	$(ESPTOOL) --chip esp32 merge-bin -o web/full-flash-stable-mqtt-v1.bin \
-	  --flash-mode dio --flash-freq 40m --flash-size 4MB \
-	  0x1000 web/bootloader-stable-mqtt-v1.bin \
-	  0x8000 web/partitions-stable-mqtt-v1.bin \
-	  0x10000 web/firmware-stable-mqtt-v1.bin \
-	  0x210000 data/rom_patched.bin \
-	  0x230000 web/littlefs-stable-mqtt-v1.bin
+	cp $(BUILD_DIR)/bootloader.bin web/bootloader-$(ARTIFACT_SUFFIX).bin
+	cp $(BUILD_DIR)/firmware.bin web/firmware-$(ARTIFACT_SUFFIX).bin
+	cp $(BUILD_DIR)/partitions.bin web/partitions-$(ARTIFACT_SUFFIX).bin
+	cp $(BUILD_DIR)/littlefs.bin web/littlefs-$(ARTIFACT_SUFFIX).bin
+	$(ESPTOOL) --chip $(ESP_CHIP) merge-bin -o web/full-flash-$(ARTIFACT_SUFFIX).bin \
+	  --flash-mode dio --flash-freq 40m --flash-size $(FLASH_SIZE) \
+	  0x1000 web/bootloader-$(ARTIFACT_SUFFIX).bin \
+	  0x8000 web/partitions-$(ARTIFACT_SUFFIX).bin \
+	  0x10000 web/firmware-$(ARTIFACT_SUFFIX).bin \
+	  $(ROM_OFFSET) data/rom_patched.bin \
+	  $(DISK_OFFSET) web/littlefs-$(ARTIFACT_SUFFIX).bin
 	@test -f mac-app/OfficeLightsApp/build/OfficeLights.bin && \
-	  cp mac-app/OfficeLightsApp/build/OfficeLights.bin web/mac-apps/OfficeLights-stable-mqtt-v1.bin || true
+	  cp mac-app/OfficeLightsApp/build/OfficeLights.bin web/mac-apps/OfficeLights-$(ARTIFACT_SUFFIX).bin || true
 	@echo ""
-	@echo "Stable artifacts refreshed under web/."
-	@echo "Flash with: make flash-stable"
+	@echo "Stable artifacts refreshed under web/ for $(PIO_ENV)."
+	@echo "Flash with: make flash-stable PIO_ENV=$(PIO_ENV) SERIAL_PORT=..."
 
 flash-stable:
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) erase_flash
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) write_flash \
-	  0x0000 web/full-flash-stable-mqtt-v1.bin
+	  0x0000 web/full-flash-$(ARTIFACT_SUFFIX).bin
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) verify_flash \
-	  0x0000 web/full-flash-stable-mqtt-v1.bin
+	  0x0000 web/full-flash-$(ARTIFACT_SUFFIX).bin
 
 # ---- Original/upstream-equivalent artifacts ----
 
