@@ -2,10 +2,10 @@
 #
 # This file exists to make common firmware/artifact flows explicit.
 #
-# IMPORTANT: Always use full-flash images when possible.
-# The merged firmware image (without filesystem) pads up to 0x230000,
-# which can overwrite the start of the disk/filesystem partition.
-# Using full-flash images avoids this problem entirely.
+# IMPORTANT: Always use board-specific full-flash images when possible.
+# They include the bootloader at the correct chip-specific offset:
+# ESP32 at 0x1000, ESP32-S3 at 0x0. Firmware-only/partial images are
+# easy to flash at the wrong offset and do not include ROM/disk contents.
 #
 # Stable/custom artifacts live under web/ and are intended for this fork.
 # Original artifacts are generated from the last pre-fork commit and copied into web/.
@@ -32,33 +32,36 @@ UMAC_PATCHES := patches/umac-suppress-sony-eject.patch
 PIO_ENV ?= esp32-cyd2usb
 BUILD_DIR := .pio/build/$(PIO_ENV)
 ARTIFACT_SUFFIX ?= $(PIO_ENV)
-SERIAL_PORT ?= /dev/cu.usbserial-210
+SERIAL_PORT ?= /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 BAUD ?= 460800
 
 ifeq ($(PIO_ENV),esp32-8048s043c)
 ESP_CHIP ?= esp32s3
 FLASH_SIZE ?= 16MB
+FLASH_FREQ ?= 80m
+BOOTLOADER_OFFSET ?= 0x0
 ROM_OFFSET ?= 0x410000
 DISK_OFFSET ?= 0x430000
 else
 ESP_CHIP ?= esp32
 FLASH_SIZE ?= 4MB
+FLASH_FREQ ?= 40m
+BOOTLOADER_OFFSET ?= 0x1000
 ROM_OFFSET ?= 0x210000
 DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	full-flash-stable stable-artifacts flash-stable \
-	original-worktree original-build original-artifacts full-flash-original flash-original \
+	build-cyd2usb build-8048s043c stable-artifacts flash-stable \
+	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
 help:
 	@echo "Cydintosh build/flash targets"
 	@echo ""
 	@echo "Reference flash commands:"
-	@echo "  esptool --port $(SERIAL_PORT) --baud $(BAUD) erase_flash"
-	@echo "  esptool --port $(SERIAL_PORT) --baud $(BAUD) write_flash 0x0000 web/full-flash-original.bin"
-	@echo "  esptool --port $(SERIAL_PORT) --baud $(BAUD) verify_flash 0x0000 web/full-flash-original.bin"
+	@echo "  make stable-artifacts PIO_ENV=$(PIO_ENV)"
+	@echo "  make flash-stable PIO_ENV=$(PIO_ENV) SERIAL_PORT=$(SERIAL_PORT)"
 	@echo ""
 	@echo "  RECOMMENDED: use full-flash targets (single image, single command)"
 	@echo ""
@@ -108,7 +111,7 @@ prepare:
 
 # ---- Build ----
 
-build firmware:
+build firmware: prepare
 	$(PIO) run -e $(PIO_ENV)
 
 build-cyd2usb:
@@ -131,8 +134,8 @@ stable-artifacts: build fs
 	cp $(BUILD_DIR)/partitions.bin web/partitions-$(ARTIFACT_SUFFIX).bin
 	cp $(BUILD_DIR)/littlefs.bin web/littlefs-$(ARTIFACT_SUFFIX).bin
 	$(ESPTOOL) --chip $(ESP_CHIP) merge-bin -o web/full-flash-$(ARTIFACT_SUFFIX).bin \
-	  --flash-mode dio --flash-freq 40m --flash-size $(FLASH_SIZE) \
-	  0x1000 web/bootloader-$(ARTIFACT_SUFFIX).bin \
+	  --flash-mode dio --flash-freq $(FLASH_FREQ) --flash-size $(FLASH_SIZE) \
+	  $(BOOTLOADER_OFFSET) web/bootloader-$(ARTIFACT_SUFFIX).bin \
 	  0x8000 web/partitions-$(ARTIFACT_SUFFIX).bin \
 	  0x10000 web/firmware-$(ARTIFACT_SUFFIX).bin \
 	  $(ROM_OFFSET) data/rom_patched.bin \
@@ -145,7 +148,7 @@ stable-artifacts: build fs
 
 flash-stable:
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) erase_flash
-	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) write_flash \
+	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) --after no-reset write_flash \
 	  0x0000 web/full-flash-$(ARTIFACT_SUFFIX).bin
 	$(ESPTOOL) --port $(SERIAL_PORT) --baud $(BAUD) verify_flash \
 	  0x0000 web/full-flash-$(ARTIFACT_SUFFIX).bin

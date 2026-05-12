@@ -130,7 +130,7 @@ Tested/detected hardware for the new ESP32-S3 target:
 | Features | Wi-Fi, BT 5 LE, dual core + LP core, 240MHz |
 | Flash | 16MB (manufacturer 0x46, device 0x4018), 3.3V, quad eFuse; build uses DIO flash mode |
 | PSRAM | 8MB embedded PSRAM, configured as octal 80MHz |
-| USB-serial | CH340 (QinHeng Electronics, VID:1a86 PID:7523), observed on `/dev/ttyUSB1` |
+| USB-serial | CH340 (QinHeng Electronics, VID:1a86 PID:7523); serial numbering can change, prefer `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` or check `pio device list` |
 | Display | 800×480 RGB DPI LCD |
 | Touch | GT911 capacitive touch, I2C |
 
@@ -200,10 +200,10 @@ make build PIO_ENV=esp32-8048s043c
 make stable-artifacts PIO_ENV=esp32-cyd2usb
 make stable-artifacts PIO_ENV=esp32-8048s043c
 make original-artifacts
-make flash-stable PIO_ENV=esp32-cyd2usb SERIAL_PORT=/dev/cu.usbserial-210
-make flash-stable PIO_ENV=esp32-8048s043c SERIAL_PORT=/dev/ttyUSB1
-make flash-original SERIAL_PORT=/dev/cu.usbserial-210
-make capture-logs SERIAL_PORT=/dev/cu.usbserial-210
+make flash-stable PIO_ENV=esp32-cyd2usb SERIAL_PORT=<serial-port>
+make flash-stable PIO_ENV=esp32-8048s043c SERIAL_PORT=/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+make flash-original SERIAL_PORT=<serial-port>
+make capture-logs SERIAL_PORT=<serial-port>
 ```
 
 Direct PlatformIO builds are also supported:
@@ -258,8 +258,7 @@ This fork also includes a browser-based flasher in [`web/`](./web):
 
 - flasher page: [`web/index.html`](./web/index.html)
 - manifest: [`web/manifest.json`](./web/manifest.json)
-- preserved stable merged firmware: [`web/merged-firmware-stable-mqtt-v1.bin`](./web/merged-firmware-stable-mqtt-v1.bin)
-- preserved stable filesystem image: [`web/littlefs-stable-mqtt-v1.bin`](./web/littlefs-stable-mqtt-v1.bin)
+- generated full-flash images: `web/full-flash-esp32-cyd2usb.bin` and `web/full-flash-esp32-8048s043c.bin`
 
 A tiny local server can be started for development, for example:
 
@@ -288,9 +287,10 @@ esptool --port <serial-port> --baud 460800 write_flash \
 esptool --port <serial-port> --baud 460800 write_flash \
   0x0000 web/full-flash-original.bin
 
-# Verify after flashing (optional but recommended):
+# If you verify manually, do it immediately after writing and before the app boots
+# and updates NVS/phy sectors. The Makefile target handles this with --after no-reset.
 esptool --port <serial-port> --baud 460800 verify_flash \
-  0x0000 web/full-flash-original.bin
+  0x0000 web/full-flash-esp32-cyd2usb.bin
 ```
 
 **Notes:**
@@ -304,14 +304,14 @@ esptool --port <serial-port> --baud 460800 verify_flash \
 To reset the board and capture 10 seconds of serial logs to a file without using `screen`:
 
 ```bash
-make capture-logs SERIAL_PORT=/dev/cu.usbserial-210
+make capture-logs SERIAL_PORT=<serial-port>
 ```
 
 Or directly:
 
 ```bash
 python3 tools/capture_serial_logs.py \
-  --port /dev/cu.usbserial-210 \
+  --port <serial-port> \
   --baud 115200 \
   --duration 10 \
   --output logs/boot-log.txt
@@ -424,8 +424,9 @@ In this fork, MQTT is no longer just for weather. The same ESP32-side client is 
 # disk-image update tooling may depend on classic HFS utilities being available
 # in your host/container environment.
 
-# Re-upload disk image
-pio run -t uploadfs
+# Regenerate and flash a board-specific full image after changing data/disk.img
+make stable-artifacts PIO_ENV=esp32-cyd2usb
+make stable-artifacts PIO_ENV=esp32-8048s043c
 ```
 
 ## Gallery
@@ -464,7 +465,7 @@ Before publishing the fork, review and replace project-specific placeholders:
 - [ ] Replace `git clone --recursive <your-fork-url>` with the real repository URL
 - [ ] Review `README.md` for any remaining upstream-specific wording that should now refer to the fork
 - [ ] Decide whether `CYD2USB` should remain the preferred board name in docs, or whether `ESP32-2432S028` should be primary
-- [ ] Confirm the browser flasher should point at `stable-mqtt-v1` by default
+- [ ] Confirm release/versioning policy for generated browser flasher artifacts
 - [ ] Decide whether stable firmware artifacts in `web/` should be committed or generated during release
 - [ ] Review whether `rom.bin` / patched ROM workflow wording is legally and operationally appropriate for public release
 - [ ] Verify `tools/update-disk.sh` behavior and document host requirements for HFS tooling

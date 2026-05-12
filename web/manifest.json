@@ -1,18 +1,23 @@
 {
   "name": "Cydintosh",
-  "version": "stable-mqtt-v1-2026-04-15",
+  "version": "multi-board-2026-05-12",
   "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32",
       "parts": [
         {
-          "path": "./merged-firmware-stable-mqtt-v1.bin",
+          "path": "./full-flash-esp32-cyd2usb.bin",
           "offset": 0
-        },
+        }
+      ]
+    },
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
         {
-          "path": "../.pio/build/esp32dev/littlefs.bin",
-          "offset": 2686976
+          "path": "./full-flash-esp32-8048s043c.bin",
+          "offset": 0
         }
       ]
     }

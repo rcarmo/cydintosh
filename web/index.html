@@ -113,8 +113,8 @@
         <span class="pill">Browser flasher • ESP Web Tools / Web Serial</span>
         <h1>Cydintosh Web Flasher</h1>
         <p>
-          Flash the locally built <strong>Cydintosh</strong> firmware to an ESP32 Cheap Yellow Display board
-          directly from Chrome or Edge, with no native install required on the client machine.
+          Flash a locally built <strong>Cydintosh</strong> full image to either an ESP32 CYD2USB
+          or ESP32-S3 ESP32-8048S043C board directly from Chrome or Edge, with no native install required on the client machine.
         </p>
         <div class="cta">
           <esp-web-install-button manifest="./manifest.json">
@@ -124,7 +124,7 @@
           </esp-web-install-button>
         </div>
         <div class="warning">
-          This flashes firmware built from the current local workspace. It includes a merged ESP32 image plus the LittleFS image.
+          This flashes board-specific full images built from the current local workspace. The ESP32 and ESP32-S3 images use different bootloader offsets; always choose the matching device family when prompted.
           Keep the board in bootloader/flashing mode before connecting if auto-reset does not work.
         </div>
       </section>
@@ -134,7 +134,7 @@
           <h2>How to use</h2>
           <ol>
             <li>Open this page in <strong>Chrome</strong> or <strong>Edge</strong>.</li>
-            <li>Connect the CYD board over USB with a data-capable cable.</li>
+            <li>Connect the CYD2USB or ESP32-8048S043C board over USB with a data-capable cable.</li>
             <li>If needed, put the board into flashing mode before clicking the button.</li>
             <li>Click <strong>Connect and Flash Cydintosh</strong>.</li>
             <li>Select the serial device presented by your OS.</li>
@@ -145,11 +145,11 @@
         <article class="card">
           <h2>Included images</h2>
           <ul>
-            <li><code>merged-firmware.bin</code> at offset <code>0x000000</code></li>
-            <li><code>littlefs.bin</code> at offset <code>0x290000</code></li>
+            <li><code>full-flash-esp32-cyd2usb.bin</code> at offset <code>0x000000</code></li>
+            <li><code>full-flash-esp32-8048s043c.bin</code> at offset <code>0x000000</code></li>
           </ul>
           <p class="footer">
-            The merged image contains the bootloader, partitions, application firmware, and patched Mac ROM.
+            Each full image contains the correct bootloader offset, partition table, application firmware, patched Mac ROM, and LittleFS disk image for its board.
           </p>
         </article>
 

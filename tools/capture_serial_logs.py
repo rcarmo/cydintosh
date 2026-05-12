@@ -3,7 +3,7 @@
 
 Example:
   python3 tools/capture_serial_logs.py \
-    --port /dev/cu.usbserial-210 \
+    --port /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
     --baud 115200 \
     --duration 10 \
     --output logs/boot-log.txt
@@ -83,7 +83,7 @@ def default_output_path() -> pathlib.Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", required=True, help="Serial port, e.g. /dev/cu.usbserial-210")
+    parser.add_argument("--port", required=True, help="Serial port, e.g. /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0")
     parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate (default: 115200)")
     parser.add_argument("--duration", type=float, default=10.0, help="Capture duration in seconds (default: 10)")
     parser.add_argument("--output", type=pathlib.Path, default=default_output_path(), help="Output file path")
