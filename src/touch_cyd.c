@@ -48,8 +48,10 @@ typedef enum {
     TAP_STATE_IDLE,
     TAP_STATE_FIRST_DOWN,
     TAP_STATE_FIRST_UP,
+    TAP_STATE_CLICK_HOLD,
     TAP_STATE_DOUBLE_DOWN,
-    TAP_STATE_DOUBLE_DRAGGING
+    TAP_STATE_DOUBLE_DRAGGING,
+    TAP_STATE_DRAG_RELEASE_PENDING
 } tap_state_t;
 
 static tap_state_t tap_state = TAP_STATE_IDLE;
@@ -58,6 +60,7 @@ static uint32_t first_tap_release_time = 0; // When first tap released
 static int16_t first_tap_x = 0, first_tap_y = 0;
 static int16_t double_tap_x = 0, double_tap_y = 0;
 static uint8_t first_tap_moved = 0; // Flag: significant movement during first tap
+static uint32_t drag_release_start_time = 0;
 
 static uint32_t get_tick_ms(void) {
     return xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -417,10 +420,14 @@ static void touch_task(void *arg) {
             case TAP_STATE_FIRST_UP: {
                 uint32_t release_duration = now - first_tap_release_time;
                 if (release_duration > DOUBLE_TAP_WINDOW_MS) {
-                    // Time window expired - single tap confirmed, no action
-                    ESP_LOGI(TAG, "TAP: FIRST_UP timeout (%dms > %dms), single tap - no action",
+                    // Time window expired - single tap confirmed. Emit a real click:
+                    // mouse down now, release later in CLICK_HOLD so classic Mac code sees it.
+                    ESP_LOGI(TAG, "TAP: FIRST_UP timeout (%dms > %dms), single tap click DOWN",
                              release_duration, DOUBLE_TAP_WINDOW_MS);
-                    tap_state = TAP_STATE_IDLE;
+                    tap_state = TAP_STATE_CLICK_HOLD;
+                    first_tap_release_time = now;
+                    mouse.pressed = 1;
+                    send_event = 1;
                 } else if (ev->pressed && !last_pressed) {
                     // Second touch within window - check timing
                     ESP_LOGI(TAG, "TAP: Second touch detected, release_duration=%dms (limit=%dms)",
@@ -457,13 +464,23 @@ static void touch_task(void *arg) {
                 }
             } break;
 
+            case TAP_STATE_CLICK_HOLD: {
+                uint32_t hold_duration = now - first_tap_release_time;
+                if (hold_duration >= TAP_CLICK_HOLD_MS) {
+                    ESP_LOGI(TAG, "TAP: CLICK_HOLD timeout (%dms), mouse UP", hold_duration);
+                    tap_state = TAP_STATE_IDLE;
+                    mouse.pressed = 0;
+                    send_event = 1;
+                }
+            } break;
+
             case TAP_STATE_DOUBLE_DOWN:
                 if (!ev->pressed && last_pressed) {
-                    // Quick release after double-tap - single click
-                    ESP_LOGI(TAG, "TAP: DOUBLE_DOWN -> release, mouse UP (click complete)");
-                    tap_state = TAP_STATE_IDLE;
-                    mouse.pressed = 0; // Mouse button UP
-                    send_event = 1;
+                    // Quick release after double-tap - click, but hold down long enough
+                    // for classic Mac apps/Finder to see a stable button press.
+                    ESP_LOGI(TAG, "TAP: DOUBLE_DOWN -> release, entering CLICK_HOLD");
+                    tap_state = TAP_STATE_CLICK_HOLD;
+                    first_tap_release_time = now;
                 } else if (ev->pressed && last_pressed) {
                     // Holding after double-tap - start drag
                     ESP_LOGI(TAG, "TAP: DOUBLE_DOWN -> DRAGGING");
@@ -477,10 +494,12 @@ static void touch_task(void *arg) {
 
             case TAP_STATE_DOUBLE_DRAGGING:
                 if (!ev->pressed && last_pressed) {
-                    // Released after drag - mouse button UP
-                    ESP_LOGI(TAG, "TAP: DRAGGING -> release, mouse UP");
-                    tap_state = TAP_STATE_IDLE;
-                    mouse.pressed = 0; // Mouse button UP
+                    // Possible release after drag. Do not release immediately: GT911 can
+                    // briefly drop contact during long drags/minor slips.
+                    ESP_LOGI(TAG, "TAP: DRAGGING -> release pending");
+                    tap_state = TAP_STATE_DRAG_RELEASE_PENDING;
+                    drag_release_start_time = now;
+                    mouse.pressed = 1; // Keep button DOWN during grace window
                     mouse.dx = 0;
                     mouse.dy = 0;
                     send_event = 1;
@@ -492,6 +511,16 @@ static void touch_task(void *arg) {
                     send_event = 1;
                 }
                 break;
+
+            case TAP_STATE_DRAG_RELEASE_PENDING:
+                if (ev->pressed && !last_pressed) {
+                    // Contact resumed inside grace window: continue drag without a release.
+                    ESP_LOGI(TAG, "TAP: release pending -> DRAGGING resumed");
+                    tap_state = TAP_STATE_DOUBLE_DRAGGING;
+                    mouse.pressed = 1;
+                    send_event = 1;
+                }
+                break;
             }
 
             if (send_event) {
@@ -500,15 +529,33 @@ static void touch_task(void *arg) {
 
             last_pressed = ev->pressed;
         } else {
-            // Check for timeout when no touch event
+            // Check timeouts when no touch event arrives.
+            uint32_t now = get_tick_ms();
             if (tap_state == TAP_STATE_FIRST_UP) {
-                uint32_t now = get_tick_ms();
                 uint32_t release_duration = now - first_tap_release_time;
                 if (release_duration > DOUBLE_TAP_WINDOW_MS) {
-                    // Time window expired - single tap confirmed, do nothing
-                    ESP_LOGI(TAG, "TAP: FIRST_UP timeout (%dms > %dms), single tap confirmed",
+                    ESP_LOGI(TAG, "TAP: FIRST_UP timeout (%dms > %dms), single tap click DOWN",
                              release_duration, DOUBLE_TAP_WINDOW_MS);
+                    tap_state = TAP_STATE_CLICK_HOLD;
+                    first_tap_release_time = now;
+                    mouse_delta_t mouse = {.dx = 0, .dy = 0, .pressed = 1};
+                    xQueueSend(mouse_queue, &mouse, 0);
+                }
+            } else if (tap_state == TAP_STATE_CLICK_HOLD) {
+                uint32_t hold_duration = now - first_tap_release_time;
+                if (hold_duration >= TAP_CLICK_HOLD_MS) {
+                    ESP_LOGI(TAG, "TAP: CLICK_HOLD timeout (%dms), mouse UP", hold_duration);
                     tap_state = TAP_STATE_IDLE;
+                    mouse_delta_t mouse = {.dx = 0, .dy = 0, .pressed = 0};
+                    xQueueSend(mouse_queue, &mouse, 0);
+                }
+            } else if (tap_state == TAP_STATE_DRAG_RELEASE_PENDING) {
+                uint32_t release_duration = now - drag_release_start_time;
+                if (release_duration >= DRAG_RELEASE_GRACE_MS) {
+                    ESP_LOGI(TAG, "TAP: release grace timeout (%dms), mouse UP", release_duration);
+                    tap_state = TAP_STATE_IDLE;
+                    mouse_delta_t mouse = {.dx = 0, .dy = 0, .pressed = 0};
+                    xQueueSend(mouse_queue, &mouse, 0);
                 }
             }
         }

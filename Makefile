@@ -28,7 +28,8 @@ UPSTREAM_BASE_COMMIT := cd5a6b2
 PIO ?= pio
 ESPTOOL ?= /workspace/.venvs/pio/bin/python -m esptool
 RETRO68_IMAGE := ghcr.io/autc04/retro68
-UMAC_PATCHES := patches/umac-suppress-sony-eject.patch
+UMAC_PATCHES := patches/umac-suppress-sony-eject.patch \
+	patches/umac-esp32-hotpath-tuning.patch
 PIO_ENV ?= esp32-cyd2usb
 BUILD_DIR := .pio/build/$(PIO_ENV)
 ARTIFACT_SUFFIX ?= $(PIO_ENV)

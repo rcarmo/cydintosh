@@ -7,8 +7,20 @@
 #include <string.h>
 
 static const char *TAG = "wifi_info";
+static bool s_wifi_available = false;
+
+void wifi_set_available(bool available) {
+    s_wifi_available = available;
+}
 
 void wifi_get_ap_list(umac_ipc_response_t *resp) {
+    if (!s_wifi_available) {
+        ESP_LOGW(TAG, "wifi_get_ap_list: WiFi not initialised");
+        resp->data[0] = 0;
+        resp->len = 1;
+        resp->status = 1;
+        return;
+    }
     wifi_scan_config_t config = {0};
     esp_wifi_scan_start(&config, true);
 
@@ -38,6 +50,12 @@ void wifi_get_ap_list(umac_ipc_response_t *resp) {
 }
 
 void wifi_get_status(umac_ipc_response_t *resp) {
+    if (!s_wifi_available) {
+        resp->data[0] = 0; // disconnected
+        resp->len = 1;
+        resp->status = 1;
+        return;
+    }
     wifi_ap_record_t ap_info;
     esp_err_t err = esp_wifi_sta_get_ap_info(&ap_info);
 

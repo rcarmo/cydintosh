@@ -145,4 +145,13 @@ extern int overlay;
 #define ROM_RD_ALIGNED_BE16(addr) READ_WORD_AL(_rom_base, addr)
 #define ROM_RD32(addr)            READ_LONG(_rom_base, addr)
 
+// Emulator quantum: µs of Mac time executed per umac_loop() call.
+// Larger = fewer setjmp/tick overheads; one Mac VIA frame = 16 666 µs at 60.15 Hz.
+#ifndef UMAC_EXECLOOP_QUANTUM
+#define UMAC_EXECLOOP_QUANTUM 5000
+#endif
+
+// Cycles the Mac M68K executes per quantum (8 MHz Mac Plus).
+#define UMAC_CYCLES_PER_QUANTUM (UMAC_EXECLOOP_QUANTUM * 8)
+
 #endif

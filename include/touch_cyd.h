@@ -24,14 +24,16 @@ typedef struct {
 } mouse_delta_t;
 
 // Double-tap and gesture detection constants
-#define DOUBLE_TAP_WINDOW_MS         400 // Time window for double-tap detection
+#define DOUBLE_TAP_WINDOW_MS         300 // Time window for double-tap detection
 #define TAP_MIN_DURATION_MS          30  // Minimum tap duration to be considered valid
 #define TAP_MAX_DURATION_MS          600 // Maximum tap duration for a "tap" (no movement)
 #define DOUBLE_TAP_RELEASE_WINDOW_MS 250 // Second tap must occur within this window
+#define TAP_CLICK_HOLD_MS            120 // Hold mouse down long enough for classic Mac click handling
+#define DRAG_RELEASE_GRACE_MS        150 // Ignore brief no-touch gaps during long drags
 
 // Movement detection
-#define DEADZONE_PX           10 // Deadzone for instantaneous movement
-#define MOVEMENT_THRESHOLD_PX 15 // Distance from start to be considered "dragging"
+#define DEADZONE_PX           3  // Per-poll delta noise filter (GT911 jitters ±1-2px)
+#define MOVEMENT_THRESHOLD_PX 6  // Distance from start to enter cursor-move mode
 #define MOVEMENT_THRESHOLD_SQ (MOVEMENT_THRESHOLD_PX * MOVEMENT_THRESHOLD_PX)
 
 // Initialize touch controller

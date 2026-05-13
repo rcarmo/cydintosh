@@ -1,0 +1,105 @@
+diff --git a/include/machw.h b/include/machw.h
+index 962d45c..137129c 100644
+--- a/include/machw.h
++++ b/include/machw.h
+@@ -154,4 +154,14 @@ extern int overlay;
+ #define ROM_RD_ALIGNED_BE16(addr)       READ_WORD_AL(_rom_base, addr)
+ #define ROM_RD32(addr)                  READ_LONG(_rom_base, addr)
+ 
++// Emulator loop quantum and derived cycle count.
++// Override via build flags or the outer project's machw.h; default = 5000 µs.
++// Larger values reduce loop overhead but make mouse/kbd less responsive.
++#ifndef UMAC_EXECLOOP_QUANTUM
++#define UMAC_EXECLOOP_QUANTUM  5000
++#endif
++#ifndef UMAC_CYCLES_PER_QUANTUM
++#define UMAC_CYCLES_PER_QUANTUM (UMAC_EXECLOOP_QUANTUM * 8)
++#endif
++
+ #endif
+diff --git a/src/main.c b/src/main.c
+index 5a9c49d..afe734f 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -55,6 +55,9 @@
+ #ifdef PICO
+ #include "pico.h"
+ #define FAST_FUNC(x)    __not_in_flash_func(x)
++#elif defined(ESP_PLATFORM)
++#include "esp_attr.h"
++#define FAST_FUNC(x)    IRAM_ATTR x
+ #else
+ #define FAST_FUNC(x)    x
+ #endif
+@@ -83,7 +86,7 @@ static jmp_buf main_loop_jb;
+ 
+ static int disassemble = 0;
+ 
+-#define UMAC_EXECLOOP_QUANTUM   5000
++// UMAC_EXECLOOP_QUANTUM defined in machw.h; default 5000 µs keeps mouse/kbd polling responsive.
+ 
+ static void    update_overlay_layout(void);
+ 
+@@ -368,9 +371,9 @@ unsigned int (*cpu_read_instr)(unsigned int address) = cpu_read_instr_overlay;
+ unsigned int    FAST_FUNC(cpu_read_byte)(unsigned int address)
+ {
+         /* Most likely a RAM access, followed by a ROM access, then I/O */
+-        if (IS_RAM(address))
++        if (__builtin_expect(IS_RAM(address), 1))
+                 return RAM_RD8(CLAMP_RAM_ADDR(address));
+-        if (IS_ROM(address))
++        if (__builtin_expect(IS_ROM(address), 1))
+                 return ROM_RD8(address & (ROM_SIZE - 1));
+ 
+         // decode IO etc
+@@ -394,9 +397,9 @@ unsigned int    FAST_FUNC(cpu_read_byte)(unsigned int address)
+ 
+ unsigned int    FAST_FUNC(cpu_read_word)(unsigned int address)
+ {
+-        if (IS_RAM(address))
++        if (__builtin_expect(IS_RAM(address), 1))
+                 return RAM_RD16(CLAMP_RAM_ADDR(address));
+-        if (IS_ROM(address))
++        if (__builtin_expect(IS_ROM(address), 1))
+                 return ROM_RD16(address & (ROM_SIZE - 1));
+ 
+         if (IS_TESTSW(address))
+@@ -408,9 +411,9 @@ unsigned int    FAST_FUNC(cpu_read_word)(unsigned int address)
+ 
+ unsigned int    FAST_FUNC(cpu_read_long)(unsigned int address)
+ {
+-        if (IS_RAM(address))
++        if (__builtin_expect(IS_RAM(address), 1))
+                 return RAM_RD32(CLAMP_RAM_ADDR(address));
+-        if (IS_ROM(address))
++        if (__builtin_expect(IS_ROM(address), 1))
+                 return ROM_RD32(address & (ROM_SIZE - 1));
+ 
+         if (IS_TESTSW(address))
+@@ -447,7 +450,7 @@ unsigned int    cpu_read_long_dasm(unsigned int address)
+ /* Write data to RAM or a device */
+ void    FAST_FUNC(cpu_write_byte)(unsigned int address, unsigned int value)
+ {
+-        if (IS_RAM(address)) {
++        if (__builtin_expect(IS_RAM(address), 1)) {
+                 RAM_WR8(CLAMP_RAM_ADDR(address), value);
+                 return;
+         }
+@@ -486,7 +489,7 @@ void    FAST_FUNC(cpu_write_byte)(unsigned int address, unsigned int value)
+ 
+ void    FAST_FUNC(cpu_write_word)(unsigned int address, unsigned int value)
+ {
+-        if (IS_RAM(address)) {
++        if (__builtin_expect(IS_RAM(address), 1)) {
+                 RAM_WR16(CLAMP_RAM_ADDR(address), value);
+                 return;
+         }
+@@ -495,7 +498,7 @@ void    FAST_FUNC(cpu_write_word)(unsigned int address, unsigned int value)
+ 
+ void    FAST_FUNC(cpu_write_long)(unsigned int address, unsigned int value)
+ {
+-        if (IS_RAM(address)) {
++        if (__builtin_expect(IS_RAM(address), 1)) {
+                 RAM_WR32(CLAMP_RAM_ADDR(address), value);
+                 return;
+         }

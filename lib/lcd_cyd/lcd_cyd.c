@@ -162,3 +162,11 @@ void lcd_wait_trans_complete(void) {
     esp_lcd_panel_io_tx_param(io_handle, -1, NULL, 0);
 #endif
 }
+
+void lcd_get_rgb_framebuffer(void **fb_out) {
+#if defined(LCD_PANEL_RGB)
+    esp_lcd_rgb_panel_get_frame_buffer(panel_handle, 1, fb_out);
+#else
+    *fb_out = NULL;
+#endif
+}

@@ -14,11 +14,22 @@
 #define LCD_WIDTH SCREEN_WIDTH
 #define LCD_HEIGHT SCREEN_HEIGHT
 
-// Render the 240x320 Mac framebuffer as 640x480, rotated clockwise and centered.
+// Full-size portrait mode: device held portrait (USB to side), 480x800 physical.
+// DISP_HEIGHT=400, DISP_WIDTH=240 set in platformio.ini; at scale 2: 480x800 = fills entire panel.
+// Mac framebuffer 240x400 at scale 2 fills the entire 800x480 panel (rotated CW).
+// 240*2=480=LCD_HEIGHT, 400*2=800=LCD_WIDTH — zero black bars.
+
 #define LCD_RENDER_SCALE 2
 #define LCD_RENDER_ROTATE_CW 1
-#define LCD_RENDER_OFFSET_X ((LCD_WIDTH - (DISP_HEIGHT * LCD_RENDER_SCALE)) / 2)
-#define LCD_RENDER_OFFSET_Y ((LCD_HEIGHT - (DISP_WIDTH * LCD_RENDER_SCALE)) / 2)
+#define LCD_RENDER_FLIP_X 0
+#define LCD_RENDER_FLIP_Y 0
+#define LCD_RENDER_INVERT_MONO 1
+#define LCD_RENDER_OFFSET_X 0
+#define LCD_RENDER_OFFSET_Y 0
+
+// RGB panels are memory-mapped; wider PSRAM-backed strips reduce draw call overhead.
+#define LCD_TRANSFER_STRIP_WIDTH 40
+#define LCD_TRANSFER_BUFFER_CAPS (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
 
 // RGB LCD timing and pins from ESPHome's Sunton ESP32-8048S043C profile.
 #define LCD_RGB_PCLK_HZ (16 * 1000 * 1000)
@@ -62,15 +73,18 @@
 #define TOUCH_GT911_ADDR1 0x5D
 #define TOUCH_GT911_ADDR2 0x14
 #define TOUCH_SWAP_XY 0
-#define TOUCH_MIRROR_X 0
+#define TOUCH_MIRROR_X 1   // GT911 x=0 is at the right edge in landscape; negate dx before delta rotation
 #define TOUCH_MIRROR_Y 0
 
 #define TOUCH_DELTA_ROTATE_CW 1
-#define TOUCH_DELTA_SCALE LCD_RENDER_SCALE
+#define TOUCH_DELTA_SCALE 1  // 1:1 GT911->Mac pixel for speed
 
 #define LED_R_PIN GPIO_UNUSED
 #define LED_G_PIN GPIO_UNUSED
 #define LED_B_PIN GPIO_UNUSED
 #define GPIO_LED_PIN GPIO_UNUSED
+
+// Keep the emulator task stack smaller on S3 so it fits internal heap after WiFi/LCD setup.
+#define UMAC_TASK_STACK_SIZE 16384
 
 #endif

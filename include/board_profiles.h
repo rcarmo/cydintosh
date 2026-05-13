@@ -6,22 +6,24 @@
 #define CYD_BOARD_ESP32_2432S028 1
 #endif
 
-// Emulated Macintosh framebuffer dimensions. These must match the patched ROM.
-#ifndef DISP_WIDTH
-#define DISP_WIDTH 240
-#endif
-#ifndef DISP_HEIGHT
-#define DISP_HEIGHT 320
-#endif
-
 #define GPIO_UNUSED -1
 
+// Include board-specific header first; boards may override DISP_WIDTH/DISP_HEIGHT.
 #if defined(CYD_BOARD_ESP32_8048S043C)
 #include "boards/esp32_8048s043c.h"
 #elif defined(CYD_BOARD_ESP32_2432S028)
 #include "boards/esp32_2432s028.h"
 #else
 #error "Unsupported Cydintosh board profile"
+#endif
+
+// Emulated Macintosh framebuffer dimensions.
+// Boards may define these to override the defaults below.
+#ifndef DISP_WIDTH
+#define DISP_WIDTH 240
+#endif
+#ifndef DISP_HEIGHT
+#define DISP_HEIGHT 320
 #endif
 
 #ifndef BOARD_NAME
@@ -42,9 +44,30 @@
 #ifndef TOUCH_DELTA_SCALE
 #error "Board profile must define TOUCH_DELTA_SCALE"
 #endif
+#ifndef UMAC_TASK_STACK_SIZE
+#error "Board profile must define UMAC_TASK_STACK_SIZE"
+#endif
+#ifndef LCD_RENDER_FLIP_X
+#error "Board profile must define LCD_RENDER_FLIP_X"
+#endif
+#ifndef LCD_RENDER_FLIP_Y
+#error "Board profile must define LCD_RENDER_FLIP_Y"
+#endif
+#ifndef LCD_RENDER_INVERT_MONO
+#error "Board profile must define LCD_RENDER_INVERT_MONO"
+#endif
+#ifndef LCD_TRANSFER_STRIP_WIDTH
+#error "Board profile must define LCD_TRANSFER_STRIP_WIDTH"
+#endif
+#ifndef LCD_TRANSFER_BUFFER_CAPS
+#error "Board profile must define LCD_TRANSFER_BUFFER_CAPS"
+#endif
 
 #if LCD_RENDER_SCALE < 1
 #error "LCD_RENDER_SCALE must be >= 1"
+#endif
+#if LCD_TRANSFER_STRIP_WIDTH < 1
+#error "LCD_TRANSFER_STRIP_WIDTH must be >= 1"
 #endif
 
 #if (defined(LCD_PANEL_RGB) && defined(LCD_PANEL_ILI9341_SPI)) || \

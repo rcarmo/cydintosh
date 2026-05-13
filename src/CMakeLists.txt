@@ -21,3 +21,11 @@ idf_component_register(
     INCLUDE_DIRS "." "${CMAKE_SOURCE_DIR}/include" "${UMAC_DIR}/include" "${MUSASHI_DIR}"
     REQUIRES driver esp_timer esp_lcd joltwallet__littlefs lcd_cyd esp_wifi esp_netif mqtt
 )
+
+# PlatformIO build_flags (-D) only reach src/ files via platformio's own mechanism.
+# Explicitly forward critical defines so external/umac and Musashi sources compile correctly.
+if(CONFIG_IDF_TARGET_ESP32S3)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DISP_HEIGHT=400 DISP_WIDTH=240 UMAC_MEMSIZE=128)
+else()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DISP_HEIGHT=320 DISP_WIDTH=240 UMAC_MEMSIZE=128)
+endif()

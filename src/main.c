@@ -8,6 +8,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "wifi_info.h"
 #include "hw.h"
 #include "hw_control.h"
 #include "lcd_cyd.h"
@@ -56,7 +57,8 @@ static const int BENCH_REPORT_INTERVAL = 60; // Report every N frames
 
 static uint8_t *umac_ram = NULL;
 static uint8_t *umac_fb = NULL;        // Framebuffer for Mac
-static const uint8_t *rom_mmap = NULL; // Flash mmap pointer
+static const uint8_t *rom_mmap = NULL; // Flash mmap pointer (source ROM)
+static uint8_t *rom_work = NULL;       // Writable ROM copy (PSRAM on S3) so ROM patches really apply
 
 #define UMAC_ROM_SIZE 0x20000
 #define FB_SIZE       (DISP_WIDTH * DISP_HEIGHT / 8) // Framebuffer size in bytes
@@ -224,7 +226,7 @@ static void led_fade_white(uint32_t duration_ms, uint8_t max_brightness) {
 static void umac_task(void *arg) {
     ESP_LOGI(TAG, "umac task started");
 
-    // Map ROM from partition (no SRAM copy needed)
+    // Map ROM from flash partition.
     size_t rom_mapped_size;
     if (rom_mmap_from_partition(&rom_mmap, &rom_mapped_size) != 0) {
         ESP_LOGE(TAG, "Failed to map ROM from partition!");
@@ -232,15 +234,42 @@ static void umac_task(void *arg) {
     }
     ESP_LOGI(TAG, "ROM mapped at %p, size: %u bytes", (void *)rom_mmap, rom_mapped_size);
 
+#if defined(BOARD_HAS_PSRAM)
+    // Do not patch the flash mmap directly: it is not a reliable writable backing store.
+    // Copy to PSRAM (not internal SRAM) so ROM patches for 240x400 always take effect
+    // without starving FreeRTOS task stacks.
+    rom_work = heap_caps_malloc(UMAC_ROM_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (rom_work == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate %u-byte writable ROM copy in PSRAM", UMAC_ROM_SIZE);
+        return;
+    }
+    memcpy(rom_work, rom_mmap, UMAC_ROM_SIZE);
+    ESP_LOGI(TAG, "ROM copied to writable PSRAM at %p (%u bytes)", (void *)rom_work, UMAC_ROM_SIZE);
+#else
+    rom_work = (uint8_t *)rom_mmap;
+#endif
+
+    if (rom_patch(rom_work) != 0) {
+        ESP_LOGE(TAG, "Failed to patch ROM for %dx%d display", DISP_WIDTH, DISP_HEIGHT);
+        return;
+    }
+    ESP_LOGI(TAG, "ROM patched for %dx%d display: FB_START=0x%x", DISP_WIDTH, DISP_HEIGHT, FB_START);
+
     disc_setup();
 
-    umac_init(umac_ram, (void *)rom_mmap, umac_fb, discs);
+    umac_init(umac_ram, (void *)rom_work, umac_fb, discs);
 
     // Video uses stable display buffer snapshot
     video_init((uint32_t *)umac_fb);
 
     ESP_LOGI(TAG, "Starting emulation");
-    ESP_LOGI(TAG, "FB offset: 0x%x", umac_get_fb_offset());
+    ESP_LOGI(TAG, "FB offset: 0x%x (expected FB_START=0x%x, DISP=%dx%d)",
+             umac_get_fb_offset(), FB_START, DISP_WIDTH, DISP_HEIGHT);
+    if (umac_get_fb_offset() != FB_START) {
+        ESP_LOGE(TAG, "FATAL: FB_START mismatch! ROM patched for different DISP_HEIGHT."
+                      " rom.c FB=0x%x vs display FB_START=0x%x",
+                 umac_get_fb_offset(), FB_START);
+    }
 
     int emulated_cycles = 0;
     int frame_count = 0;
@@ -255,7 +284,8 @@ static void umac_task(void *arg) {
         umac_loop();
         bench_umac_loop_total += esp_timer_get_time() - _bench_t0;
 
-        emulated_cycles += 40000;
+        // Cycles per umac_loop() call: UMAC_CYCLES_PER_QUANTUM
+        emulated_cycles += UMAC_CYCLES_PER_QUANTUM;
 
         if (emulated_cycles >= cycles_per_frame) {
             // Measure video_update
@@ -298,19 +328,22 @@ static void umac_task(void *arg) {
                 frame_count = 0;
             }
 
-            // Trackpad mode: accumulate touch deltas for relative mouse movement
+            // Trackpad mode: accumulate touch deltas for relative mouse movement.
+            // Touch button state must be latched: the touch task emits pressed=1
+            // while dragging and pressed=0 on explicit release, but may not emit
+            // every umac loop. Without this latch, drag-and-drop releases between
+            // queue events.
             mouse_delta_t mouse;
             int32_t accum_dx = 0, accum_dy = 0;
-            uint8_t touch_pressed = 0;
             uint8_t touch_event_count = 0;
+            static uint8_t touch_button_state = 0;
             QueueHandle_t touch_mouse_queue = touch_get_mouse_queue();
 
             while (xQueueReceive(touch_mouse_queue, &mouse, 0)) {
                 touch_event_count++;
                 accum_dx += mouse.dx;
                 accum_dy += mouse.dy;
-                if (mouse.pressed)
-                    touch_pressed = 1;
+                touch_button_state = mouse.pressed;
             }
 
             // Read BOOT button (GPIO0) state for click (coexist with
@@ -322,17 +355,24 @@ static void umac_task(void *arg) {
             static uint8_t last_button_state = 0;
 
             // Combine button and touch states (OR logic for coexistence)
-            uint8_t final_button = button_pressed | touch_pressed;
+            uint8_t final_button = button_pressed | touch_button_state;
 
             // Log mouse button events for debugging
             if (final_button && !last_button_state) {
                 ESP_LOGI("MOUSE",
                          "CLICK DETECTED: touch_events=%d, touch_pressed=%d, "
                          "button_pressed=%d",
-                         touch_event_count, touch_pressed, button_pressed);
+                         touch_event_count, touch_button_state, button_pressed);
             }
 
-            // Apply accumulated movement with button state
+            // Apply accumulated movement with button state.
+            // Cap deltas to prevent Mac's built-in mouse acceleration from
+            // making the cursor fly across the screen on large touch swipes.
+            #define MOUSE_DELTA_CAP 3
+            if (accum_dx > MOUSE_DELTA_CAP)  accum_dx = MOUSE_DELTA_CAP;
+            if (accum_dx < -MOUSE_DELTA_CAP) accum_dx = -MOUSE_DELTA_CAP;
+            if (accum_dy > MOUSE_DELTA_CAP)  accum_dy = MOUSE_DELTA_CAP;
+            if (accum_dy < -MOUSE_DELTA_CAP) accum_dy = -MOUSE_DELTA_CAP;
             uint8_t final_button_changed = (final_button != last_button_state);
             if (accum_dx != 0 || accum_dy != 0 || final_button || final_button_changed) {
                 umac_mouse((int16_t)accum_dx, (int16_t)accum_dy, final_button);
@@ -359,10 +399,15 @@ void app_main(void) {
     ESP_LOGI(TAG, "Cydintosh starting...");
 
     // Allocate Mac RAM early (before LCD init which fragments heap).
-    // Use MALLOC_CAP_8BIT (not DMA) to preserve DMA-capable regions for LCD.
-    umac_ram = (uint8_t *)heap_caps_malloc(RAM_SIZE, MALLOC_CAP_8BIT);
+    // Prefer internal SRAM for umac_ram: every M68K memory access goes through this buffer.
+    // MALLOC_CAP_SPIRAM fallback is ~5x slower and would cap emulation at ~20% of real Mac speed.
+    umac_ram = (uint8_t *)heap_caps_malloc(RAM_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (umac_ram == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate %d bytes from internal RAM!", RAM_SIZE);
+        ESP_LOGW(TAG, "Internal RAM full, falling back to SPIRAM for Mac RAM (will be slow)");
+        umac_ram = (uint8_t *)heap_caps_malloc(RAM_SIZE, MALLOC_CAP_8BIT);
+    }
+    if (umac_ram == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes Mac RAM!", RAM_SIZE);
         return;
     }
     ESP_LOGI(TAG, "Allocated %d bytes Mac RAM at %p", RAM_SIZE, umac_ram);
@@ -401,24 +446,34 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
+    // Quick win 3: skip WiFi entirely when SSID is the default placeholder.
+    // An active WiFi scan/retry loop fires ISRs on both cores and consumes ~80 KB
+    // of internal heap, which cap emulation speed at ~20% of real Mac speed.
+    const bool wifi_enabled = (strcmp(WIFI_SSID, "placeholder") != 0 &&
+                               strcmp(WIFI_SSID, "") != 0);
+    if (wifi_enabled) {
+        ESP_ERROR_CHECK(esp_netif_init());
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+        esp_netif_create_default_wifi_sta();
 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        ESP_ERROR_CHECK(esp_wifi_start());
 
-    wifi_config_t wifi_config = {0};
-    strcpy((char *)wifi_config.sta.ssid, WIFI_SSID);
-    strcpy((char *)wifi_config.sta.password, WIFI_PASSWORD);
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_connect());
-    ESP_LOGI(TAG, "WiFi connecting to %s...", WIFI_SSID);
+        wifi_config_t wifi_config = {0};
+        strcpy((char *)wifi_config.sta.ssid, WIFI_SSID);
+        strcpy((char *)wifi_config.sta.password, WIFI_PASSWORD);
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+        ESP_ERROR_CHECK(esp_wifi_connect());
+        ESP_LOGI(TAG, "WiFi connecting to %s...", WIFI_SSID);
 
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
-                                               &wifi_event_handler, NULL));
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
+                                                   &wifi_event_handler, NULL));
+        wifi_set_available(true);
+    } else {
+        ESP_LOGW(TAG, "WiFi disabled: SSID not configured. Set WIFI_SSID in user_config.h to enable.");
+    }
 
     hw_control_init();
     umac_ipc_init();
@@ -440,8 +495,12 @@ void app_main(void) {
     display_task_start(0, 2);
 
     ESP_LOGI(TAG, "Touch and display tasks started on Core 0");
+    ESP_LOGI(TAG, "Internal heap before umac task: free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
-    BaseType_t umac_ret = xTaskCreatePinnedToCore(umac_task, "umac", 32768, NULL, 5, NULL, 1);
+    BaseType_t umac_ret =
+        xTaskCreatePinnedToCore(umac_task, "umac", UMAC_TASK_STACK_SIZE, NULL, 5, NULL, 1);
     if (umac_ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create umac task (ret=%d)", (int)umac_ret);
     } else {

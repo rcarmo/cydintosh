@@ -6,5 +6,6 @@
 void lcd_cyd_init(void);
 void lcd_draw_bitmap(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t *data);
 void lcd_wait_trans_complete(void);
+void lcd_get_rgb_framebuffer(void **fb_out);
 
 #endif
