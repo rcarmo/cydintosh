@@ -5,6 +5,7 @@
 #include "freertos/queue.h"
 
 #include <inttypes.h>
+#include "hw.h"
 
 // Touch event structure
 typedef struct {
@@ -31,9 +32,14 @@ typedef struct {
 #define TAP_CLICK_HOLD_MS            120 // Hold mouse down long enough for classic Mac click handling
 #define DRAG_RELEASE_GRACE_MS        150 // Ignore brief no-touch gaps during long drags
 
-// Movement detection
-#define DEADZONE_PX           3  // Per-poll delta noise filter (GT911 jitters ±1-2px)
-#define MOVEMENT_THRESHOLD_PX 6  // Distance from start to enter cursor-move mode
+// Movement detection. Boards can override these: XPT2046 resistive panels
+// need stronger filtering than GT911 capacitive panels.
+#ifndef DEADZONE_PX
+#define DEADZONE_PX 3
+#endif
+#ifndef MOVEMENT_THRESHOLD_PX
+#define MOVEMENT_THRESHOLD_PX 6
+#endif
 #define MOVEMENT_THRESHOLD_SQ (MOVEMENT_THRESHOLD_PX * MOVEMENT_THRESHOLD_PX)
 
 // Initialize touch controller

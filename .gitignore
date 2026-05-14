@@ -4,6 +4,7 @@
 !.gitignore
 !.gitmodules
 !README.md
+!README.original.md
 
 # Source code
 !/src/

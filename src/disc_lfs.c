@@ -69,12 +69,26 @@ static int disc_lfs_read(void *ctx, uint8_t *data, unsigned int offset, unsigned
 
 static int disc_lfs_write(void *ctx, uint8_t *data, unsigned int offset, unsigned int len) {
     FILE *f = (FILE *)ctx;
-    if (!f)
+    static int write_log_count = 0;
+    if (!f) {
+        ESP_LOGE(TAG, "write: file is NULL");
         return -1;
+    }
 
-    fseek(f, offset, SEEK_SET);
+    if (fseek(f, offset, SEEK_SET) != 0) {
+        ESP_LOGE(TAG, "write: fseek failed offset=%u", offset);
+        return -1;
+    }
     size_t written = fwrite(data, 1, len, f);
     fflush(f);
+    if (write_log_count < 16) {
+        ESP_LOGI(TAG,
+                 "write[%d]: offset=%u len=%u written=%u first=%02x %02x %02x %02x",
+                 write_log_count, offset, len, (unsigned)written,
+                 len > 0 ? data[0] : 0, len > 1 ? data[1] : 0,
+                 len > 2 ? data[2] : 0, len > 3 ? data[3] : 0);
+        write_log_count++;
+    }
     return (written == len) ? 0 : -1;
 }
 

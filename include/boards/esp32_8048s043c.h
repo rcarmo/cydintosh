@@ -14,12 +14,11 @@
 #define LCD_WIDTH SCREEN_WIDTH
 #define LCD_HEIGHT SCREEN_HEIGHT
 
-// Full-size portrait mode: device held portrait (USB to side), 480x800 physical.
-// DISP_HEIGHT=400, DISP_WIDTH=240 set in platformio.ini; at scale 2: 480x800 = fills entire panel.
-// Mac framebuffer 240x400 at scale 2 fills the entire 800x480 panel (rotated CW).
-// 240*2=480=LCD_HEIGHT, 400*2=800=LCD_WIDTH — zero black bars.
+// Native portrait mode at 1x: 480x800 Mac framebuffer rotated clockwise
+// onto the physical 800x480 RGB panel. DISP_WIDTH=480, DISP_HEIGHT=800
+// set in platformio.ini.
 
-#define LCD_RENDER_SCALE 2
+#define LCD_RENDER_SCALE 1
 #define LCD_RENDER_ROTATE_CW 1
 #define LCD_RENDER_FLIP_X 0
 #define LCD_RENDER_FLIP_Y 0
@@ -77,7 +76,11 @@
 #define TOUCH_MIRROR_Y 0
 
 #define TOUCH_DELTA_ROTATE_CW 1
-#define TOUCH_DELTA_SCALE 1  // 1:1 GT911->Mac pixel for speed
+#define TOUCH_DELTA_SCALE 1  // 1:1 GT911->Mac pixel for native 480x800 portrait
+#define MOUSE_DELTA_CAP 3    // avoid Mac acceleration spikes on GT911
+#define TOUCH_FILTER_SHIFT 0 // no absolute-coordinate smoothing for capacitive touch
+#define DEADZONE_PX 3        // GT911 capacitive touch jitter is low
+#define MOVEMENT_THRESHOLD_PX 6
 
 #define LED_R_PIN GPIO_UNUSED
 #define LED_G_PIN GPIO_UNUSED
@@ -86,5 +89,9 @@
 
 // Keep the emulator task stack smaller on S3 so it fits internal heap after WiFi/LCD setup.
 #define UMAC_TASK_STACK_SIZE 16384
+
+// Desktop metadata is pre-seeded in the System 6 image; keep flash disk read-only
+// to avoid guest crashes in the still-minimal Sony write path.
+#define DISK_IMAGE_READ_ONLY 1
 
 #endif

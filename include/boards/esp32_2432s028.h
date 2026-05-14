@@ -9,8 +9,8 @@
 #define TOUCH_CONTROLLER_XPT2046 1
 #define LCD_PANEL_ILI9341_SPI 1
 
-#define SCREEN_WIDTH DISP_WIDTH
-#define SCREEN_HEIGHT DISP_HEIGHT
+#define SCREEN_WIDTH 240
+#define SCREEN_HEIGHT 320
 #define LCD_WIDTH SCREEN_WIDTH
 #define LCD_HEIGHT SCREEN_HEIGHT
 #define LCD_RENDER_SCALE 1
@@ -20,6 +20,9 @@
 #define LCD_RENDER_INVERT_MONO 0
 #define LCD_RENDER_OFFSET_X 0
 #define LCD_RENDER_OFFSET_Y 0
+#ifndef LCD_RENDER_FIT_TO_PANEL
+#define LCD_RENDER_FIT_TO_PANEL 0
+#endif
 #define LCD_TRANSFER_STRIP_WIDTH 4
 #define LCD_TRANSFER_BUFFER_CAPS MALLOC_CAP_8BIT
 
@@ -50,6 +53,10 @@
 #define TOUCH_MIRROR_Y 1
 #define TOUCH_DELTA_ROTATE_CW 0
 #define TOUCH_DELTA_SCALE 1
+#define MOUSE_DELTA_CAP 18
+#define TOUCH_FILTER_SHIFT 1    // IIR low-pass: 1/2 new sample, 1/2 previous
+#define DEADZONE_PX 3           // applied after low-pass filtering; suppress resistive jitter
+#define MOVEMENT_THRESHOLD_PX 8 // tap-vs-motion threshold; first motion sends catch-up delta
 
 // Touch calibration values (from CYD reference project).
 #define TOUCH_MIN_X 200

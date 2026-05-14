@@ -1,5 +1,8 @@
 # cydintosh/enclosure
 
+This enclosure is for the original ESP32-2432S028 / CYD2USB form factor. It is
+not sized for the larger Sunton ESP32-8048S043C RGB-panel board.
+
 ## Prerequisites
 
 - OpenSCAD (nightly build) 2026.01
@@ -12,16 +15,16 @@
 
 ```sh
 # Sync submodules
-$ git submodule update --init --recursive
+git submodule update --init --recursive
 
 # Generate .stl files.
-$ make all -B
+make all -B
 
 # Generate thumbnail images.
-$ make images -B
+make images -B
 
 # Generate the .3mf file.
-$ OPENSCAD_CMD=openscad-nightly colorscad -i cydintosh_stand.scad -o cydintosh_stand.3mf -f
+OPENSCAD_CMD=openscad-nightly colorscad -i cydintosh_stand.scad -o cydintosh_stand.3mf -f
 ```
 
 ## Parts

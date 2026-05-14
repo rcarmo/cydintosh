@@ -18,6 +18,7 @@
 #include "freertos/task.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "touch";
@@ -39,6 +40,11 @@ static uint8_t gt911_addr = 0;
 static touch_event_t current_event = {0};
 static touch_event_t last_event = {0};
 static uint8_t has_pending_event = 0;
+
+#if TOUCH_FILTER_SHIFT > 0
+static int32_t touch_filter_x = 0;
+static int32_t touch_filter_y = 0;
+#endif
 
 static QueueHandle_t mouse_queue = NULL;
 static TaskHandle_t touch_task_handle = NULL;
@@ -216,8 +222,30 @@ int touch_update(void) {
     esp_err_t ret_get = esp_lcd_touch_get_data(touch_handle, touch_data, &count, 1);
 
     if (ret_get == ESP_OK && count > 0) {
-        current_event.x = touch_data[0].x;
-        current_event.y = touch_data[0].y;
+        int16_t raw_x = touch_data[0].x;
+        int16_t raw_y = touch_data[0].y;
+#if TOUCH_FILTER_SHIFT > 0
+        if (!last_event.pressed) {
+            touch_filter_x = ((int32_t)raw_x) << TOUCH_FILTER_SHIFT;
+            touch_filter_y = ((int32_t)raw_y) << TOUCH_FILTER_SHIFT;
+        } else {
+            int shift_x = TOUCH_FILTER_SHIFT;
+            int shift_y = TOUCH_FILTER_SHIFT;
+#if TOUCH_ADAPTIVE_FILTER
+            int16_t filtered_x = (touch_filter_x + (1 << (TOUCH_FILTER_SHIFT - 1))) >> TOUCH_FILTER_SHIFT;
+            int16_t filtered_y = (touch_filter_y + (1 << (TOUCH_FILTER_SHIFT - 1))) >> TOUCH_FILTER_SHIFT;
+            if (abs(raw_x - filtered_x) >= TOUCH_FILTER_FAST_THRESHOLD_PX) shift_x = 1;
+            if (abs(raw_y - filtered_y) >= TOUCH_FILTER_FAST_THRESHOLD_PX) shift_y = 1;
+#endif
+            touch_filter_x += (((int32_t)raw_x << TOUCH_FILTER_SHIFT) - touch_filter_x) >> shift_x;
+            touch_filter_y += (((int32_t)raw_y << TOUCH_FILTER_SHIFT) - touch_filter_y) >> shift_y;
+        }
+        current_event.x = (touch_filter_x + (1 << (TOUCH_FILTER_SHIFT - 1))) >> TOUCH_FILTER_SHIFT;
+        current_event.y = (touch_filter_y + (1 << (TOUCH_FILTER_SHIFT - 1))) >> TOUCH_FILTER_SHIFT;
+#else
+        current_event.x = raw_x;
+        current_event.y = raw_y;
+#endif
 #elif defined(TOUCH_CONTROLLER_GT911)
     if (gt911_addr == 0) {
         return 0;
@@ -317,15 +345,58 @@ QueueHandle_t touch_get_mouse_queue(void) {
     return mouse_queue;
 }
 
-static void transform_mouse_delta(int16_t *dx, int16_t *dy) {
-#if TOUCH_DELTA_SCALE > 1
-    *dx /= TOUCH_DELTA_SCALE;
-    *dy /= TOUCH_DELTA_SCALE;
+static int16_t scale_mouse_delta_axis(int16_t delta, int32_t *gain_remainder) {
+#if TOUCH_RAW_DEADZONE_PX > 0
+    if (abs(delta) <= TOUCH_RAW_DEADZONE_PX) {
+        return 0;
+    }
 #endif
+#if TOUCH_DELTA_SCALE > 1
+    delta /= TOUCH_DELTA_SCALE;
+#endif
+#if TOUCH_DELTA_GAIN_NUM != TOUCH_DELTA_GAIN_DEN
+    // Keep fractional gain across samples instead of rounding every tiny jitter
+    // sample upward. This preserves average speed without turning 1px noise into
+    // repeated 2px cursor movement.
+    int32_t scaled = (int32_t)delta * TOUCH_DELTA_GAIN_NUM + *gain_remainder;
+    int16_t out = (int16_t)(scaled / TOUCH_DELTA_GAIN_DEN);
+    *gain_remainder = scaled - ((int32_t)out * TOUCH_DELTA_GAIN_DEN);
+    delta = out;
+#endif
+#if TOUCH_DELTA_SOFT_CURVE
+    int sign = (delta < 0) ? -1 : 1;
+    int mag = abs(delta);
+    if (mag <= 6) {
+        // Fine motion: slightly stronger than the geometric 8/5 scale so
+        // one-pixel touch movement survives the deadzone and tracks the finger.
+        mag = (mag * 5 + 2) / 4;
+    } else if (mag <= 16) {
+        // Medium motion: modest boost, but less than the rejected +30% linear gain.
+        mag = (mag * 9 + 4) / 8;
+    } else {
+        // Fast swipes: compress so the Mac's own acceleration does not overshoot.
+        mag = 18 + ((mag - 16) / 2);
+    }
+    delta = (int16_t)(sign * mag);
+#endif
+    return delta;
+}
+
+static void transform_mouse_delta(int16_t *dx, int16_t *dy) {
+    static int32_t gain_remainder_x = 0;
+    static int32_t gain_remainder_y = 0;
+    *dx = scale_mouse_delta_axis(*dx, &gain_remainder_x);
+    *dy = scale_mouse_delta_axis(*dy, &gain_remainder_y);
 #if TOUCH_DELTA_ROTATE_CW
     int16_t old_dx = *dx;
     *dx = *dy;
     *dy = -old_dx;
+#endif
+#if TOUCH_DELTA_INVERT_X
+    *dx = -*dx;
+#endif
+#if TOUCH_DELTA_INVERT_Y
+    *dy = -*dy;
 #endif
 }
 
@@ -345,6 +416,8 @@ static void touch_task(void *arg) {
                 dx = ev->x - last_x;
                 dy = ev->y - last_y;
                 transform_mouse_delta(&dx, &dy);
+                if (abs(dx) < DEADZONE_PX) dx = 0;
+                if (abs(dy) < DEADZONE_PX) dy = 0;
             }
             if (ev->pressed) {
                 last_x = ev->x;
@@ -403,16 +476,26 @@ static void touch_task(void *arg) {
                     int32_t dist_sq = dist_x * dist_x + dist_y * dist_y;
 
                     if (dist_sq > MOVEMENT_THRESHOLD_SQ) {
-                        // Significant movement detected - this is cursor movement
+                        // Significant movement detected - this is cursor movement.
+                        // The threshold prevents taps/jitter becoming cursor motion, but
+                        // once motion is confirmed, emit the accumulated travel from the
+                        // initial touch so the cursor does not lag behind the stylus.
+                        uint8_t was_moved = first_tap_moved;
                         first_tap_moved = 1; // Mark as moved
 
                         // Send cursor movement (no button press)
                         mouse.pressed = 0;
-                        mouse.dx = dx;
-                        mouse.dy = dy;
+                        if (!was_moved) {
+                            mouse.dx = ev->x - first_tap_x;
+                            mouse.dy = ev->y - first_tap_y;
+                            transform_mouse_delta(&mouse.dx, &mouse.dy);
+                        } else {
+                            mouse.dx = dx;
+                            mouse.dy = dy;
+                        }
                         send_event = 1;
                         ESP_LOGD(TAG, "TAP: Cursor movement (dist=%d, dx=%d, dy=%d)",
-                                 (int)sqrt(dist_sq), dx, dy);
+                                 (int)sqrt(dist_sq), mouse.dx, mouse.dy);
                     }
                 }
                 break;

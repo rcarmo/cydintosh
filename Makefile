@@ -33,6 +33,19 @@ UMAC_PATCHES := patches/umac-suppress-sony-eject.patch \
 PIO_ENV ?= esp32-cyd2usb
 BUILD_DIR := .pio/build/$(PIO_ENV)
 ARTIFACT_SUFFIX ?= $(PIO_ENV)
+ifeq ($(PIO_ENV),esp32-8048s043c)
+ROM_IMAGE ?= .pio/roms/rom_patched-480x800.bin
+ROM_WIDTH ?= 480
+ROM_HEIGHT ?= 800
+else ifeq ($(PIO_ENV),esp32-cyd2usb-mac512x384-rotfit)
+ROM_IMAGE ?= .pio/roms/rom_patched-512x384.bin
+ROM_WIDTH ?= 512
+ROM_HEIGHT ?= 384
+else
+ROM_IMAGE ?= .pio/roms/rom_patched.bin
+ROM_WIDTH ?= 240
+ROM_HEIGHT ?= 320
+endif
 SERIAL_PORT ?= /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 BAUD ?= 460800
 
@@ -134,12 +147,13 @@ stable-artifacts: build fs
 	cp $(BUILD_DIR)/firmware.bin web/firmware-$(ARTIFACT_SUFFIX).bin
 	cp $(BUILD_DIR)/partitions.bin web/partitions-$(ARTIFACT_SUFFIX).bin
 	cp $(BUILD_DIR)/littlefs.bin web/littlefs-$(ARTIFACT_SUFFIX).bin
+	@test -f $(ROM_IMAGE) || $(MAKE) prepare-rom PIO_ENV=$(PIO_ENV) ROM_IMAGE=$(ROM_IMAGE) ROM_WIDTH=$(ROM_WIDTH) ROM_HEIGHT=$(ROM_HEIGHT)
 	$(ESPTOOL) --chip $(ESP_CHIP) merge-bin -o web/full-flash-$(ARTIFACT_SUFFIX).bin \
 	  --flash-mode dio --flash-freq $(FLASH_FREQ) --flash-size $(FLASH_SIZE) \
 	  $(BOOTLOADER_OFFSET) web/bootloader-$(ARTIFACT_SUFFIX).bin \
 	  0x8000 web/partitions-$(ARTIFACT_SUFFIX).bin \
 	  0x10000 web/firmware-$(ARTIFACT_SUFFIX).bin \
-	  $(ROM_OFFSET) data/rom_patched.bin \
+	  $(ROM_OFFSET) $(ROM_IMAGE) \
 	  $(DISK_OFFSET) web/littlefs-$(ARTIFACT_SUFFIX).bin
 	@test -f mac-app/OfficeLightsApp/build/OfficeLights.bin && \
 	  cp mac-app/OfficeLightsApp/build/OfficeLights.bin web/mac-apps/OfficeLights-$(ARTIFACT_SUFFIX).bin || true
@@ -232,8 +246,9 @@ clean:
 
 prepare-rom:
 	@test -f vendor/rom.bin || ( echo "ERROR: Place Mac Plus ROM v3 (4D1F8172, 128KB) at vendor/rom.bin" && exit 1 )
-	python3 tools/generate_patched_rom.py vendor/rom.bin -o data/rom_patched.bin
-	@echo "Patched ROM written to data/rom_patched.bin"
+	@mkdir -p $(dir $(ROM_IMAGE))
+	python3 tools/generate_patched_rom.py vendor/rom.bin --width $(ROM_WIDTH) --height $(ROM_HEIGHT) -o $(ROM_IMAGE)
+	@echo "Patched ROM written to $(ROM_IMAGE)"
 
 prepare-disk:
 	@test -f vendor/disk.img && echo "vendor/disk.img exists" || echo "NOTE: No vendor/disk.img. See README for disk image preparation."

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Generate patched ROM for umac
-Patches Mac Plus ROM for 240x320 resolution and more
+Patches Mac Plus ROM for the selected framebuffer resolution and more.
 Based on the umac source code
 """
 
 import sys
 import struct
 
-# Configuration - 240x320 portrait mode
+# Default configuration - 240x320 portrait mode
 DISP_WIDTH = 240
 DISP_HEIGHT = 320
 ROM_SIZE = 0x20000  # 128KB
@@ -199,8 +199,8 @@ def screen_coord(x, y, screen_base, bytes_per_row):
 
 
 def patch_rom(rom_data, force=False):
-    """Apply all patches for 240x320 resolution"""
-    rom = bytearray(rom_data)
+    """Apply all patches for the selected display resolution."""
+    rom = bytearray(rom_data[:ROM_SIZE])
 
     # Verify ROM version
     version = struct.unpack(">I", rom[0:4])[0]
@@ -240,6 +240,11 @@ def patch_rom(rom_data, force=False):
     rom[ROM_PLUSv3_SONYDRV : ROM_PLUSv3_SONYDRV + len(SONY_DRIVER)] = SONY_DRIVER
     # Set FaultyRegion address in last 4 bytes of driver
     rom_write32(rom, ROM_PLUSv3_SONYDRV + len(SONY_DRIVER) - 4, 0xC00069)
+
+    if DISP_WIDTH == 512 and DISP_HEIGHT == 342:
+        print("Using native 512x342 Mac Plus screen geometry; skipping screen-size patches")
+        print("Patches applied successfully!")
+        return bytes(rom)
 
     # 3. Jump patch at 0x42-0x57 for screen setup
     rom_write16(rom, 0x42, 0x6000)  # bra
@@ -329,6 +334,7 @@ def patch_rom(rom_data, force=False):
 
 
 def main():
+    global DISP_WIDTH, DISP_HEIGHT
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -352,7 +358,22 @@ def main():
         action="store_true",
         help="Force patching even if ROM version doesn't match",
     )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=DISP_WIDTH,
+        help=f"Patched Mac framebuffer width (default: {DISP_WIDTH})",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=DISP_HEIGHT,
+        help=f"Patched Mac framebuffer height (default: {DISP_HEIGHT})",
+    )
     args = parser.parse_args()
+
+    DISP_WIDTH = args.width
+    DISP_HEIGHT = args.height
 
     # Read original ROM
     try:
@@ -362,11 +383,15 @@ def main():
         print(f"Error: {args.rom_path} not found!")
         sys.exit(1)
 
-    if len(rom_data) != ROM_SIZE:
-        print(f"Error: ROM size {len(rom_data)} != expected {ROM_SIZE}")
+    if len(rom_data) < ROM_SIZE:
+        print(f"Error: ROM size {len(rom_data)} < expected {ROM_SIZE}")
         sys.exit(1)
+    if len(rom_data) > ROM_SIZE:
+        print(f"Warning: ROM file is {len(rom_data)} bytes; using first {ROM_SIZE} bytes")
+        rom_data = rom_data[:ROM_SIZE]
 
     print(f"Loaded ROM: {len(rom_data)} bytes from {args.rom_path}")
+    print(f"Target framebuffer: {DISP_WIDTH}x{DISP_HEIGHT}")
 
     # Apply patches
     patched_rom = patch_rom(rom_data, force=args.force)

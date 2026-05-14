@@ -2,7 +2,9 @@
 #define BOARD_PROFILES_H
 
 // Board selection. PlatformIO environments define exactly one of these.
-#if !defined(CYD_BOARD_ESP32_2432S028) && !defined(CYD_BOARD_ESP32_8048S043C)
+#if !defined(CYD_BOARD_ESP32_2432S028) && \
+    !defined(CYD_BOARD_ESP32_2432S028_MAC512X384_ROTFIT) && \
+    !defined(CYD_BOARD_ESP32_8048S043C)
 #define CYD_BOARD_ESP32_2432S028 1
 #endif
 
@@ -11,6 +13,8 @@
 // Include board-specific header first; boards may override DISP_WIDTH/DISP_HEIGHT.
 #if defined(CYD_BOARD_ESP32_8048S043C)
 #include "boards/esp32_8048s043c.h"
+#elif defined(CYD_BOARD_ESP32_2432S028_MAC512X384_ROTFIT)
+#include "boards/esp32_2432s028_mac512x384_rotfit.h"
 #elif defined(CYD_BOARD_ESP32_2432S028)
 #include "boards/esp32_2432s028.h"
 #else
@@ -62,6 +66,52 @@
 #ifndef LCD_TRANSFER_BUFFER_CAPS
 #error "Board profile must define LCD_TRANSFER_BUFFER_CAPS"
 #endif
+#ifndef MOUSE_DELTA_CAP
+#error "Board profile must define MOUSE_DELTA_CAP"
+#endif
+#ifndef TOUCH_FILTER_SHIFT
+#error "Board profile must define TOUCH_FILTER_SHIFT"
+#endif
+#ifndef LCD_RENDER_FIT_TO_PANEL
+#define LCD_RENDER_FIT_TO_PANEL 0
+#endif
+#ifndef LCD_RENDER_FIT_GRAYSCALE
+#define LCD_RENDER_FIT_GRAYSCALE 0
+#endif
+#ifndef LCD_PANEL_RGB565_BYTE_SWAP
+#define LCD_PANEL_RGB565_BYTE_SWAP 0
+#endif
+#ifndef TOUCH_DELTA_INVERT_X
+#define TOUCH_DELTA_INVERT_X 0
+#endif
+#ifndef TOUCH_DELTA_INVERT_Y
+#define TOUCH_DELTA_INVERT_Y 0
+#endif
+#ifndef TOUCH_DELTA_GAIN_NUM
+#define TOUCH_DELTA_GAIN_NUM 1
+#endif
+#ifndef TOUCH_DELTA_GAIN_DEN
+#define TOUCH_DELTA_GAIN_DEN 1
+#endif
+#ifndef TOUCH_DELTA_SOFT_CURVE
+#define TOUCH_DELTA_SOFT_CURVE 0
+#endif
+#ifndef TOUCH_RAW_DEADZONE_PX
+#define TOUCH_RAW_DEADZONE_PX 0
+#endif
+#ifndef TOUCH_ADAPTIVE_FILTER
+#define TOUCH_ADAPTIVE_FILTER 0
+#endif
+#ifndef TOUCH_FILTER_FAST_THRESHOLD_PX
+#define TOUCH_FILTER_FAST_THRESHOLD_PX 6
+#endif
+#ifndef DISK_IMAGE_READ_ONLY
+#define DISK_IMAGE_READ_ONLY 1
+#endif
+
+#if TOUCH_DELTA_GAIN_DEN < 1
+#error "TOUCH_DELTA_GAIN_DEN must be >= 1"
+#endif
 
 #if LCD_RENDER_SCALE < 1
 #error "LCD_RENDER_SCALE must be >= 1"
@@ -83,6 +133,7 @@
 #error "Board profile declares touch support but selects no touch controller backend"
 #endif
 
+#if !LCD_RENDER_FIT_TO_PANEL
 #if LCD_RENDER_ROTATE_CW
 #if (LCD_WIDTH < (DISP_HEIGHT * LCD_RENDER_SCALE)) || \
     (LCD_HEIGHT < (DISP_WIDTH * LCD_RENDER_SCALE))
@@ -92,6 +143,7 @@
 #if (LCD_WIDTH < (DISP_WIDTH * LCD_RENDER_SCALE)) || \
     (LCD_HEIGHT < (DISP_HEIGHT * LCD_RENDER_SCALE))
 #error "Render area does not fit LCD dimensions"
+#endif
 #endif
 #endif
 

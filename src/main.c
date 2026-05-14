@@ -68,8 +68,9 @@ static const uint8_t umac_disc_fallback[] = {0x4c, 0x4b};
 static disc_descr_t discs[DISC_NUM_DRIVES] = {0};
 
 static void disc_setup(void) {
-    if (disc_lfs_open(&discs[0], "disk.img", 1) == 0) {
-        ESP_LOGI(TAG, "Using LittleFS disk image (read-only), size=%u", (unsigned)discs[0].size);
+    if (disc_lfs_open(&discs[0], "disk.img", DISK_IMAGE_READ_ONLY) == 0) {
+        ESP_LOGI(TAG, "Using LittleFS disk image (%s), size=%u",
+                 DISK_IMAGE_READ_ONLY ? "read-only" : "read-write", (unsigned)discs[0].size);
     } else {
         ESP_LOGW(TAG, "No disk image, using fallback");
         discs[0].base = (void *)umac_disc_fallback;
@@ -236,8 +237,8 @@ static void umac_task(void *arg) {
 
 #if defined(BOARD_HAS_PSRAM)
     // Do not patch the flash mmap directly: it is not a reliable writable backing store.
-    // Copy to PSRAM (not internal SRAM) so ROM patches for 240x400 always take effect
-    // without starving FreeRTOS task stacks.
+    // Copy to PSRAM (not internal SRAM) so ROM patches for the selected display size
+    // always take effect without starving FreeRTOS task stacks.
     rom_work = heap_caps_malloc(UMAC_ROM_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (rom_work == NULL) {
         ESP_LOGE(TAG, "Failed to allocate %u-byte writable ROM copy in PSRAM", UMAC_ROM_SIZE);
@@ -245,15 +246,19 @@ static void umac_task(void *arg) {
     }
     memcpy(rom_work, rom_mmap, UMAC_ROM_SIZE);
     ESP_LOGI(TAG, "ROM copied to writable PSRAM at %p (%u bytes)", (void *)rom_work, UMAC_ROM_SIZE);
-#else
-    rom_work = (uint8_t *)rom_mmap;
-#endif
 
     if (rom_patch(rom_work) != 0) {
         ESP_LOGE(TAG, "Failed to patch ROM for %dx%d display", DISP_WIDTH, DISP_HEIGHT);
         return;
     }
     ESP_LOGI(TAG, "ROM patched for %dx%d display: FB_START=0x%x", DISP_WIDTH, DISP_HEIGHT, FB_START);
+#else
+    // No PSRAM on CYD2USB: use the already-patched ROM image from flash.
+    // Never call rom_patch() on flash mmap; it is read-only and crashes on ESP32.
+    rom_work = (uint8_t *)rom_mmap;
+    ESP_LOGI(TAG, "Using pre-patched ROM mmap for %dx%d display: FB_START=0x%x",
+             DISP_WIDTH, DISP_HEIGHT, FB_START);
+#endif
 
     disc_setup();
 
@@ -368,7 +373,6 @@ static void umac_task(void *arg) {
             // Apply accumulated movement with button state.
             // Cap deltas to prevent Mac's built-in mouse acceleration from
             // making the cursor fly across the screen on large touch swipes.
-            #define MOUSE_DELTA_CAP 3
             if (accum_dx > MOUSE_DELTA_CAP)  accum_dx = MOUSE_DELTA_CAP;
             if (accum_dx < -MOUSE_DELTA_CAP) accum_dx = -MOUSE_DELTA_CAP;
             if (accum_dy > MOUSE_DELTA_CAP)  accum_dy = MOUSE_DELTA_CAP;
@@ -398,9 +402,18 @@ void umac_disc_ejected(void) {
 void app_main(void) {
     ESP_LOGI(TAG, "Cydintosh starting...");
 
+    // Reserve framebuffer early. It must be internal/DMA-capable; for native
+    // 480x800 experiments it is 48KB, so reserve it before large Mac RAM.
+    umac_fb = (uint8_t *)heap_caps_malloc(FB_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (umac_fb == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes for framebuffer!", FB_SIZE);
+        return;
+    }
+    ESP_LOGI(TAG, "Allocated %d bytes framebuffer at %p (internal DMA)", FB_SIZE, umac_fb);
+    memset(umac_fb, 0, FB_SIZE);
+
     // Allocate Mac RAM early (before LCD init which fragments heap).
-    // Prefer internal SRAM for umac_ram: every M68K memory access goes through this buffer.
-    // MALLOC_CAP_SPIRAM fallback is ~5x slower and would cap emulation at ~20% of real Mac speed.
+    // Prefer internal SRAM; large native experiments may fall back to PSRAM.
     umac_ram = (uint8_t *)heap_caps_malloc(RAM_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (umac_ram == NULL) {
         ESP_LOGW(TAG, "Internal RAM full, falling back to SPIRAM for Mac RAM (will be slow)");
@@ -413,18 +426,9 @@ void app_main(void) {
     ESP_LOGI(TAG, "Allocated %d bytes Mac RAM at %p", RAM_SIZE, umac_ram);
     memset(umac_ram, 0, RAM_SIZE);
 
-    // Initialize LCD (needs DMA-capable regions intact)
+    // Initialize LCD after internal framebuffer and Mac RAM reservations.
     lcd_cyd_init();
     display_init();
-
-    // Allocate framebuffer AFTER LCD init (needs DMA capability)
-    umac_fb = (uint8_t *)heap_caps_malloc(FB_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
-    if (umac_fb == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate %d bytes for framebuffer!", FB_SIZE);
-        return;
-    }
-    ESP_LOGI(TAG, "Allocated %d bytes framebuffer at %p (internal DMA)", FB_SIZE, umac_fb);
-    memset(umac_fb, 0, FB_SIZE);
 
     // Initialize RGB LED
     led_pwm_init();
