@@ -1,3 +1,4 @@
+#include "cyd_machine.h"
 #include "disc_lfs.h"
 #include "display.h"
 #include "esp_event.h"
@@ -400,7 +401,7 @@ void umac_disc_ejected(void) {
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "Cydintosh starting...");
+    ESP_LOGI(TAG, "Cydintosh starting... machine=%s", CYD_MACHINE_NAME);
 
     // Reserve framebuffer early. It must be internal/DMA-capable; for native
     // 480x800 experiments it is 48KB, so reserve it before large Mac RAM.

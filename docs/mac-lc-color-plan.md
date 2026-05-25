@@ -63,16 +63,17 @@ Out of scope for this branch:
 
 ## Architecture direction
 
-The LC path should become an explicit machine backend, not a mutation of the Mac
-Plus path:
+The LC path is an explicit machine backend, not a mutation of the Mac Plus path:
 
 ```text
 CYD_MACHINE_MAC_PLUS   -> current umac/Mac Plus path
 CYD_MACHINE_MAC_LC     -> new LC memory map, ROM loader, color video, ADB stubs
 ```
 
-Early code should enforce that Mac Plus ROM patch offsets are never applied to
-an LC ROM.
+`include/cyd_machine.h` enforces exactly one machine selection and ensures the
+Macintosh LC model only builds with the M5Stack Tab5 ESP32-P4 LC target. The
+current LC skeleton uses `src/machine_lc/` for ROM partition diagnostics so Mac
+Plus ROM patch offsets are not applied to the LC ROM.
 
 ## Initial platform target
 

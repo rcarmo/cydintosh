@@ -3,8 +3,8 @@ set(MUSASHI_DIR "${UMAC_DIR}/external/Musashi")
 
 if(CYD_MACHINE_MAC_LC OR "${IDF_TARGET}" STREQUAL "esp32p4")
     idf_component_register(
-        SRCS "tab5_lc_smoke.c"
-        INCLUDE_DIRS "." "${CMAKE_SOURCE_DIR}/include"
+        SRCS "tab5_lc_smoke.c" "machine_lc/lc_rom.c"
+        INCLUDE_DIRS "." "machine_lc" "${CMAKE_SOURCE_DIR}/include"
         REQUIRES esp_psram esp_partition esp_hw_support heap
     )
     target_compile_definitions(${COMPONENT_LIB} PRIVATE CYD_MACHINE_MAC_LC=1)
@@ -33,8 +33,8 @@ else()
     # PlatformIO build_flags (-D) only reach src/ files via platformio's own mechanism.
     # Explicitly forward critical defines so external/umac and Musashi sources compile correctly.
     if(CONFIG_IDF_TARGET_ESP32S3)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE DISP_HEIGHT=800 DISP_WIDTH=480 UMAC_MEMSIZE=1024 MOUSE_MAX_PENDING_PIX=60)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CYD_MACHINE_MAC_PLUS=1 DISP_HEIGHT=800 DISP_WIDTH=480 UMAC_MEMSIZE=1024 MOUSE_MAX_PENDING_PIX=60)
     else()
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE DISP_HEIGHT=320 DISP_WIDTH=240 UMAC_MEMSIZE=128 MOUSE_MAX_PENDING_PIX=120)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CYD_MACHINE_MAC_PLUS=1 DISP_HEIGHT=320 DISP_WIDTH=240 UMAC_MEMSIZE=128 MOUSE_MAX_PENDING_PIX=120)
     endif()
 endif()
