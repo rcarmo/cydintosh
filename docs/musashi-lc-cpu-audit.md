@@ -1,8 +1,9 @@
 # Musashi CPU configuration audit for Macintosh LC bring-up
 
-This note captures the current CPU-core state before enabling any Macintosh LC
-execution. It is intentionally an audit/checkpoint, not a functional 68020
-enablement change.
+This note captures the CPU-core state for Macintosh LC bring-up. The first
+checkpoint audited the Mac Plus-fixed Musashi configuration; the next checkpoint
+adds an LC-only 68EC020/68020 configuration scaffold without claiming ROM
+execution yet.
 
 ## Current state
 
@@ -122,11 +123,40 @@ first ROM exceptions under 68EC020?
 - What are the first missing memory-mapped hardware ranges after the reset vector
 starts executing?
 
+## LC-only configuration scaffold
+
+`include/m68kconf_lc.h` now exists as the LC-only Musashi configuration. It is
+selected by the `esp32-p4-tab5-lc-color` PlatformIO environment with:
+
+```text
+-DMUSASHI_CNF=\"m68kconf_lc.h\"
+```
+
+The standard Mac Plus config remains `include/m68kconf.h` and stays fixed to
+`CPU_TYPE_000`.
+
+Current LC scaffold settings:
+
+| Setting | LC scaffold value | Notes |
+|---|---:|---|
+| `M68K_EMULATE_010` | `OPT_ON` | Enables 68010+ core paths needed below 020 |
+| `M68K_EMULATE_EC020` | `OPT_ON` | First runtime CPU target should be `M68K_CPU_TYPE_68EC020` |
+| `M68K_EMULATE_020` | `OPT_ON` | Allows later full `M68K_CPU_TYPE_68020` experiments |
+| `M68K_EMULATE_030` | `OPT_OFF` | 68030 deferred until evidence requires it |
+| `M68K_EMULATE_040` | `OPT_OFF` | Not relevant for Macintosh LC-first work |
+| `M68K_FIXED_CPU_TYPE` | not defined | LC CPU type can be selected at runtime |
+| `M68K_EMULATE_FC` | `OPT_SPECIFY_HANDLER` | Prepared for 68010+ function-code handling |
+| `M68K_ILLG_HAS_CALLBACK` | `OPT_OFF` | To be enabled with an LC trace callback later |
+
+`m68kconf_lc.h` also has a guard that errors if used without
+`CYD_MACHINE_MAC_LC`, so Mac Plus builds cannot accidentally pick it up.
+
 ## Current conclusion
 
-The current project is **not yet LC CPU-ready**: it is fixed to 68000 and all
-68020-family compile switches are off.
+The Mac Plus path remains 68000-fixed and unchanged. The LC/P4 path now has a
+compile-time Musashi configuration scaffold for 68EC020/68020, but LC ROM
+execution is still pending the LC memory-map and CPU setup boundary.
 
-The safe next implementation step is to add an LC-only Musashi configuration path
-that enables 68EC020/68020 support and removes the fixed 68000 type for the LC
-build only, while preserving the current Mac Plus build behavior.
+The next CPU-core step is to add LC boot trace logging and a runtime setup path
+that selects `M68K_CPU_TYPE_68EC020`, reads the ROM reset SP/PC, and reports the
+first exception/unmapped-access failures.

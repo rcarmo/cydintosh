@@ -16,6 +16,8 @@ Completed setup:
 
 No LC boot is claimed yet. The first firmware target is a skeleton that logs
 ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists.
+The branch now also has an LC-only Musashi config scaffold for 68EC020/68020,
+selected only by the Tab5/P4 LC environment.
 
 ## ROM metadata
 
@@ -110,7 +112,7 @@ before display/touch and LC emulation are added.
 3. Tab5 display smoke test shows known colors/orientation markers.
 4. Tab5 touch smoke test logs calibrated coordinates.
 5. LC ROM partition maps and validates size/first-long metadata.
-6. LC reset vector executes under a conservative 68020 configuration.
+6. LC reset vector executes under a conservative 68EC020/68020 configuration.
 7. Missing hardware accesses are decoded and stubbed iteratively.
 8. Fixed color framebuffer displays diagnostic writes.
 9. ROM/System reaches a stable boot/probe phase.

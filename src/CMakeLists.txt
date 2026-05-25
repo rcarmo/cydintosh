@@ -7,7 +7,10 @@ if(CYD_MACHINE_MAC_LC OR "${IDF_TARGET}" STREQUAL "esp32p4")
         INCLUDE_DIRS "." "machine_lc" "${CMAKE_SOURCE_DIR}/include"
         REQUIRES esp_psram esp_partition esp_hw_support heap
     )
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE CYD_MACHINE_MAC_LC=1)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        CYD_MACHINE_MAC_LC=1
+        MUSASHI_CNF=\"m68kconf_lc.h\"
+    )
 else()
     set(UMAC_SOURCES
         ${UMAC_DIR}/src/disc.c
