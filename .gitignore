@@ -35,6 +35,7 @@
 # Others
 !/assets/
 !/data/
+!/docs/
 !/tools/
 !/patches/
 !/enclosure/

@@ -1,0 +1,23 @@
+# ESP32-P4 / M5Stack Tab5 experimental LC color configuration
+CONFIG_IDF_TARGET="esp32p4"
+
+# Connected Tab5 reports 16MB flash via ESP32-P4 USB-Serial/JTAG.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+
+# Performance-oriented build for smoke tests and eventual emulator loops.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Keep task watchdog permissive during early hardware/ROM bring-up.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# Console via USB-Serial/JTAG on the Tab5.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Wi-Fi/Bluetooth are not present on ESP32-P4; keep network stacks out of the LC target.
+# CONFIG_ESP_WIFI_ENABLED is not set
+# CONFIG_BT_ENABLED is not set

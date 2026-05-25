@@ -1,5 +1,11 @@
 # Cydintosh
 
+> Branch note: `feat/mac-lc-color` is an experimental Macintosh LC/color branch
+> for **ESP32-P4 / M5Stack Tab5 only**. The current Mac Plus ESP32/CYD and
+> ESP32-S3 profiles remain separate and should not be treated as LC targets.
+> See [`docs/mac-lc-color-plan.md`](docs/mac-lc-color-plan.md) and
+> [`docs/tab5-hardware.md`](docs/tab5-hardware.md).
+
 Cydintosh is a Macintosh Plus emulator for small ESP32 display boards. It runs
 [umac](https://github.com/likeablob/umac) with the Musashi 68000 core, renders a
 patched Mac framebuffer to the attached LCD, and stores the emulated boot disk in

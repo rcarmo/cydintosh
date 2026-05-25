@@ -4,14 +4,17 @@
 // Board selection. PlatformIO environments define exactly one of these.
 #if !defined(CYD_BOARD_ESP32_2432S028) && \
     !defined(CYD_BOARD_ESP32_2432S028_MAC512X384_ROTFIT) && \
-    !defined(CYD_BOARD_ESP32_8048S043C)
+    !defined(CYD_BOARD_ESP32_8048S043C) && \
+    !defined(CYD_BOARD_M5STACK_TAB5_ESP32P4_LC)
 #define CYD_BOARD_ESP32_2432S028 1
 #endif
 
 #define GPIO_UNUSED -1
 
 // Include board-specific header first; boards may override DISP_WIDTH/DISP_HEIGHT.
-#if defined(CYD_BOARD_ESP32_8048S043C)
+#if defined(CYD_BOARD_M5STACK_TAB5_ESP32P4_LC)
+#include "boards/m5stack_tab5_esp32p4_lc.h"
+#elif defined(CYD_BOARD_ESP32_8048S043C)
 #include "boards/esp32_8048s043c.h"
 #elif defined(CYD_BOARD_ESP32_2432S028_MAC512X384_ROTFIT)
 #include "boards/esp32_2432s028_mac512x384_rotfit.h"

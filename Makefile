@@ -66,7 +66,7 @@ DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	build-cyd2usb build-8048s043c stable-artifacts flash-stable \
+	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc capture-tab5-logs lc-rom-info stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
@@ -84,6 +84,10 @@ help:
 	@echo "  make build               - build firmware in current tree for PIO_ENV=$(PIO_ENV)"
 	@echo "  make build-cyd2usb       - build existing ESP32 CYD2USB profile"
 	@echo "  make build-8048s043c     - build ESP32-8048S043C/S3 profile"
+	@echo "  make build-tab5-lc       - build ESP32-P4 M5Stack Tab5 LC/color skeleton"
+	@echo "  make flash-tab5-lc       - flash ESP32-P4 M5Stack Tab5 LC/color skeleton [explicit target]"
+	@echo "  make capture-tab5-logs   - capture ESP32-P4 Tab5 serial logs"
+	@echo "  make lc-rom-info         - inspect local vendor/mac-lc.rom metadata only"
 	@echo "  make firmware            - alias for make build"
 	@echo "  make fs                  - generate LittleFS image ($(BUILD_DIR)/littlefs.bin)"
 	@echo "  make stable-artifacts    - refresh fork artifacts in web/ for PIO_ENV=$(PIO_ENV)"
@@ -133,6 +137,18 @@ build-cyd2usb:
 
 build-8048s043c:
 	$(MAKE) build PIO_ENV=esp32-8048s043c
+
+build-tab5-lc:
+	$(PIO) run -e esp32-p4-tab5-lc-color
+
+flash-tab5-lc:
+	$(PIO) run -e esp32-p4-tab5-lc-color -t upload
+
+capture-tab5-logs:
+	python3 tools/capture_serial_logs.py --port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00 --baud 115200 --duration 15
+
+lc-rom-info:
+	python3 tools/inspect_lc_rom.py vendor/mac-lc.rom
 
 fs:
 	$(PIO) run -e $(PIO_ENV) -t buildfs

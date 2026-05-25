@@ -1,0 +1,88 @@
+# M5Stack Tab5 ESP32-P4 hardware notes
+
+This branch targets the **M5Stack Tab5 / ESP32-P4 only** for Macintosh LC color
+experiments. Existing ESP32/CYD and ESP32-S3 Mac Plus profiles are intentionally
+out of scope for LC bring-up.
+
+## Connected device fingerprint
+
+Detected with `esptool v5.2.0` via USB-Serial/JTAG:
+
+| Field | Value |
+|---|---|
+| Board class | M5Stack Tab5 |
+| SoC | ESP32-P4 |
+| Chip revision | v1.3 |
+| CPU | Dual Core + LP Core, 400MHz reported by esptool |
+| Crystal | 40MHz |
+| USB mode | USB-Serial/JTAG |
+| MAC | `80:f1:b2:d1:46:0d` |
+| Flash manufacturer/device | `0x46 / 0x4018` |
+| Detected flash size | 16MB |
+| Host serial path | `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00` |
+
+PlatformIO currently lists board `m5stack-tab5-p4` as:
+
+```text
+m5stack-tab5-p4  ESP32P4  360MHz  16MB  500KB  M5STACK Tab5 esp32-p4 Board (ES pre rev.300)
+```
+
+The attached device reports ESP32-P4 rev v1.3. A first build attempt with
+`m5stack-tab5-p4` selected the `esp32p4_es` chip variant and failed to link
+(`sram_low`/`sram_high` linker region mismatch). The branch therefore keeps the
+Tab5-specific environment name but uses PlatformIO board `esp32-p4_r3` until a
+rev-v1.3 Tab5 board definition is available.
+
+## Original flash backup
+
+A full 16MB backup was read before any experimental flashing:
+
+| Artifact | Value |
+|---|---|
+| Raw image | `/workspace/backups/m5stack-tab5/m5stack-tab5-esp32p4-flash-20260525-151803Z.bin` |
+| Archive | `/workspace/backups/m5stack-tab5/m5stack-tab5-esp32p4-flash-20260525-151803Z.tar.xz` |
+| Raw SHA256 | `a260eda93e4e5ddc1d3abddd361b1eb326c07d4248b67d1b493feba057fde231` |
+| Backup command | `esptool --port <tab5-port> --baud 921600 read-flash 0x0 0x1000000 <image.bin>` |
+
+Restore command, if needed:
+
+```bash
+PORT=/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00
+IMG=/workspace/backups/m5stack-tab5/m5stack-tab5-esp32p4-flash-20260525-151803Z.bin
+/workspace/.venvs/pio/bin/python -m esptool --chip esp32p4 --port "$PORT" --baud 921600 write-flash 0x0 "$IMG"
+```
+
+Do not overwrite the backup artifacts from automated scripts.
+
+## Display/touch status
+
+Not yet implemented on this branch.
+
+Open items:
+
+- identify the Tab5 display panel and host interface;
+- confirm whether display access is MIPI DSI, RGB, SPI, or a vendor component;
+- identify touch controller and bus pins;
+- implement a display smoke test before enabling any LC emulation;
+- map touch to ADB mouse packets after the LC input model exists.
+
+## Initial LC flash layout
+
+Proposed `partitions-esp32p4-tab5-lc.csv` layout:
+
+| Offset | Size | Label | Purpose |
+|---:|---:|---|---|
+| `0x009000` | `0x006000` | `nvs` | NVS |
+| `0x00f000` | `0x001000` | `phy_init` | compatibility/reserved |
+| `0x010000` | `0x400000` | `factory` | app |
+| `0x410000` | `0x100000` | `rom` | LC ROM partition, 1MB aligned/reserved for 512KB ROM |
+| `0x510000` | `0xAF0000` | `disk` | LittleFS/disk images and diagnostics |
+
+Milestone 0 build result:
+
+```text
+pio run -e esp32-p4-tab5-lc-color
+# SUCCESS with board=esp32-p4_r3, ESP-IDF 5.5.2, firmware.bin generated
+```
+
+The LC ROM itself is not committed. Use local `vendor/mac-lc.rom` only.
