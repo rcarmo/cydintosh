@@ -8,11 +8,12 @@
 
 #define BOARD_HAS_RGB_LED 0
 #define BOARD_HAS_TOUCH 1
-#define LCD_PANEL_TAB5 1
+#define LCD_PANEL_MIPI_DSI 1
+#define TOUCH_CONTROLLER_GT911 1
 
-// Hardware details still need confirmation from M5Stack examples/schematics.
-// Keep these as conservative metadata for compile-time diagnostics until the
-// real display/touch driver is integrated.
+// M5Stack Tab5 hardware from official docs: 5-inch 1280x720 IPS touchscreen,
+// MIPI-DSI display path, ILI9881C / ST7123 display controller path,
+// GT911 (0x14) / ST7123 (0x55) touch path on I2C.
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
 #define LCD_WIDTH SCREEN_WIDTH
@@ -30,6 +31,14 @@
 #define LC_ROM_EXPECTED_FIRST_LONG 0x350EACF0u
 #endif
 
+#define TAB5_LCD_BACKLIGHT_GPIO 22 // docs label this signal LEDA
+#define TAB5_TOUCH_I2C_SDA 31
+#define TAB5_TOUCH_I2C_SCL 32
+#define TAB5_TOUCH_INT_GPIO 23
+#define TAB5_TOUCH_GT911_ADDR 0x14
+#define TAB5_TOUCH_ST7123_ADDR 0x55
+#define TAB5_FLASH_SIZE_BYTES (16 * 1024 * 1024)
+#define TAB5_PSRAM_SIZE_BYTES (32 * 1024 * 1024)
 #define TAB5_USB_SERIAL_JTAG_PORT "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00"
 
 // Placeholder render/touch values so board profile sanity checks remain possible

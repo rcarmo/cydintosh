@@ -123,8 +123,12 @@
 #error "LCD_TRANSFER_STRIP_WIDTH must be >= 1"
 #endif
 
-#if (defined(LCD_PANEL_RGB) && defined(LCD_PANEL_ILI9341_SPI)) || \
-    (!defined(LCD_PANEL_RGB) && !defined(LCD_PANEL_ILI9341_SPI))
+#define LCD_PANEL_BACKEND_COUNT (0 \
+    + (defined(LCD_PANEL_RGB) ? 1 : 0) \
+    + (defined(LCD_PANEL_ILI9341_SPI) ? 1 : 0) \
+    + (defined(LCD_PANEL_MIPI_DSI) ? 1 : 0))
+
+#if LCD_PANEL_BACKEND_COUNT != 1
 #error "Board profile must select exactly one LCD panel backend"
 #endif
 

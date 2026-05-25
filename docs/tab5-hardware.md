@@ -54,16 +54,34 @@ IMG=/workspace/backups/m5stack-tab5/m5stack-tab5-esp32p4-flash-20260525-151803Z.
 
 Do not overwrite the backup artifacts from automated scripts.
 
-## Display/touch status
+## Display/touch hardware profile
 
-Not yet implemented on this branch.
+Hardware details from the official M5Stack Tab5 documentation (`https://docs.m5stack.com/en/core/Tab5`):
+
+| Area | Detail |
+|---|---|
+| Display | 5-inch 1280×720 IPS touchscreen |
+| Display interface | MIPI-DSI |
+| Display controller/path | `ILI9881C / ST7123` |
+| Backlight | ESP32-P4 GPIO22, documented as `LEDA` |
+| Touch controller/path | `GT911 (0x14) / ST7123 (0x55)` |
+| Touch bus | I2C, SDA GPIO31, SCL GPIO32 |
+| Touch interrupt | GPIO23 (`TP_INT`) |
+| Flash | 16MB |
+| PSRAM | 32MB hex/16-line PSRAM documented by M5Stack |
+| Wireless coprocessor | ESP32-C6-MINI-1U, out of scope for initial LC bring-up |
+
+The branch board header records these values in
+`include/boards/m5stack_tab5_esp32p4_lc.h`. Display and touch drivers are not
+implemented yet; next hardware milestone is a Tab5 display smoke test using the
+MIPI-DSI panel path.
 
 Open items:
 
-- identify the Tab5 display panel and host interface;
-- confirm whether display access is MIPI DSI, RGB, SPI, or a vendor component;
-- identify touch controller and bus pins;
+- identify the ESP-IDF/M5Stack component stack needed for `ILI9881C / ST7123` MIPI-DSI;
+- implement display init and backlight control for GPIO22;
 - implement a display smoke test before enabling any LC emulation;
+- implement touch probing for GT911/ST7123 on GPIO31/GPIO32;
 - map touch to ADB mouse packets after the LC input model exists.
 
 ## Initial LC flash layout
