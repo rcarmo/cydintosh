@@ -1,6 +1,7 @@
 #ifndef MACHINE_LC_CPU_H
 #define MACHINE_LC_CPU_H
 
+#include "lc_memory.h"
 #include "lc_rom.h"
 
 #include <stdbool.h>
@@ -17,6 +18,7 @@
 void lc_cpu_log_config(void);
 void lc_cpu_log_reset_vector_candidates(const lc_rom_info_t *rom_info);
 void lc_cpu_scan_reset_vector_candidates(const lc_rom_map_t *rom_map);
+void lc_cpu_probe_synthetic_bus_execution(lc_memory_bus_t *bus);
 void lc_cpu_log_trace_hook_status(void);
 void lc_cpu_trace_exception(uint8_t vector, uint32_t pc, uint16_t sr);
 void lc_cpu_trace_illegal_instruction(uint32_t pc, uint16_t opcode);

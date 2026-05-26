@@ -88,6 +88,15 @@ static void log_lc_rom_partition(void) {
     lc_rom_log_map_info(&map);
     lc_cpu_scan_reset_vector_candidates(&map);
     lc_memory_probe_bus_harness(&map);
+
+    lc_memory_bus_t cpu_bus = {0};
+    err = lc_memory_bus_init(&cpu_bus, &map);
+    if (err == ESP_OK) {
+        lc_cpu_probe_synthetic_bus_execution(&cpu_bus);
+        lc_memory_bus_free(&cpu_bus);
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize LC CPU synthetic bus probe: %s", esp_err_to_name(err));
+    }
     lc_rom_unmap(&map);
 }
 

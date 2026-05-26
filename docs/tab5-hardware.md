@@ -187,9 +187,19 @@ LC memory bus harness: io_read=0xff io_write=ESP_OK rom_write_blocked=ESP_ERR_IN
 
 CPU trace helper hooks are available for exception-vector hits,
 illegal/unimplemented instructions, bus errors, address errors, and interrupt
-levels. They currently only provide a structured logging/trace-ring API; actual
-Musashi callback/runtime wiring still waits for verified ROM overlay/reset-vector
-mapping.
+levels. Musashi is now linked into the Tab5 LC target and wired to the LC memory
+bus through LC-specific callbacks (`cpu_read_*`, `cpu_write_*`, function-code,
+reset, interrupt-ack, and instruction-hook surfaces). The hardware smoke probe
+executes only a synthetic RAM program, not the LC ROM:
+
+```text
+lc_musashi_bus: wrote synthetic 68k smoke program: sp=0x00002000 pc=0x00000100
+lc_cpu: LC synthetic 68EC020 bus probe: reset_pc=0x00000100 reset_sp=0x00002000 cycles=64 pc_after=0x00000104 sr=0x2704 cpu_type=3
+lc_musashi_bus: Musashi callback stats: fc=6 reset_callbacks=0 irq_acks=0 instruction_callbacks=3
+```
+
+Actual LC ROM execution still waits for verified ROM overlay/reset-vector mapping
+and device-specific hardware stubs.
 
 Performance counter scaffolding (`src/machine_lc/lc_perf.c`) tracks count, total,
 minimum, average, and maximum microseconds for future CPU loop, video update,

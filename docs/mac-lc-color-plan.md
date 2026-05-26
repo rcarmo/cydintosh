@@ -22,8 +22,8 @@ not a Macintosh LC emulator loop. It currently provides:
   the first 512KB;
 - metadata-only LC ROM vector/window scanning via `make lc-rom-vectors` and the
   same heuristic scanner in firmware diagnostics;
-- LC-only Musashi configuration for 68EC020/68020, selected only by the Tab5/P4
-  environment;
+- LC-only Musashi configuration and linked core for 68EC020/68020, selected only
+  by the Tab5/P4 environment;
 - CPU trace helper scaffolds for reset-vector candidates, exception vectors,
   illegal/unimplemented instructions, bus/address errors, and interrupt levels;
 - a trace ring and lightweight performance counters for later panic/hang dumps;
@@ -31,6 +31,8 @@ not a Macintosh LC emulator loop. It currently provides:
   logged only;
 - bounded LC memory-bus harness with PSRAM guest RAM, mapped ROM reads, generic
   I/O stub reads/writes, ROM write blocking, and unmapped access logging;
+- LC Musashi callback bridge plus a RAM-only synthetic 68EC020 reset/execute
+  smoke probe, while LC ROM execution remains disabled;
 - 4MB guest RAM PSRAM allocation probe, 2MB fallback probe, separate indexed VRAM
   probe, and DMA-capable RGB565 strip-buffer probe;
 - panic-on-unexpected-write policy for ROM/unmapped writes while early ranges are
@@ -49,12 +51,14 @@ and verified the LC ROM partition, then ran the firmware-side vector scanner. It
 confirmed offset 0 is not a plausible SP/PC reset vector, found 13 heuristic
 vector-like pairs in the first `0x4000` bytes, and logged best current candidate
 `file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`. This is
-only a heuristic. The latest hardware diagnostic also validates the non-executing
-memory-bus harness: 4MB PSRAM RAM reads/writes, mapped ROM reads from both
-candidate windows, generic I/O stub reads/writes, ROM write blocking, and
-unmapped-read logging. The next boot milestone remains verifying the real ROM
-overlay mapping, selecting `M68K_CPU_TYPE_68EC020` at runtime, and recording first
-hardware accesses through the LC trace ring.
+only a heuristic. The latest hardware diagnostic also validates the memory-bus
+harness and Musashi callback bridge without executing the LC ROM: 4MB PSRAM RAM
+reads/writes, mapped ROM reads from both candidate windows, generic I/O stub
+reads/writes, ROM write blocking, unmapped-read logging, and a RAM-only synthetic
+68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
+`cpu_type=3`). The next boot milestone remains verifying the real ROM overlay
+mapping, then using the same bus path to record first LC ROM hardware accesses
+through the trace ring.
 
 ## ROM metadata
 

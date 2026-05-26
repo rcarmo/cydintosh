@@ -153,9 +153,10 @@ skeleton, not a booting LC emulator.
 | Guest video target | 512×384, 8-bit indexed color, dirty-row RGB565 strip conversion and Tab5 partial-flush scaffold |
 
 Current LC/P4 diagnostics include ROM partition mmap validation, on-device ROM
-vector candidate scanning, LC-only Musashi 68EC020/68020 configuration,
-trace/perf counters, provisional memory decoder, a bounded LC memory-bus harness
-with PSRAM RAM + mapped ROM + generic I/O stubs, read-only disk trace scaffolding,
+vector candidate scanning, LC-only Musashi 68EC020/68020 configuration, Musashi
+callback wiring to the LC memory bus, trace/perf counters, provisional memory
+decoder, a bounded LC memory-bus harness with PSRAM RAM + mapped ROM + generic
+I/O stubs, read-only disk trace scaffolding,
 Tab5 backlight/touch probes, software-only
 display pattern checksums, and a visually confirmed M5Stack-BSP-based physical
 display smoke image that now renders the LC `512×384×8bpp` indexed debug pattern
@@ -171,9 +172,11 @@ heuristic vector-like pairs in the first `0x4000` bytes, and best current
 candidate `file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`
 (non-executing heuristic only). The memory-bus harness validates 4MB PSRAM RAM
 reads/writes, 24-bit/32-bit ROM window reads, generic I/O stub reads/writes, ROM
-write blocking, and unmapped-read logging before any guest CPU execution is
-enabled. The Tab5 USB/JTAG device must be present before flashing or validating
-hardware output.
+write blocking, and unmapped-read logging. A RAM-only synthetic 68EC020 smoke
+program now validates `m68k_init()`/`m68k_set_cpu_type()`/`m68k_pulse_reset()` and
+bounded `m68k_execute()` through the LC bus callbacks (`reset_pc=0x100`,
+`reset_sp=0x2000`, `cpu_type=3`); LC ROM execution remains disabled. The Tab5
+USB/JTAG device must be present before flashing or validating hardware output.
 
 ## Board profiles and PlatformIO environments
 

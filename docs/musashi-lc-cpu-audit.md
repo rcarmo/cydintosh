@@ -154,17 +154,25 @@ Current LC scaffold settings:
 ## Current conclusion
 
 The Mac Plus path remains 68000-fixed and unchanged. The LC/P4 path now has a
-compile-time Musashi configuration scaffold for 68EC020/68020, but LC ROM
-execution is still pending the LC memory-map and CPU setup boundary.
+Tab5-only Musashi configuration and linked core for 68EC020/68020. LC ROM
+execution is still pending verified ROM overlay/reset-vector mapping and hardware
+stubs.
 
 `src/machine_lc/lc_cpu.c` now logs the selected initial CPU target
 (`M68K_CPU_TYPE_68EC020`), compile-time emulation switches, conservative quantum
 settings, and raw first/second ROM longwords as reset-vector candidates. These
 events are also recorded in the LC trace ring buffer (`src/machine_lc/lc_trace.c`)
-for later panic/hang dumps. It also exposes scaffold hooks for exception-vector
-hits, illegal/unimplemented instructions, bus errors, address errors, and
-interrupt levels. It does not call `m68k_init()` or execute guest code yet.
+for later panic/hang dumps. It exposes scaffold hooks for exception-vector hits,
+illegal/unimplemented instructions, bus errors, address errors, and interrupt
+levels.
 
-The next CPU-core step is to turn this scaffold into a runtime setup path that
-selects `M68K_CPU_TYPE_68EC020`, verifies the actual LC reset SP/PC mapping, and
-reports the first exception/unmapped-access failures.
+`src/machine_lc/lc_musashi_bus.c` provides the LC-only Musashi callback bridge to
+the new memory-bus harness. The current hardware smoke test writes a tiny RAM-only
+synthetic program, selects `M68K_CPU_TYPE_68EC020`, pulses reset, and runs a
+bounded `m68k_execute(64)` without executing LC ROM bytes. The latest serial log
+shows `reset_pc=0x00000100`, `reset_sp=0x00002000`, `pc_after=0x00000104`,
+`sr=0x2704`, and `cpu_type=3`.
+
+The next CPU-core step is to verify the actual LC reset SP/PC overlay mapping,
+then use this same bus path to report the first exception/unmapped-access
+failures from real ROM execution.

@@ -1,8 +1,10 @@
 #include "lc_cpu.h"
 
 #include "board_profiles.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "lc_memory.h"
+#include "lc_musashi_bus.h"
 #include "lc_trace.h"
 #include "m68k.h"
 
@@ -51,7 +53,7 @@ void lc_cpu_log_config(void) {
              OPT_OFF,
 #endif
              M68K_EMULATE_040);
-    ESP_LOGI(TAG, "LC CPU scaffold: exec_quantum=%u cycles_per_quantum=%u runtime_execution=disabled",
+    ESP_LOGI(TAG, "LC CPU scaffold: exec_quantum=%u cycles_per_quantum=%u rom_execution=disabled synthetic_probe=enabled",
              (unsigned)LC_CPU_EXEC_QUANTUM, (unsigned)LC_CPU_CYCLES_PER_QUANTUM);
 }
 
@@ -232,6 +234,43 @@ void lc_cpu_scan_reset_vector_candidates(const lc_rom_map_t *rom_map) {
              best_sp_reason);
     ESP_LOGW(TAG,
              "LC reset-vector scan is heuristic only; do not execute guest ROM until overlay and hardware stubs are verified");
+}
+
+void lc_cpu_probe_synthetic_bus_execution(lc_memory_bus_t *bus) {
+    if (bus == NULL || !bus->initialized) {
+        ESP_LOGW(TAG, "LC synthetic CPU/bus probe skipped: memory bus unavailable");
+        return;
+    }
+
+    const uint32_t synthetic_sp = 0x00002000u;
+    const uint32_t synthetic_pc = 0x00000100u;
+    esp_err_t err = lc_musashi_bus_write_synthetic_program(bus, synthetic_sp, synthetic_pc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LC synthetic CPU/bus probe program write failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    lc_musashi_bus_reset_stats();
+    lc_musashi_bus_attach(bus);
+    m68k_init();
+    m68k_set_cpu_type(M68K_CPU_TYPE_68EC020);
+    m68k_pulse_reset();
+    const unsigned int pc_after_reset = m68k_get_reg(NULL, M68K_REG_PC);
+    const unsigned int sp_after_reset = m68k_get_reg(NULL, M68K_REG_SP);
+    const int cycles = m68k_execute(64);
+    const unsigned int pc_after_execute = m68k_get_reg(NULL, M68K_REG_PC);
+    const unsigned int sr_after_execute = m68k_get_reg(NULL, M68K_REG_SR);
+    const unsigned int cpu_type = m68k_get_reg(NULL, M68K_REG_CPU_TYPE);
+
+    lc_trace_record(LC_TRACE_EVENT_CPU_CONFIG, pc_after_execute, synthetic_pc, cpu_type,
+                    (uint16_t)cycles, false);
+    ESP_LOGI(TAG,
+             "LC synthetic 68EC020 bus probe: reset_pc=0x%08x reset_sp=0x%08x cycles=%d pc_after=0x%08x sr=0x%04x cpu_type=%u",
+             pc_after_reset, sp_after_reset, cycles, pc_after_execute, sr_after_execute,
+             cpu_type);
+    lc_musashi_bus_log_stats();
+    lc_musashi_bus_detach();
+    ESP_LOGW(TAG, "LC synthetic CPU/bus probe executed RAM-only test code; LC ROM execution remains disabled");
 }
 
 void lc_cpu_log_trace_hook_status(void) {
