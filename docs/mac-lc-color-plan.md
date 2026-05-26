@@ -69,14 +69,15 @@ previous repeated 2832-read/3776-write loop. A `0x00800000` masked ROM alias was
 added after the guest switched toward the `0x40800000` ROM window and the
 68EC020 callbacks fetched masked `0x008xxxxx` addresses. With a 20M-cycle bounded
 probe, execution advances through the checksum loop, high-memory sizing probes,
-and the newly named `0x00f14000`-class early device range, then reaches
-`pc_after=0x408468d6`; high addresses from `0x00400000` up to the I/O window,
-plus the top 16 bytes of the 24-bit space, are now modeled as non-present
-RAM-size probe locations so the ROM can discover the configured 4MB RAM boundary
-without unexpected-write panics. Newly named early VIA-like accesses include
-`0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the `0x00f14800`
-range is separated as `early-f14000-device` while exact hardware semantics remain
-unknown.
+and the newly named `0x00f14000`-class early device range. A 100M-cycle probe
+then reaches the ROM's diagnostic/serial monitor loop around `0x408498ec` and
+`0x40849fca`, with `d0=0x8000` indicating no input available. High addresses from
+`0x00400000` up to the I/O window, plus the top 16 bytes of the 24-bit space, are
+now modeled as non-present RAM-size probe locations so the ROM can discover the
+configured 4MB RAM boundary without unexpected-write panics. Newly named early
+VIA-like accesses include `0x00f01e00`, `0x00f00600`, `0x00f00400`, and
+`0x00f00000`; the `0x00f14800` range is separated as `early-f14000-device`, and
+`0x00f04000` is separated as an SCC-like `early-f04000-device` status/data block.
 This establishes `0x0040008c` as the first guarded execution target, while the
 real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
 also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
@@ -85,8 +86,10 @@ reads/writes, ROM write blocking, RAM-size probe handling, unmapped-read logging
 and a RAM-only synthetic 68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
 `cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
 panel in the normal LC target; user confirmation reported the test pattern
-visible. The next boot milestone is to continue past the memory-fill/test loop at
-`0x408468d6` and identify the next true missing device behavior.
+visible. The current guarded entry appears to end in a ROM diagnostic monitor,
+not yet in a normal Mac boot path. The next boot milestone is to compare other
+ROM-header entry candidates/reset-overlay behavior instead of feeding fake serial
+input to the monitor.
 
 ## ROM metadata
 

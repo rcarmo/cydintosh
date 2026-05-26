@@ -39,7 +39,11 @@ static const char *TAG = "lc_cpu";
 #endif
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE_CYCLES
-#define LC_CPU_ROM_ENTRY_PROBE_CYCLES 20000000u
+#define LC_CPU_ROM_ENTRY_PROBE_CYCLES 60000000u
+#endif
+
+#ifndef LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
+#define LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES 10000u
 #endif
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE_BASE
@@ -534,17 +538,69 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
              " first_opcode=0x%04x hint=%s sp=0x%08x",
              entry_pc, first_opcode, opcode_hint(first_opcode),
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK);
-    const int cycles = m68k_execute((int)LC_CPU_ROM_ENTRY_PROBE_CYCLES);
+    unsigned int total_cycles = 0;
+    unsigned int remaining_cycles = LC_CPU_ROM_ENTRY_PROBE_CYCLES;
+    unsigned int last_d6_checkpoint = m68k_get_reg(NULL, M68K_REG_D6);
+    unsigned int last_d7_checkpoint = m68k_get_reg(NULL, M68K_REG_D7);
+    unsigned int chunk_index = 0;
+    while (remaining_cycles > 0) {
+        const unsigned int requested_chunk = remaining_cycles > LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
+                                                 ? LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
+                                                 : remaining_cycles;
+        const int executed = m68k_execute((int)requested_chunk);
+        total_cycles += (unsigned int)(executed > 0 ? executed : 0);
+        remaining_cycles -= requested_chunk;
+        chunk_index++;
+
+        const unsigned int checkpoint_pc = m68k_get_reg(NULL, M68K_REG_PC);
+        const unsigned int checkpoint_d6 = m68k_get_reg(NULL, M68K_REG_D6);
+        const unsigned int checkpoint_d7 = m68k_get_reg(NULL, M68K_REG_D7);
+        if (checkpoint_d6 != last_d6_checkpoint || checkpoint_d7 != last_d7_checkpoint ||
+            (chunk_index % 5000u) == 0) {
+            ESP_LOGI(TAG,
+                     "LC ROM entry micro-probe checkpoint: requested=%u executed_total=%u pc=0x%08x d6=0x%08x d7=0x%08x a2=0x%08x a3=0x%08x",
+                     (unsigned)LC_CPU_ROM_ENTRY_PROBE_CYCLES, total_cycles, checkpoint_pc,
+                     checkpoint_d6, checkpoint_d7, m68k_get_reg(NULL, M68K_REG_A2),
+                     m68k_get_reg(NULL, M68K_REG_A3));
+            last_d6_checkpoint = checkpoint_d6;
+            last_d7_checkpoint = checkpoint_d7;
+        }
+        if (executed <= 0) {
+            ESP_LOGW(TAG, "LC ROM entry micro-probe stopped early: executed=%d", executed);
+            break;
+        }
+    }
+    const int cycles = (int)total_cycles;
     const unsigned int pc_after = m68k_get_reg(NULL, M68K_REG_PC);
     const unsigned int sp_after = m68k_get_reg(NULL, M68K_REG_SP);
     const unsigned int sr_after = m68k_get_reg(NULL, M68K_REG_SR);
     const unsigned int d0_after = m68k_get_reg(NULL, M68K_REG_D0);
+    const unsigned int d1_after = m68k_get_reg(NULL, M68K_REG_D1);
+    const unsigned int d2_after = m68k_get_reg(NULL, M68K_REG_D2);
+    const unsigned int d3_after = m68k_get_reg(NULL, M68K_REG_D3);
+    const unsigned int d4_after = m68k_get_reg(NULL, M68K_REG_D4);
+    const unsigned int d5_after = m68k_get_reg(NULL, M68K_REG_D5);
+    const unsigned int d6_after = m68k_get_reg(NULL, M68K_REG_D6);
+    const unsigned int d7_after = m68k_get_reg(NULL, M68K_REG_D7);
+    const unsigned int a0_after = m68k_get_reg(NULL, M68K_REG_A0);
+    const unsigned int a1_after = m68k_get_reg(NULL, M68K_REG_A1);
+    const unsigned int a2_after = m68k_get_reg(NULL, M68K_REG_A2);
+    const unsigned int a3_after = m68k_get_reg(NULL, M68K_REG_A3);
+    const unsigned int a4_after = m68k_get_reg(NULL, M68K_REG_A4);
+    const unsigned int a5_after = m68k_get_reg(NULL, M68K_REG_A5);
+    const unsigned int a6_after = m68k_get_reg(NULL, M68K_REG_A6);
     lc_trace_record(LC_TRACE_EVENT_CPU_CONFIG, pc_after, entry_pc, d0_after,
                     (uint16_t)cycles, false);
     ESP_LOGI(TAG,
              "LC ROM entry micro-probe result: cycles=%d pc_after=0x%08x sp_after=0x%08x sr=0x%04x d0=0x%08x reset_callbacks=%" PRIu32,
              cycles, pc_after, sp_after, sr_after, d0_after,
              lc_musashi_bus_reset_callback_count());
+    ESP_LOGI(TAG,
+             "LC ROM entry micro-probe regs: d1=0x%08x d2=0x%08x d3=0x%08x d4=0x%08x d5=0x%08x d6=0x%08x d7=0x%08x",
+             d1_after, d2_after, d3_after, d4_after, d5_after, d6_after, d7_after);
+    ESP_LOGI(TAG,
+             "LC ROM entry micro-probe aregs: a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x a4=0x%08x a5=0x%08x a6=0x%08x",
+             a0_after, a1_after, a2_after, a3_after, a4_after, a5_after, a6_after);
     lc_musashi_bus_log_stats();
     lc_memory_log_io_stub_summary();
     lc_trace_dump_recent(48);

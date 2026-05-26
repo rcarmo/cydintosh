@@ -173,6 +173,7 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 | `0x00403124`-`0x4080314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | provisional VIA IER set/clear/readback | explicit `early-rom-probe-1c00-stride` stub; offset `0x1c00` matches VIA register 14/IER under A[12:9] decode; this advances the previous constant-`0xff` loop |
 | `0x00403226` onward | `0x00f01e00`, `0x00f00600`, `0x00f00400`, `0x00f00000` plus mirrors | `early-lc-via-register` plus base-window harness | newly exposed VIA-like register accesses after the IER behavior; likely ORA/DDRB/DDRA/ORB style offsets, still not claimed as final LC VIA mapping |
 | `0x40845c0c` onward | around `0x00f14800` | `early-f14000-device` | newly exposed device range; code tests/writes offsets around `$800` from a `0x00f14000`-class base, exact device unknown |
+| `0x40849eaa` onward | around `0x00f04000`/`0x50f04000`, notably offsets `+2` and `+6` | `early-f04000-device` | SCC-like status/data block; offset `+2` currently returns transmit-ready/no-RX status `0x04`, offset `+6` returns `0x00` |
 | `0x4084a672` onward | `0x00effffc`, `0x00dffffc`, ... down toward configured RAM and `0x00fffffc` top-of-space probes | `ram-size-probe` | high-memory sizing probe; writes ignored and reads return absent-memory value above configured 4MB RAM |
 
 A comparison probe using `0x4080008c` showed that the 68EC020 path masks that
@@ -183,8 +184,9 @@ into the `0x408xxxxx` ROM window.
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. Continue past the memory-fill/test loop at `0x408468d6` and record the next
-   true missing device range.
+2. Compare other ROM-header entry candidates and reset-overlay behavior; the
+   current guarded `0x0040008c` path reaches a diagnostic/serial monitor rather
+   than a normal boot path.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the

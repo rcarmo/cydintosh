@@ -183,12 +183,14 @@ provisional VIA IER alias instead of constant `0xff`: the former repeated
 The masked ROM alias then lets the guest continue with `0x408xxxxx` PCs while
 Musashi fetch callbacks request `0x008xxxxx` addresses. The latest 20M-cycle
 capture advances through the checksum loop, high-RAM sizing probes, and the
-newly named `early-f14000-device` range, ending at `pc_after=0x408468d6`,
-`sr=0x2718`. Addresses above the configured 4MB RAM and below `0x00f00000`, plus
-the top 16 bytes of the 24-bit address space, are treated as non-present RAM-size
-probes. Early VIA-like accesses are summarized at `0x00f01e00`, `0x00f00600`,
-`0x00f00400`, and `0x00f00000`; the `0x00f14000`-class range remains named but
-not identified.
+newly named `early-f14000-device` range. A 100M-cycle capture reaches the ROM
+diagnostic/serial monitor loop around `0x408498ec`/`0x40849fca`, with
+`pc_after=0x408499ea` and no unmapped blocker. Addresses above the configured 4MB
+RAM and below `0x00f00000`, plus the top 16 bytes of the 24-bit address space,
+are treated as non-present RAM-size probes. Early VIA-like accesses are
+summarized at `0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the
+`0x00f14000`-class range remains named but not identified, and the
+`0x00f04000`-class range is modeled as SCC-like status/data (`early-f04000-device`).
 
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM

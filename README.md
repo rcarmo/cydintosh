@@ -178,11 +178,12 @@ ROM dispatcher. The first explicit `early-rom-probe-1c00-stride` I/O probes at
 set/clear/readback behavior, which advances past the previous repeated
 2832-read/3776-write loop. The decoder also maps the 68EC020-masked
 `0x00800000` ROM alias after the guest moves toward `0x408xxxxx` PCs; the latest
-20M-cycle bounded probe reaches `pc_after=0x408468d6` after the checksum loop,
-high-memory sizing probes, and a named-but-not-identified `0x00f14000`-class
-I/O range. Addresses above the configured 4MB RAM and below the I/O window, plus
-the top 16 bytes of the 24-bit address space, are modeled as non-present RAM-size
-probes. The memory-bus harness validates 4MB PSRAM RAM
+100M-cycle bounded probe reaches the ROM diagnostic/serial monitor loop around
+`0x408498ec`/`0x40849fca` after the checksum loop, high-memory sizing probes, a
+named-but-not-identified `0x00f14000`-class I/O range, and an SCC-like
+`0x00f04000` status/data block. Addresses above the configured 4MB RAM and below
+the I/O window, plus the top 16 bytes of the 24-bit address space, are modeled as
+non-present RAM-size probes. The memory-bus harness validates 4MB PSRAM RAM
 reads/writes, ROM window reads, generic I/O stub reads/writes, ROM write blocking,
 RAM-size probe handling, and unmapped-read logging. A RAM-only synthetic 68EC020 smoke program validates
 `m68k_init()`/`m68k_set_cpu_type()`/`m68k_pulse_reset()` and bounded

@@ -13,8 +13,9 @@
 
 static const char *TAG = "lc_memory";
 
-#define LC_IO_STUB_KIND_COUNT 6u
+#define LC_IO_STUB_KIND_COUNT 7u
 #define LC_EARLY_VIA_REGISTER_COUNT 16u
+#define LC_EARLY_F04000_REGISTER_COUNT 256u
 #define LC_RAM_SIZE_TOP_PROBE_BYTES 0x10u
 #define LC_EARLY_VIA_IER_REGISTER 14u
 #define LC_EARLY_VIA_IFR_REGISTER 13u
@@ -33,6 +34,7 @@ typedef struct {
 static lc_io_stub_stats_t io_stub_stats[LC_IO_STUB_KIND_COUNT];
 static uint8_t early_probe_via_ier;
 static uint8_t early_lc_via_registers[LC_EARLY_VIA_REGISTER_COUNT];
+static uint8_t early_f04000_registers[LC_EARLY_F04000_REGISTER_COUNT];
 
 static bool address_in_window(uint32_t address, uint32_t base, uint32_t size) {
     return address >= base && address < (base + size);
@@ -70,6 +72,8 @@ const char *lc_memory_io_stub_kind_name(lc_io_stub_kind_t kind) {
         return "early-rom-probe-1c00-stride";
     case LC_IO_STUB_EARLY_LC_VIA_REGISTER:
         return "early-lc-via-register";
+    case LC_IO_STUB_EARLY_F04000_DEVICE:
+        return "early-f04000-device";
     case LC_IO_STUB_EARLY_F14000_DEVICE:
         return "early-f14000-device";
     case LC_IO_STUB_GENERIC:
@@ -91,6 +95,9 @@ static unsigned lc_memory_via_register_index(uint32_t offset) {
 }
 
 static lc_io_stub_kind_t lc_memory_classify_io_stub(uint32_t offset) {
+    if (offset >= 0x00004000u && offset < 0x00006000u) {
+        return LC_IO_STUB_EARLY_F04000_DEVICE;
+    }
     if (offset >= 0x00014000u && offset < 0x00016000u) {
         return LC_IO_STUB_EARLY_F14000_DEVICE;
     }
@@ -486,6 +493,18 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
         } else {
             value = early_lc_via_registers[reg];
         }
+    } else if (decoded->io_stub == LC_IO_STUB_EARLY_F04000_DEVICE) {
+        const uint32_t reg_offset = decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u);
+        if (reg_offset == 2u) {
+            // Provisional SCC-like status: transmit buffer empty, no receive
+            // character available.  Do not let command writes make status look
+            // busy forever during early ROM diagnostics.
+            value = 0x04u;
+        } else if (reg_offset == 6u) {
+            value = 0x00u;
+        } else {
+            value = early_f04000_registers[reg_offset];
+        }
     }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, false);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, false);
@@ -518,6 +537,8 @@ static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint3
     if (decoded->io_stub == LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE ||
         decoded->io_stub == LC_IO_STUB_EARLY_LC_VIA_REGISTER) {
         lc_memory_write_early_via_register(decoded->offset, value);
+    } else if (decoded->io_stub == LC_IO_STUB_EARLY_F04000_DEVICE) {
+        early_f04000_registers[decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u)] = value;
     }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, true);
@@ -533,6 +554,7 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     memset(bus, 0, sizeof(*bus));
     memset(io_stub_stats, 0, sizeof(io_stub_stats));
     memset(early_lc_via_registers, 0xff, sizeof(early_lc_via_registers));
+    memset(early_f04000_registers, 0xff, sizeof(early_f04000_registers));
     early_lc_via_registers[LC_EARLY_VIA_IFR_REGISTER] = 0;
     early_lc_via_registers[LC_EARLY_VIA_IER_REGISTER] = 0;
     early_probe_via_ier = 0;
