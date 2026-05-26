@@ -607,6 +607,10 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     unsigned int remaining_cycles = LC_CPU_ROM_ENTRY_PROBE_CYCLES;
     unsigned int last_d6_checkpoint = m68k_get_reg(NULL, M68K_REG_D6);
     unsigned int last_d7_checkpoint = m68k_get_reg(NULL, M68K_REG_D7);
+    unsigned int last_d6_transition = last_d6_checkpoint;
+    unsigned int last_d7_transition = last_d7_checkpoint;
+    unsigned int d6_transition_logs = 0;
+    unsigned int d7_transition_logs = 0;
     bool zero_ram_execution_logged = false;
     bool stopped_on_zero_ram_execution = false;
     bool stopped_on_rom_monitor_loop = false;
@@ -638,6 +642,26 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
                 stopped_on_zero_ram_execution = true;
 #endif
             }
+        }
+        if (checkpoint_d6 != last_d6_transition && d6_transition_logs < 32u) {
+            ESP_LOGI(TAG,
+                     "LC ROM entry micro-probe D6 transition: old=0x%08x new=0x%08x pc=0x%08x opcode=0x%04x d7=0x%08x cycles=%u a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x a6=0x%08x",
+                     last_d6_transition, checkpoint_d6, checkpoint_pc, checkpoint_opcode,
+                     checkpoint_d7, total_cycles, m68k_get_reg(NULL, M68K_REG_A0),
+                     m68k_get_reg(NULL, M68K_REG_A1), m68k_get_reg(NULL, M68K_REG_A2),
+                     m68k_get_reg(NULL, M68K_REG_A3), m68k_get_reg(NULL, M68K_REG_A6));
+            last_d6_transition = checkpoint_d6;
+            d6_transition_logs++;
+        }
+        if (checkpoint_d7 != last_d7_transition && d7_transition_logs < 32u) {
+            ESP_LOGI(TAG,
+                     "LC ROM entry micro-probe D7 transition: old=0x%08x new=0x%08x pc=0x%08x opcode=0x%04x d6=0x%08x cycles=%u a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x a6=0x%08x",
+                     last_d7_transition, checkpoint_d7, checkpoint_pc, checkpoint_opcode,
+                     checkpoint_d6, total_cycles, m68k_get_reg(NULL, M68K_REG_A0),
+                     m68k_get_reg(NULL, M68K_REG_A1), m68k_get_reg(NULL, M68K_REG_A2),
+                     m68k_get_reg(NULL, M68K_REG_A3), m68k_get_reg(NULL, M68K_REG_A6));
+            last_d7_transition = checkpoint_d7;
+            d7_transition_logs++;
         }
         const bool register_transition = checkpoint_d6 != last_d6_checkpoint ||
                                          checkpoint_d7 != last_d7_checkpoint;

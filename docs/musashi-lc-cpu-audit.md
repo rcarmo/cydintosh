@@ -185,6 +185,11 @@ then reached the broad ROM-monitor guard at `0x40849eae` after 49.5M cycles with
 narrowed to no-input command polling sites so the monitor setup path can run.
 With the SCC-like no-input/transmit-ready stub, `serial-capture-20260526-213538.log`
 advances to `0x40849fca` with `d0=0x00008000`, `d7=0x01020304`, and
-`stopped_on_monitor=1`. The next CPU-core step is to determine why the reset path
-selects that diagnostic monitor path before adding any fake serial input or
-bypass.
+`stopped_on_monitor=1`. ROM watchpoint instrumentation in
+`src/machine_lc/lc_musashi_bus.c` now confirms this seeded path does return to
+`0x408000b4`, reaches the normal reset continuation at `0x408008e0`, enters the
+`0x40845c0c` slot/video probe, and later enters monitor setup at `0x408498da`
+with `d6=0x00117b34`, `d7=0x01000304`, and `usp=0x50000304`
+(`serial-capture-20260526-215201.log`). The next CPU-core step is to decode that
+diagnostic accumulator and determine why the reset path selects the diagnostic
+monitor before adding any fake serial input or bypass.

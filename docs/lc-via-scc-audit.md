@@ -200,11 +200,17 @@ adding the SCC-like transmit-ready one-shot, `serial-capture-20260526-213538.log
 advances through the monitor initialization path and stops at `0x40849fca`, the
 serial command/read poll. That capture records `d7=0x01020304`, `d0=0x00008000`
 (no input), 27 reads and 24 writes to `early-f04000-device`, and the last status
-read from `+0x0002` as `0x04`. This confirms the new frontier is not a missing
-transmit-ready bit; the seeded reset-body path is explicitly waiting in the ROM
-monitor for serial input. The earlier `0x008039xx`/`0x00803428`/`0x00807428`
-write stream was an artifact of continuing through zero RAM, not a normal
-reset-overlay write sequence.
+read from `+0x0002` as `0x04`. Follow-up ROM watchpoint captures
+(`serial-capture-20260526-214830.log` and `serial-capture-20260526-215201.log`)
+show that the seeded reset-body path does return through `0x408000b4` and reaches
+the normal reset continuation at `0x408008e0` before entering the `0x40845c0c`
+`0x00f14000` slot/video probe family. The later monitor path is entered at
+`0x408498da` with `d6=0x00117b34`, `d7=0x01000304`, `usp=0x50000304`, then
+initializes the SCC-like block through `0x40849e96` and waits for monitor input at
+`0x40849fca`. This confirms the new frontier is not a missing transmit-ready bit;
+the ROM is selecting its diagnostic monitor after the slot/video/probe phase. The
+earlier `0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of
+continuing through zero RAM, not a normal reset-overlay write sequence.
 
 ## Recommended next steps
 

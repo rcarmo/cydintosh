@@ -207,10 +207,14 @@ with `d7=0x01000304` and first `0x00f04000` status read value `0x04`.
 `0x0804` was read 294 times with final value `0x03`. The `0x00f04000`-class range
 is now modeled as SCC-like no-input status/data (`early-f04000-device`): `+0` and
 `+4` return `0x04`, `+2` returns a one-shot `0x05` only after transmit-data writes
-to `+6` and otherwise `0x04`, and `+6` returns `0x00`. The latest capture
-(`serial-capture-20260526-213538.log`) advances through monitor initialization
-and stops at `0x40849fca`, the serial command/read poll, with `d0=0x00008000`,
-`d7=0x01020304`, and no fake receive input.
+to `+6` and otherwise `0x04`, and `+6` returns `0x00`. The `serial-capture-20260526-213538.log` capture advances through monitor
+initialization and stops at `0x40849fca`, the serial command/read poll, with
+`d0=0x00008000`, `d7=0x01020304`, and no fake receive input. Follow-up
+watchpoint captures (`serial-capture-20260526-214830.log` and
+`serial-capture-20260526-215201.log`) show the seeded reset body returning to
+`0x408000b4`, reaching the normal reset continuation at `0x408008e0`, entering the
+slot/video probe at `0x40845c0c`, and later selecting monitor setup at
+`0x408498da` with `d6=0x00117b34`, `d7=0x01000304`, and `usp=0x50000304`.
 
 The previous `0x0080xxxx` masked-ROM write stream was reclassified as an artifact
 of continuing through zero-filled RAM after the invalid unseeded `0x00402e00`

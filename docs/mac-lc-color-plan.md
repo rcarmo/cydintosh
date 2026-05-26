@@ -105,10 +105,15 @@ value `0x04`, and `stopped_on_monitor=1`. The latest hardware capture
 (`serial-capture-20260526-213538.log`) narrows that result: after a conservative
 SCC-like transmit-ready/no-input status stub, the bounded probe advances through
 monitor initialization and stops at `0x40849fca`, the serial command/read poll,
-with `d0=0x00008000` (no input), `d7=0x01020304`, and no fake receive data. The
-next boot milestone is to understand why the reset path selects that
-monitor/diagnostic path and to identify the next real VIA/SCC/reset flag
-requirement without faking serial input.
+with `d0=0x00008000` (no input), `d7=0x01020304`, and no fake receive data.
+Follow-up ROM watchpoint instrumentation (`serial-capture-20260526-214830.log`,
+`serial-capture-20260526-215201.log`) confirms the seeded reset body returns to
+`0x408000b4`, branches to the normal reset continuation at `0x408008e0`, reaches
+the `0x40845c0c` slot/video probe, and only later enters the diagnostic monitor
+setup at `0x408498da` with `d6=0x00117b34`, `d7=0x01000304`, and
+`usp=0x50000304`. The next boot milestone is to decode the diagnostic accumulator
+and identify the real hardware/reset/PRAM condition that selects the monitor path
+without faking serial input.
 
 ## ROM metadata
 
