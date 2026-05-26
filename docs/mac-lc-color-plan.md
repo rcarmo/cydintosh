@@ -86,10 +86,20 @@ reads/writes, ROM write blocking, RAM-size probe handling, unmapped-read logging
 and a RAM-only synthetic 68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
 `cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
 panel in the normal LC target; user confirmation reported the test pattern
-visible. The current guarded entry appears to end in a ROM diagnostic monitor,
-not yet in a normal Mac boot path. The next boot milestone is to compare other
-ROM-header entry candidates/reset-overlay behavior instead of feeding fake serial
-input to the monitor.
+visible. The `0x0040008c` guarded entry appears to end in a ROM diagnostic
+monitor, not yet in a normal Mac boot path. Alternate ROM-header probes show
+`0x00402e00` and `0x00402f18` avoid that monitor, while `0x00402310` reaches the
+same diagnostic monitor quickly and `0x00401240` falls into RAM-only trap/setup
+code. The current diagnostic default is `0x00402e00`, guarded by a zero-filled
+RAM execution stop. Latest hardware capture (`serial-capture-20260526-202108.log`)
+shows this candidate reaches `jmp (a4)` at `0x40802e7a`, with `a4=0x40400000`,
+then executes the ROM header/fingerprint bytes at `0x40400000`/masked
+`0x00400000`. The second header word (`0xacf0`) raises an A-line exception while
+low exception vectors are still zero, so execution vectors to zero-filled RAM and
+is stopped at `pc=0x0000000c`. The earlier masked-ROM-shadow writes were artifacts
+of continuing through that zero RAM, not a normal boot path. The next boot
+milestone is to identify the real reset/overlay/vector preconditions for this
+entry path or choose an entry that does not require unknown register state.
 
 ## ROM metadata
 

@@ -35,6 +35,12 @@ static lc_io_stub_stats_t io_stub_stats[LC_IO_STUB_KIND_COUNT];
 static uint8_t early_probe_via_ier;
 static uint8_t early_lc_via_registers[LC_EARLY_VIA_REGISTER_COUNT];
 static uint8_t early_f04000_registers[LC_EARLY_F04000_REGISTER_COUNT];
+static uint32_t masked_rom_shadow_writes;
+static uint32_t masked_rom_shadow_first_pc;
+static uint32_t masked_rom_shadow_first_addr;
+static uint32_t masked_rom_shadow_last_pc;
+static uint32_t masked_rom_shadow_last_addr;
+static uint8_t masked_rom_shadow_last_value;
 
 static bool address_in_window(uint32_t address, uint32_t base, uint32_t size) {
     return address >= base && address < (base + size);
@@ -151,12 +157,22 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
         return decoded;
     }
 
+    if (address_in_window(address, LC_ROM_WINDOW_32BIT_RESET_BASE_CANDIDATE, LC_ROM_WINDOW_SIZE)) {
+        decoded.region = LC_ADDR_REGION_ROM_32BIT_CANDIDATE;
+        decoded.base = LC_ROM_WINDOW_32BIT_RESET_BASE_CANDIDATE;
+        decoded.size = LC_ROM_WINDOW_SIZE;
+        decoded.offset = address - decoded.base;
+        decoded.name = lc_memory_region_name(decoded.region);
+        return decoded;
+    }
+
     if (address_in_window(address, LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE, LC_ROM_WINDOW_SIZE)) {
         decoded.region = LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE;
         decoded.base = LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE;
         decoded.size = LC_ROM_WINDOW_SIZE;
         decoded.offset = address - decoded.base;
         decoded.name = lc_memory_region_name(decoded.region);
+        decoded.writable = LC_ENABLE_ROM_MASKED_SHADOW != 0;
         return decoded;
     }
 
@@ -217,10 +233,10 @@ bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded) {
     case LC_ADDR_REGION_RAM_SIZE_PROBE:
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
         return decoded->writable;
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
-    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
     case LC_ADDR_REGION_UNMAPPED:
     default:
         return false;
@@ -275,8 +291,9 @@ static void log_heap_caps(const char *label, uint32_t caps) {
 }
 
 void lc_memory_log_write_policy(void) {
-    ESP_LOGI(TAG, "LC write policy: panic_on_unexpected_write=%d allowed=RAM,I/O-candidate denied=ROM,unmapped",
-             LC_PANIC_ON_UNEXPECTED_WRITE);
+    ESP_LOGI(TAG, "LC write policy: panic_on_unexpected_write=%d masked_rom_shadow=%d allowed=RAM,I/O-candidate%s denied=ROM,unmapped",
+             LC_PANIC_ON_UNEXPECTED_WRITE, LC_ENABLE_ROM_MASKED_SHADOW,
+             LC_ENABLE_ROM_MASKED_SHADOW ? ",masked-ROM-alias-shadow" : "");
     const uint32_t examples[] = {
         0x00000000u,
         LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
@@ -300,23 +317,29 @@ void lc_memory_log_initial_map(void) {
     const uint32_t rom24_end = rom24_base + LC_ROM_WINDOW_SIZE - 1u;
     const uint32_t rom32_base = LC_ROM_WINDOW_32BIT_BASE_CANDIDATE;
     const uint32_t rom32_end = rom32_base + LC_ROM_WINDOW_SIZE - 1u;
+    const uint32_t rom32_reset_base = LC_ROM_WINDOW_32BIT_RESET_BASE_CANDIDATE;
+    const uint32_t rom32_reset_end = rom32_reset_base + LC_ROM_WINDOW_SIZE - 1u;
     const uint32_t io24_base = LC_IO_24BIT_BASE_CANDIDATE;
     const uint32_t io24_end = io24_base + LC_IO_WINDOW_SIZE - 1u;
     const uint32_t io32_base = LC_IO_32BIT_BASE_CANDIDATE;
     const uint32_t io32_end = io32_base + LC_IO_WINDOW_SIZE - 1u;
 
-    ESP_LOGI(TAG, "LC initial memory scaffold: address_mode=24-bit-first, 32-bit candidates logged only");
+    ESP_LOGI(TAG, "LC initial memory scaffold: address_mode=24-bit-first, 32-bit candidates logged only, masked_rom_shadow=%d",
+             LC_ENABLE_ROM_MASKED_SHADOW);
     ESP_LOGI(TAG, "LC RAM candidate: base=0x%08" PRIx32 " size=0x%08" PRIx32 " end=0x%08" PRIx32,
              ram_base, ram_size, ram_end);
     ESP_LOGI(TAG, "LC ROM 24-bit candidate: base=0x%08" PRIx32 " size=0x%08x end=0x%08" PRIx32,
              rom24_base, LC_ROM_WINDOW_SIZE, rom24_end);
     ESP_LOGI(TAG, "LC ROM 32-bit candidate: base=0x%08" PRIx32 " size=0x%08x end=0x%08" PRIx32,
              rom32_base, LC_ROM_WINDOW_SIZE, rom32_end);
+    ESP_LOGI(TAG, "LC ROM 32-bit reset/header candidate: base=0x%08" PRIx32 " size=0x%08x end=0x%08" PRIx32,
+             rom32_reset_base, LC_ROM_WINDOW_SIZE, rom32_reset_end);
     ESP_LOGI(TAG, "LC I/O 24-bit candidate: base=0x%08" PRIx32 " size=0x%08x end=0x%08" PRIx32,
              io24_base, LC_IO_WINDOW_SIZE, io24_end);
     ESP_LOGI(TAG, "LC I/O 32-bit candidate: base=0x%08" PRIx32 " size=0x%08x end=0x%08" PRIx32,
              io32_base, LC_IO_WINDOW_SIZE, io32_end);
     ESP_LOGW(TAG, "LC ROM and I/O address windows are provisional; reset-vector execution must verify them");
+    ESP_LOGW(TAG, "LC masked ROM alias shadow is diagnostic-only reset-overlay scaffolding; it is not a boot claim");
     ESP_LOGI(TAG, "LC VRAM/framebuffer target: %dx%d@%dbpp size=0x%zx placement=undecided",
              DISP_WIDTH, DISP_HEIGHT, LC_GUEST_COLOR_DEPTH_BITS, LC_VRAM_SIZE);
 }
@@ -327,6 +350,7 @@ void lc_memory_log_decoder_examples(void) {
         LC_GUEST_RAM_SIZE - 1u,
         LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
         LC_ROM_WINDOW_32BIT_BASE_CANDIDATE,
+        LC_ROM_WINDOW_32BIT_RESET_BASE_CANDIDATE,
         LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE,
         LC_GUEST_RAM_SIZE,
         LC_RAM_SIZE_PROBE_LIMIT - 4u,
@@ -471,6 +495,49 @@ void lc_memory_log_io_stub_summary(void) {
                  stats->first_pc, stats->first_address, stats->last_pc, stats->last_address,
                  stats->last_value);
     }
+    if (masked_rom_shadow_writes != 0) {
+        ESP_LOGI(TAG,
+                 "LC masked ROM shadow summary: writes=%" PRIu32
+                 " first_pc=0x%08" PRIx32 " first_addr=0x%08" PRIx32
+                 " last_pc=0x%08" PRIx32 " last_addr=0x%08" PRIx32 " last_value=0x%02x",
+                 masked_rom_shadow_writes, masked_rom_shadow_first_pc,
+                 masked_rom_shadow_first_addr, masked_rom_shadow_last_pc,
+                 masked_rom_shadow_last_addr, masked_rom_shadow_last_value);
+    }
+}
+
+static void lc_memory_log_masked_rom_shadow_write(uint32_t pc, uint32_t address, uint8_t value) {
+    static unsigned logged = 0;
+    static unsigned suppressed = 0;
+    const unsigned log_limit = 48;
+
+    if (masked_rom_shadow_writes == 0) {
+        masked_rom_shadow_first_pc = pc;
+        masked_rom_shadow_first_addr = address;
+    }
+    masked_rom_shadow_writes++;
+    masked_rom_shadow_last_pc = pc;
+    masked_rom_shadow_last_addr = address;
+    masked_rom_shadow_last_value = value;
+
+    if (logged < log_limit) {
+        ESP_LOGW(TAG,
+                 "LC masked ROM shadow write pc=0x%08" PRIx32 " addr=0x%08" PRIx32
+                 " value=0x%02x diagnostic_reset_overlay=yes",
+                 pc, address, value);
+        logged++;
+        if (logged == log_limit) {
+            ESP_LOGW(TAG,
+                     "LC masked ROM shadow write logger reached %u entries; suppressing further shadow logs",
+                     log_limit);
+        }
+    } else {
+        suppressed++;
+        if ((suppressed & 0xffu) == 0) {
+            ESP_LOGW(TAG, "LC masked ROM shadow write logger suppressed %u additional entries",
+                     suppressed);
+        }
+    }
 }
 
 static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t address) {
@@ -555,6 +622,12 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     memset(io_stub_stats, 0, sizeof(io_stub_stats));
     memset(early_lc_via_registers, 0xff, sizeof(early_lc_via_registers));
     memset(early_f04000_registers, 0xff, sizeof(early_f04000_registers));
+    masked_rom_shadow_writes = 0;
+    masked_rom_shadow_first_pc = 0;
+    masked_rom_shadow_first_addr = 0;
+    masked_rom_shadow_last_pc = 0;
+    masked_rom_shadow_last_addr = 0;
+    masked_rom_shadow_last_value = 0;
     early_lc_via_registers[LC_EARLY_VIA_IFR_REGISTER] = 0;
     early_lc_via_registers[LC_EARLY_VIA_IER_REGISTER] = 0;
     early_probe_via_ier = 0;
@@ -576,10 +649,28 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     bus->ram_size = requested;
     bus->rom = rom_map->bytes;
     bus->rom_size = rom_map->size;
+#if LC_ENABLE_ROM_MASKED_SHADOW
+    bus->rom_masked_shadow_size = bus->rom_size < LC_ROM_WINDOW_SIZE ? bus->rom_size : LC_ROM_WINDOW_SIZE;
+    bus->rom_masked_shadow = (uint8_t *)heap_caps_malloc(bus->rom_masked_shadow_size,
+                                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (bus->rom_masked_shadow == NULL) {
+        ESP_LOGW(TAG,
+                 "LC masked ROM alias shadow allocation failed: size=0x%zx; masked alias remains read-only ROM",
+                 bus->rom_masked_shadow_size);
+        bus->rom_masked_shadow_size = 0;
+    } else {
+        memcpy(bus->rom_masked_shadow, bus->rom, bus->rom_masked_shadow_size);
+        bus->rom_masked_shadow_enabled = true;
+        ESP_LOGW(TAG,
+                 "LC masked ROM alias shadow initialized: base=0x%08x size=0x%zx diagnostic_reset_overlay=yes",
+                 LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE, bus->rom_masked_shadow_size);
+    }
+#endif
     bus->initialized = true;
-    ESP_LOGI(TAG, "LC memory bus initialized: ram=%p size=0x%zx%s rom=%p size=0x%zx",
+    ESP_LOGI(TAG, "LC memory bus initialized: ram=%p size=0x%zx%s rom=%p size=0x%zx masked_shadow=%p size=0x%zx enabled=%d",
              (void *)bus->ram, bus->ram_size, bus->using_fallback_ram ? " fallback" : "",
-             (const void *)bus->rom, bus->rom_size);
+             (const void *)bus->rom, bus->rom_size, (void *)bus->rom_masked_shadow,
+             bus->rom_masked_shadow_size, bus->rom_masked_shadow_enabled);
     return ESP_OK;
 }
 
@@ -589,6 +680,9 @@ void lc_memory_bus_free(lc_memory_bus_t *bus) {
     }
     if (bus->ram != NULL) {
         heap_caps_free(bus->ram);
+    }
+    if (bus->rom_masked_shadow != NULL) {
+        heap_caps_free(bus->rom_masked_shadow);
     }
     memset(bus, 0, sizeof(*bus));
 }
@@ -610,7 +704,18 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
         break;
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+        if (decoded.offset < bus->rom_size) {
+            const uint8_t value = bus->rom[decoded.offset];
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, false);
+            return value;
+        }
+        break;
     case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
+        if (bus->rom_masked_shadow_enabled && decoded.offset < bus->rom_masked_shadow_size) {
+            const uint8_t value = bus->rom_masked_shadow[decoded.offset];
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, false);
+            return value;
+        }
         if (decoded.offset < bus->rom_size) {
             const uint8_t value = bus->rom[decoded.offset];
             lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, false);
@@ -665,9 +770,21 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
         return lc_memory_io_stub_write8(&decoded, address, value);
+    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
+        if (bus->rom_masked_shadow_enabled && decoded.offset < bus->rom_masked_shadow_size) {
+            bus->rom_masked_shadow[decoded.offset] = value;
+            const uint32_t pc = lc_musashi_bus_current_pc();
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
+            lc_memory_log_masked_rom_shadow_write(pc, address, value);
+            return ESP_OK;
+        }
+        lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, lc_musashi_bus_current_pc(), address, value, 1, true);
+        ESP_LOGW(TAG, "LC blocked masked ROM alias write addr=0x%08" PRIx32
+                      " offset=0x%08" PRIx32 " value=0x%02x shadow_enabled=%d",
+                 address, decoded.offset, value, bus->rom_masked_shadow_enabled);
+        return ESP_ERR_INVALID_STATE;
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
-    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
         lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, lc_musashi_bus_current_pc(), address, value, 1, true);
         ESP_LOGW(TAG, "LC blocked ROM write addr=0x%08" PRIx32 " offset=0x%08" PRIx32
                       " value=0x%02x",

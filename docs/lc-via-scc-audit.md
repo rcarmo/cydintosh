@@ -179,14 +179,20 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 A comparison probe using `0x4080008c` showed that the 68EC020 path masks that
 address to `0x0080008c`. The decoder now maps `0x00800000`-`0x0087ffff` as a
 masked alias of the same 512KB ROM so the guest can continue after it moves PCs
-into the `0x408xxxxx` ROM window.
+into the `0x408xxxxx` ROM window. Alternate ROM-header probes show that
+`0x00402e00`/`0x00402f18` avoid the diagnostic monitor reached from `0x0040008c`,
+but the guarded `0x00402e00` capture now shows a jump through `a4=0x40400000` to
+the ROM header/fingerprint bytes, an A-line exception while low vectors are still
+zero, and a fall into zero-filled RAM. The earlier `0x008039xx`/`0x00803428`/
+`0x00807428` write stream was an artifact of continuing through zero RAM, not a
+normal reset-overlay write sequence.
 
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. Compare other ROM-header entry candidates and reset-overlay behavior; the
-   current guarded `0x0040008c` path reaches a diagnostic/serial monitor rather
-   than a normal boot path.
+2. Identify the real reset/overlay/vector preconditions for the `0x00402e00`
+   path, especially why `a4` points at the ROM header and how low A-line/vector
+   dispatch should be initialized before executing header/trap bytes.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the

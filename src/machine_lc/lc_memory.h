@@ -24,6 +24,10 @@
 #define LC_ROM_WINDOW_32BIT_BASE_CANDIDATE 0x40800000u
 #endif
 
+#ifndef LC_ROM_WINDOW_32BIT_RESET_BASE_CANDIDATE
+#define LC_ROM_WINDOW_32BIT_RESET_BASE_CANDIDATE 0x40400000u
+#endif
+
 #ifndef LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE
 #define LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE 0x00800000u
 #endif
@@ -46,6 +50,10 @@
 
 #ifndef LC_PANIC_ON_UNEXPECTED_WRITE
 #define LC_PANIC_ON_UNEXPECTED_WRITE 1
+#endif
+
+#ifndef LC_ENABLE_ROM_MASKED_SHADOW
+#define LC_ENABLE_ROM_MASKED_SHADOW 1
 #endif
 
 #define LC_IO_WINDOW_SIZE 0x00100000u
@@ -91,6 +99,9 @@ typedef struct {
     bool using_fallback_ram;
     const uint8_t *rom;
     size_t rom_size;
+    uint8_t *rom_masked_shadow;
+    size_t rom_masked_shadow_size;
+    bool rom_masked_shadow_enabled;
     bool initialized;
 } lc_memory_bus_t;
 
