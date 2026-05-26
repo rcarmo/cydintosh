@@ -14,33 +14,34 @@ Completed setup:
 - Local-only ROM path: `vendor/mac-lc.rom` (ignored by git)
 - Original Tab5 flash: backed up before experiments
 
-No LC boot is claimed yet. The first firmware target is a skeleton that logs
-ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists,
-then maps the first 512KB of that partition read-only through ESP-IDF flash
-`mmap` for diagnostics. It also logs a provisional 24-bit-first RAM/ROM memory
-map and probes whether a 4MB guest RAM allocation fits in PSRAM, with a 2MB
-fallback probe. It also probes indexed VRAM allocation in PSRAM and a DMA-capable
-RGB565 strip buffer in internal RAM to guide the first color renderer. It includes
-a provisional LC address decoder for RAM, ROM-window
-candidates, I/O-window candidates, throttled unmapped-access logging, and a small
-trace ring buffer that can dump recent diagnostic events on panic/hang paths in
-future reset-vector execution. CPU trace helpers now exist for exception-vector
-hits, illegal/unimplemented instructions, bus/address errors, and interrupt
-levels. Lightweight performance counters now exist for future CPU-loop,
-video-update, host-render, and display-flush timing. A diagnostic 512×384×8-bit
-indexed video scaffold can generate a CLUT-backed test pattern, track dirty rows,
-convert dirty strips to RGB565, checksum both indexed/RGB paths, and render the
-same debug pattern off-device as a PPM image without using the Tab5 display
-driver yet. A Tab5-only GPIO22/LEDC backlight scaffold and a software-only
-720×1280 physical-panel smoke-pattern generator are wired into startup diagnostics
-ahead of full DSI panel init. A Tab5 I2C touch probe scaffold checks GT911/ST7123
-presence but does not yet read coordinates or emit ADB events. The memory scaffold also has an early bring-up
-write policy: RAM and I/O-candidate writes are allowed, while ROM/unmapped writes
-are flagged by the panic-on-unexpected-write policy. The branch now also has an
-LC-only Musashi config
-scaffold for 68EC020/68020, selected only by the Tab5/P4 LC environment, plus LC
-CPU diagnostics that log the intended 68EC020 mode and raw ROM vector candidates
-without executing guest code.
+No LC boot is claimed yet. The current firmware target is a diagnostic skeleton,
+not a Macintosh LC emulator loop. It currently provides:
+
+- ESP32-P4/chip/heap/PSRAM diagnostics;
+- LC ROM partition probing plus read-only `esp_partition_mmap()` validation for
+  the first 512KB;
+- metadata-only LC ROM vector/window scanning via `make lc-rom-vectors`;
+- LC-only Musashi configuration for 68EC020/68020, selected only by the Tab5/P4
+  environment;
+- CPU trace helper scaffolds for reset-vector candidates, exception vectors,
+  illegal/unimplemented instructions, bus/address errors, and interrupt levels;
+- a trace ring and lightweight performance counters for later panic/hang dumps;
+- provisional 24-bit-first RAM/ROM/I/O address decoding, with 32-bit candidates
+  logged only;
+- 4MB guest RAM PSRAM allocation probe, 2MB fallback probe, separate indexed VRAM
+  probe, and DMA-capable RGB565 strip-buffer probe;
+- panic-on-unexpected-write policy for ROM/unmapped writes while early ranges are
+  still being discovered;
+- read-only LC disk partition policy and disk I/O trace scaffolding;
+- 512×384×8-bit indexed video scaffold with debug CLUT, dirty rows, RGB565 strip
+  conversion, checksums, and off-device PPM rendering;
+- Tab5 GPIO22/LEDC backlight scaffold;
+- software-only 720×1280 physical-panel smoke pattern checksums;
+- Tab5 I2C touch probe scaffold for GT911/ST7123 presence.
+
+Guest LC ROM code is not executed yet. The next boot milestone is to verify the
+actual reset-vector mapping, select `M68K_CPU_TYPE_68EC020` at runtime, and start
+recording first hardware accesses through the LC trace ring.
 
 ## ROM metadata
 

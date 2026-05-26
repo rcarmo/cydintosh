@@ -1,9 +1,8 @@
 # Musashi CPU configuration audit for Macintosh LC bring-up
 
-This note captures the CPU-core state for Macintosh LC bring-up. The first
-checkpoint audited the Mac Plus-fixed Musashi configuration; the next checkpoint
-adds an LC-only 68EC020/68020 configuration scaffold without claiming ROM
-execution yet.
+This note captures the CPU-core state for Macintosh LC bring-up. The branch now
+has an LC-only 68EC020/68020 Musashi configuration scaffold and structured trace
+helpers, but it still does not execute the LC ROM.
 
 ## Current state
 
@@ -98,7 +97,8 @@ Musashi comments, so do not turn it on blindly for 68020 bring-up.
 
 The current external umac entry point assumes Mac Plus/68000. LC work needs an
 LC-specific CPU setup boundary rather than changing the existing Mac Plus call
-site directly.
+site directly. The current branch has LC CPU diagnostics and trace hooks, but not
+the runtime `m68k_init()`/`m68k_set_cpu_type()` execution path.
 
 Planned LC CPU setup should log:
 

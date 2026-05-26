@@ -72,16 +72,18 @@ Hardware details from the official M5Stack Tab5 documentation (`https://docs.m5s
 | Wireless coprocessor | ESP32-C6-MINI-1U, out of scope for initial LC bring-up |
 
 The branch board header records these values in
-`include/boards/m5stack_tab5_esp32p4_lc.h`. Display and touch drivers are not
-implemented yet; next hardware milestone is a Tab5 display smoke test using the
-MIPI-DSI panel path.
+`include/boards/m5stack_tab5_esp32p4_lc.h`. Full MIPI-DSI display and coordinate
+readout drivers are not implemented yet; the branch currently has backlight,
+touch-presence, and software-only display-smoke scaffolds.
 
 Open items:
 
-- identify the ESP-IDF/M5Stack component stack needed for `ILI9881C / ST7123` MIPI-DSI (see `docs/tab5-display-component-audit.md`);
-- implement display init (backlight control for GPIO22 now has a Tab5-only LEDC scaffold);
-- implement a display smoke test before enabling any LC emulation;
+- vendor or minimally port the ESP-IDF/M5Stack component stack needed for actual
+  `ILI9881C / ST7123` MIPI-DSI panel init (see `docs/tab5-display-component-audit.md`);
+- validate GPIO22 backlight control on hardware;
+- turn the software display smoke patterns into real DSI panel fills;
 - validate touch probing for GT911/ST7123 on GPIO31/GPIO32 once hardware is visible;
+- implement touch coordinate reads and calibration/orientation transforms;
 - map touch to ADB mouse packets after the LC input model exists.
 
 ## Initial LC flash layout
@@ -102,6 +104,10 @@ Milestone 0 build result:
 pio run -e esp32-p4-tab5-lc-color
 # SUCCESS with board=esp32-p4_r3, ESP-IDF 5.5.2, firmware.bin generated
 ```
+
+Hardware flashing/log capture is currently blocked when the Tab5 USB/JTAG path is
+absent from `/dev/serial/by-id/`. Recent checks only showed the unrelated FTDI
+adapter.
 
 The LC ROM itself is not committed. Use local `vendor/mac-lc.rom` only.
 Validate, inspect vector/window candidates, and flash it explicitly with:

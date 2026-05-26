@@ -17,12 +17,14 @@ The checked-in manifest exposes the primary board-specific **full-flash** images
 
 Experimental artifacts such as `esp32-cyd2usb-mac512x384-rotfit` can be generated with the Makefile, but they are not exposed by `manifest.json` unless explicitly added.
 
+The `feat/mac-lc-color` Tab5/ESP32-P4 Macintosh LC target is **not** a stable web-flasher artifact. It currently builds a diagnostic skeleton only, uses local-only `vendor/mac-lc.rom`, and should be flashed with the explicit Tab5 Makefile targets after the USB/JTAG device is visible.
+
 ## Recommended: full-flash images
 
-Always use the board-specific full-flash images when flashing. These include
+Always use the board-specific full-flash images when flashing stable Mac Plus targets. These include
 bootloader, partition table, firmware, patched ROM, and LittleFS filesystem in
 one file. This is especially important because ESP32 and ESP32-S3 use different
-bootloader offsets.
+bootloader offsets. The experimental ESP32-P4/Tab5 LC target has its own partition layout and is not part of the stable web-flasher manifest.
 
 ### Generate artifacts
 
@@ -35,6 +37,11 @@ make stable-artifacts PIO_ENV=esp32-8048s043c
 
 # Optional experimental CYD2USB 512×384 rotated-fit target
 make stable-artifacts PIO_ENV=esp32-cyd2usb-mac512x384-rotfit
+
+# Tab5 LC diagnostic skeleton (not a stable web artifact)
+make build-tab5-lc
+make flash-tab5-lc
+make flash-tab5-lc-rom
 ```
 
 ### Flash command
@@ -81,6 +88,18 @@ make flash-stable PIO_ENV=esp32-8048s043c SERIAL_PORT=<serial-port>
 | `0x010000` | Application firmware |
 | `0x410000` | Patched Mac Plus ROM |
 | `0x430000` | LittleFS (`disk.img`) |
+
+### ESP32-P4 Tab5 LC diagnostic layout (`partitions-esp32p4-tab5-lc.csv`)
+
+| Offset | Content |
+| --- | --- |
+| `0x009000` | NVS |
+| `0x00f000` | PHY/reserved |
+| `0x010000` | Application firmware |
+| `0x410000` | LC ROM partition, 1MB reserved for local 512KB `vendor/mac-lc.rom` |
+| `0x510000` | `disk` LittleFS/data partition reserved for LC boot-media diagnostics |
+
+This layout is documented for developers only and is not exposed by `manifest.json`.
 
 ## Individual artifacts (for reference / advanced use only)
 

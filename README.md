@@ -3,8 +3,9 @@
 > Branch note: `feat/mac-lc-color` is an experimental Macintosh LC/color branch
 > for **ESP32-P4 / M5Stack Tab5 only**. The current Mac Plus ESP32/CYD and
 > ESP32-S3 profiles remain separate and should not be treated as LC targets.
-> See [`docs/mac-lc-color-plan.md`](docs/mac-lc-color-plan.md) and
-> [`docs/tab5-hardware.md`](docs/tab5-hardware.md).
+> See [`docs/mac-lc-color-plan.md`](docs/mac-lc-color-plan.md),
+> [`docs/tab5-hardware.md`](docs/tab5-hardware.md), and the LC/Tab5 docs under
+> [`docs/`](docs/).
 
 Cydintosh is a Macintosh Plus emulator for small ESP32 display boards. It runs
 [umac](https://github.com/likeablob/umac) with the Musashi 68000 core, renders a
@@ -22,6 +23,7 @@ ESP32-S3 800×480 RGB panel board.
 | ESP32-2432S028 / CYD2USB | Build-compatible legacy target. Uses 128KB emulated Mac RAM and the original 240×320 display path. |
 | ESP32-2432S028 Mac512×384 rotated-fit | Experimental CYD2USB profile for a larger square-pixel Mac framebuffer downsampled to the 240×320 LCD. |
 | ESP32-8048S043C | Hardware-validated ESP32-S3 target. Boots System 6 + After Dark 2 from a 1.44MB HFS image, fills the 800×480 panel in portrait mode, and runs at roughly 65–67 FPS in recent serial captures. |
+| M5Stack Tab5 / ESP32-P4 LC color | Experimental branch-only target. Builds a diagnostic Macintosh LC/color skeleton with 512KB ROM mmap validation, 68EC020/68020 Musashi scaffold, 4MB RAM/VRAM probes, indexed-color renderer scaffolding, Tab5 backlight/touch/display smoke diagnostics, disk trace scaffolding, and no claimed LC boot yet. |
 
 Latest validated ESP32-8048S043C characteristics:
 
@@ -43,12 +45,24 @@ Latest validated ESP32-8048S043C characteristics:
 | `include/boards/` | Per-board display, touch, memory, and storage profiles. |
 | `src/` | ESP-IDF application, display, touch, disk, Wi-Fi/IPC, and hardware control code. |
 | `external/umac/` | umac emulator submodule used by the firmware. |
-| `tools/` | ROM patching, serial capture, MacBinary flag, and disk tooling helpers. |
+| `tools/` | ROM patching, LC ROM/disk metadata inspection, LC video-pattern rendering, serial capture, MacBinary flag, and disk tooling helpers. |
 | `data/` | Build-time LittleFS content directory. Generated/user-supplied disk images are ignored except `.gitkeep`. |
 | `vendor/` | User-supplied Mac ROM/disk inputs. Ignored except `.gitkeep`. |
 | `web/` | Browser flasher page and generated firmware artifacts. |
 | `mac-app/` | Classic Mac app sources built with Retro68. |
 | `enclosure/` | Enclosure CAD files and documentation. |
+
+## LC/Tab5 documentation map
+
+| Document | Purpose |
+|---|---|
+| `docs/README.md` | Documentation index for the LC/Tab5 branch notes. |
+| `docs/mac-lc-color-plan.md` | Branch scope, current LC skeleton status, milestones, and safety rules. |
+| `docs/tab5-hardware.md` | Tab5 hardware fingerprint, backup/restore commands, flash layout, and current diagnostics. |
+| `docs/tab5-display-component-audit.md` | M5Stack Tab5 demo/BSP audit for ILI9881C/ST7123 MIPI-DSI and touch paths. |
+| `docs/musashi-lc-cpu-audit.md` | Musashi 68020/68EC020 configuration audit and LC-only CPU scaffold notes. |
+| `docs/lc-boot-media.md` | Local-only `vendor/lc-disk.img` workflow and disk trace/read-only policy. |
+| `docs/lc-via-scc-audit.md` | Mac Plus VIA/SCC reuse audit and LC hardware-stub gaps. |
 
 ## Hardware targets
 
@@ -115,6 +129,35 @@ RGB/touch pin mapping:
 | GT911 SDA | 19 |
 | GT911 SCL | 20 |
 
+### M5Stack Tab5 / ESP32-P4 LC color
+
+Experimental branch-only target for Macintosh LC/color bring-up. This target is
+separate from the Mac Plus firmware path and currently builds a diagnostic
+skeleton, not a booting LC emulator.
+
+| Component | Detail |
+|---|---|
+| Board | M5Stack Tab5 |
+| SoC | ESP32-P4 rev v1.3 observed |
+| CPU | Dual Core + LP Core, 400MHz reported by esptool |
+| Flash | 16MB |
+| PSRAM | 32MB documented by M5Stack |
+| USB serial/JTAG | `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00` |
+| Display | 5-inch MIPI-DSI path, physical target `720×1280` in the BSP/demo code |
+| Display controller/path | ILI9881C and/or ST7123 path in M5Stack demo code |
+| Backlight | GPIO22 / `LEDA`, LEDC scaffold only |
+| Touch | GT911 at `0x14` and/or ST7123 at `0x55` on I2C GPIO31/GPIO32 |
+| LC ROM | local-only `vendor/mac-lc.rom`, 512KB, not committed |
+| LC boot disk | local-only `vendor/lc-disk.img`, read-only workflow, not committed |
+| Guest RAM target | 4MB initial PSRAM-backed target, 2MB fallback probe |
+| Guest video target | 512×384, 8-bit indexed color, dirty-row RGB565 strip conversion scaffold |
+
+Current LC/P4 diagnostics include ROM partition mmap validation, LC-only Musashi
+68EC020/68020 configuration, trace/perf counters, provisional memory decoder,
+read-only disk trace scaffolding, Tab5 backlight/touch probes, and software-only
+display smoke patterns. The Tab5 USB/JTAG device must be present before flashing
+or validating hardware output.
+
 ## Board profiles and PlatformIO environments
 
 | PlatformIO environment | Board macro | Profile header | Notes |
@@ -123,6 +166,7 @@ RGB/touch pin mapping:
 | `esp32-cyd2usb-mac512x384-rotfit` | `CYD_BOARD_ESP32_2432S028_MAC512X384_ROTFIT` | `include/boards/esp32_2432s028_mac512x384_rotfit.h` | Experimental 512×384 framebuffer downsampled to CYD LCD. |
 | `esp32dev` | extends `esp32-cyd2usb` | `include/boards/esp32_2432s028.h` | Backward-compatible alias for older scripts/docs. |
 | `esp32-8048s043c` | `CYD_BOARD_ESP32_8048S043C` | `include/boards/esp32_8048s043c.h` | ESP32-S3 N16R8, 800×480 RGB panel, GT911 touch. |
+| `esp32-p4-tab5-lc-color` | `CYD_BOARD_M5STACK_TAB5_ESP32P4_LC` + `CYD_MACHINE_MAC_LC` | `include/boards/m5stack_tab5_esp32p4_lc.h` | Experimental Tab5/P4-only Macintosh LC/color skeleton. Uses `m68kconf_lc.h` and does not start Mac Plus `umac`. |
 
 Profile responsibilities:
 
@@ -158,9 +202,19 @@ or touch settings fail early.
 | `0x410000` | Patched Mac Plus ROM |
 | `0x430000` | LittleFS filesystem containing `disk.img` |
 
+### M5Stack Tab5 / ESP32-P4 LC (`partitions-esp32p4-tab5-lc.csv`)
+
+| Offset | Content |
+|---:|---|
+| `0x009000` | NVS |
+| `0x00f000` | PHY/reserved |
+| `0x010000` | Application firmware |
+| `0x410000` | LC ROM partition, 1MB reserved for local 512KB `vendor/mac-lc.rom` |
+| `0x510000` | `disk` LittleFS/data partition reserved for LC disk diagnostics/images |
+
 Use board-specific full-flash images whenever possible. Firmware-only images do
-not contain the ROM or disk filesystem, and ESP32 and ESP32-S3 bootloaders live
-at different offsets.
+not contain the ROM or disk filesystem, and ESP32, ESP32-S3, and ESP32-P4
+bootloader/flash layouts differ.
 
 ## Requirements
 
@@ -176,8 +230,10 @@ Host tools used by this workspace:
 
 Project assets you must provide yourself:
 
-- Mac Plus ROM v3, 128KB, checksum `4D1F8172`, placed at `vendor/rom.bin`.
-- A bootable HFS disk image placed at `vendor/disk.img` or `data/disk.img`.
+- Mac Plus ROM v3, 128KB, checksum `4D1F8172`, placed at `vendor/rom.bin` for Mac Plus targets.
+- A Mac Plus bootable HFS disk image placed at `vendor/disk.img` or `data/disk.img` for existing Mac Plus targets.
+- Macintosh LC ROM, 512KB, first long `0x350EACF0`, placed at `vendor/mac-lc.rom` for the Tab5 LC target.
+- Optional Macintosh LC boot disk image at `vendor/lc-disk.img`; the LC workflow keeps it read-only during bring-up.
 
 The `vendor/` and generated disk/ROM images are intentionally ignored by git.
 
@@ -230,6 +286,9 @@ make build PIO_ENV=esp32-8048s043c
 
 # Experimental CYD2USB 512×384 rotated-fit build
 make build PIO_ENV=esp32-cyd2usb-mac512x384-rotfit
+
+# Experimental ESP32-P4 / M5Stack Tab5 LC-color diagnostic skeleton
+make build-tab5-lc
 ```
 
 Direct PlatformIO commands are also supported:
@@ -238,6 +297,7 @@ Direct PlatformIO commands are also supported:
 pio run -e esp32-cyd2usb
 pio run -e esp32-8048s043c
 pio run -e esp32-cyd2usb-mac512x384-rotfit
+pio run -e esp32-p4-tab5-lc-color
 ```
 
 Build just the LittleFS image:
@@ -252,6 +312,7 @@ make fs PIO_ENV=esp32-8048s043c
 make stable-artifacts PIO_ENV=esp32-cyd2usb
 make stable-artifacts PIO_ENV=esp32-8048s043c
 make stable-artifacts PIO_ENV=esp32-cyd2usb-mac512x384-rotfit
+# LC/Tab5 currently uses explicit build/flash targets; do not publish as a stable artifact yet.
 ```
 
 Generated artifact names:
@@ -305,6 +366,23 @@ esptool --chip esp32s3 --port /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 \
   --baud 460800 verify_flash 0x430000 .pio/build/esp32-8048s043c/littlefs.bin
 ```
 
+For the experimental Tab5 LC target, use only the explicit Tab5 targets and the
+USB/JTAG path recorded in `docs/tab5-hardware.md`:
+
+```bash
+make build-tab5-lc
+make lc-rom-info
+make lc-rom-vectors
+make lc-disk-info
+make lc-video-test-pattern
+make flash-tab5-lc
+make flash-tab5-lc-rom
+make capture-tab5-logs
+```
+
+`make flash-tab5-lc-rom` writes only `vendor/mac-lc.rom` to the LC ROM partition
+at `0x410000`. It does not erase the device or copy ROM contents into git.
+
 ## Browser flasher
 
 The web flasher lives in `web/`:
@@ -347,7 +425,7 @@ Expected ESP32-8048S043C boot markers:
 
 ## Disk image notes
 
-The emulator accesses the boot disk through `src/disc_lfs.c` and umac's Sony
+The Mac Plus emulator accesses the boot disk through `src/disc_lfs.c` and umac's Sony
 disk interface.
 
 Current constraints:
@@ -356,6 +434,7 @@ Current constraints:
 - System 6 + After Dark 2 needs more than the CYD2USB profile's 128KB emulated RAM; use the ESP32-S3 profile for that image.
 - CYD2USB remains best suited to the smaller original System/Finder disk image.
 - If you change `data/disk.img`, rebuild and flash the board-specific LittleFS or full-flash image.
+- The LC branch expects optional local-only boot media at `vendor/lc-disk.img`; inspect it with `make lc-disk-info` and keep it read-only until LC disk I/O is validated.
 
 HFS utility examples:
 
@@ -384,9 +463,16 @@ humount
 # See all project targets
 make help
 
-# Build both primary profiles
+# Build primary Mac Plus profiles and the LC/P4 skeleton
 make build-cyd2usb
 make build-8048s043c
+make build-tab5-lc
+
+# LC/Tab5 metadata and diagnostics
+make lc-rom-info
+make lc-rom-vectors
+make lc-disk-info
+make lc-video-test-pattern
 
 # Inspect connected serial devices
 pio device list
