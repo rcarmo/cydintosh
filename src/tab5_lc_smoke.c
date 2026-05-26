@@ -1,6 +1,7 @@
 #include "board_profiles.h"
 #include "cyd_machine.h"
 #include "machine_lc/lc_cpu.h"
+#include "machine_lc/lc_disk.h"
 #include "machine_lc/lc_memory.h"
 #include "machine_lc/lc_perf.h"
 #include "machine_lc/lc_rom.h"
@@ -49,6 +50,20 @@ static void log_chip_info(void) {
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }
 
+static void log_lc_disk_partition(void) {
+    lc_disk_info_t info = {0};
+    esp_err_t err = lc_disk_probe(&info);
+    if (err == ESP_ERR_NOT_FOUND) {
+        lc_disk_log_info(NULL);
+        return;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to probe LC disk partition: %s", esp_err_to_name(err));
+        return;
+    }
+    lc_disk_log_info(&info);
+}
+
 static void log_lc_rom_partition(void) {
     lc_rom_info_t info = {0};
     esp_err_t err = lc_rom_probe(&info);
@@ -93,6 +108,9 @@ void app_main(void) {
     lc_memory_log_decoder_examples();
     lc_memory_probe_guest_ram_allocation();
     lc_memory_probe_display_buffer_allocation();
+    lc_disk_log_policy();
+    log_lc_disk_partition();
+    lc_disk_trace_sample_events();
     lc_video_probe_test_pattern();
     tab5_display_smoke_probe_patterns();
     tab5_touch_log_config();

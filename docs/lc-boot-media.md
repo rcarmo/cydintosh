@@ -46,8 +46,9 @@ success so CI/build checks are not blocked by missing copyrighted/user assets.
 
 ## Future firmware flow
 
-The initial firmware should only probe disk-image availability and size. Actual
-LC disk I/O should be added later behind explicit tracing:
+The initial firmware probes only the `disk` partition availability/size and keeps
+all LC disk behavior read-only. Actual LC disk I/O should be added later behind
+explicit tracing:
 
 - command name;
 - sector/block number;
@@ -55,6 +56,11 @@ LC disk I/O should be added later behind explicit tracing:
 - read/write flag;
 - return status;
 - throttled trace-ring entry.
+
+`src/machine_lc/lc_disk.c` now provides the trace/policy scaffold. It records
+sample SWIM/SCSI-style command names, sector/block numbers, byte counts,
+read/write flags, and status into logs plus the LC trace ring. Write commands are
+reported as blocked while `LC_DISK_IMAGE_READ_ONLY=1`.
 
 Write handling should remain disabled or panic-gated until the read-only boot path
 has reached a stable ROM/System probe phase.

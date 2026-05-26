@@ -45,6 +45,10 @@ static const char *trace_type_name(lc_trace_event_type_t type) {
         return "address-error";
     case LC_TRACE_EVENT_INTERRUPT:
         return "interrupt";
+    case LC_TRACE_EVENT_DISK_IO:
+        return "disk-io";
+    case LC_TRACE_EVENT_DISK_WRITE_BLOCKED:
+        return "disk-write-blocked";
     default:
         return "unknown";
     }

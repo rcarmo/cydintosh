@@ -19,6 +19,8 @@ typedef enum {
     LC_TRACE_EVENT_BUS_ERROR,
     LC_TRACE_EVENT_ADDRESS_ERROR,
     LC_TRACE_EVENT_INTERRUPT,
+    LC_TRACE_EVENT_DISK_IO,
+    LC_TRACE_EVENT_DISK_WRITE_BLOCKED,
 } lc_trace_event_type_t;
 
 void lc_trace_reset(void);
