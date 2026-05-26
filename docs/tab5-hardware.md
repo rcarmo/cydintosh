@@ -105,9 +105,11 @@ pio run -e esp32-p4-tab5-lc-color
 # SUCCESS with board=esp32-p4_r3, ESP-IDF 5.5.2, firmware.bin generated
 ```
 
-Hardware flashing/log capture is currently blocked when the Tab5 USB/JTAG path is
-absent from `/dev/serial/by-id/`. Recent checks only showed the unrelated FTDI
-adapter.
+Hardware flashing requires the Tab5 USB/JTAG path to be present under
+`/dev/serial/by-id/`. When capturing logs, keep DTR high during reset on this
+board; holding DTR low was observed to enter ROM download mode (`boot:0x204`).
+`make capture-tab5-logs` now uses PlatformIO's Python plus `--dtr-during-reset
+true --no-clear-after-reset` so very early boot output is not discarded.
 
 The LC ROM itself is not committed. Use local `vendor/mac-lc.rom` only.
 Validate, inspect vector/window candidates, and flash it explicitly with:
