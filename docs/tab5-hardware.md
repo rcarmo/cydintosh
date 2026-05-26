@@ -175,7 +175,9 @@ host render, and display flush phases, plus frame/FPS totals.
 
 Backlight control (`src/machine_lc/tab5_backlight.c`) uses LEDC on GPIO22
 (`LEDA`) with a safe default boot brightness of `TAB5_BACKLIGHT_BOOT_PERCENT=20`.
-It is Tab5/P4-only and does not initialize the MIPI-DSI panel.
+It is Tab5/P4-only and does not initialize the MIPI-DSI panel. The skeleton now
+runs a short 5%→60%→15%→45%→final boot pulse so app startup can be observed even
+if USB console logs are silent.
 
 A software-only physical-panel smoke scaffold (`src/machine_lc/tab5_display_smoke.c`)
 generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`) before

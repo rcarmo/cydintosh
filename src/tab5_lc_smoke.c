@@ -102,6 +102,8 @@ void app_main(void) {
     esp_err_t bl_err = tab5_backlight_init(TAB5_BACKLIGHT_BOOT_PERCENT);
     if (bl_err != ESP_OK) {
         ESP_LOGE(TAG, "Tab5 backlight init failed: %s", esp_err_to_name(bl_err));
+    } else {
+        tab5_backlight_boot_pulse();
     }
     lc_memory_log_initial_map();
     lc_memory_log_write_policy();

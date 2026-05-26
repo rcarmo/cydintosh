@@ -4,6 +4,8 @@
 
 #include "driver/ledc.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include <inttypes.h>
 #include <stdbool.h>
@@ -58,6 +60,20 @@ esp_err_t tab5_backlight_set_percent(uint8_t percent) {
 
 esp_err_t tab5_backlight_off(void) {
     return tab5_backlight_set_percent(0);
+}
+
+void tab5_backlight_boot_pulse(void) {
+    if (!initialized) {
+        return;
+    }
+    const uint8_t final_percent = current_percent;
+    const uint8_t sequence[] = {5, 60, 15, 45, final_percent};
+    ESP_LOGI(TAG, "Tab5 backlight boot pulse start; final=%u%%", (unsigned)final_percent);
+    for (unsigned i = 0; i < sizeof(sequence) / sizeof(sequence[0]); i++) {
+        tab5_backlight_set_percent(sequence[i]);
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+    ESP_LOGI(TAG, "Tab5 backlight boot pulse complete");
 }
 
 esp_err_t tab5_backlight_init(uint8_t percent) {
