@@ -37,7 +37,7 @@ not a Macintosh LC emulator loop. It currently provides:
   conversion, checksums, and off-device PPM rendering;
 - Tab5 GPIO22/LEDC backlight scaffold;
 - temporary `esp32-p4-tab5-bootdiag` no-PSRAM GPIO22/PI4IOE isolation image;
-- vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills, visually confirmed on hardware;
+- vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills, visually confirmed on hardware, now drawing the scaled LC indexed debug pattern;
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 I2C touch probe scaffold for GT911/ST7123 presence.
 
@@ -154,7 +154,7 @@ before display/touch and LC emulation are added.
 
 1. ESP32-P4 Tab5 skeleton builds.
 2. Skeleton flashes and logs chip/heap/partition diagnostics.
-3. Tab5 display smoke test shows known colors/orientation markers.
+3. Tab5 display smoke test shows known colors/orientation markers and the scaled LC indexed debug pattern.
 4. Tab5 touch smoke test logs calibrated coordinates.
 5. LC ROM partition maps and validates size/first-long metadata.
 6. Provisional LC RAM/ROM map and guest-RAM allocation diagnostics are logged.

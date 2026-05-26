@@ -201,10 +201,12 @@ skeleton firmware.
 A software-only physical-panel smoke scaffold (`src/machine_lc/tab5_display_smoke.c`)
 generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`). The
 hardware smoke path (`src/machine_lc/tab5_bsp_display_smoke.c`) uses the vendored
-M5Stack BSP to initialize the real panel and draw RGB565 stripes/orientation
-markers. Serial capture after flashing showed the app alive and repeatedly
-setting backlight to 35%/100%; camera/user confirmation then verified that the
-Tab5 panel visibly renders the pattern and flashes.
+M5Stack BSP to initialize the real panel. It first validated generic RGB565
+stripes/orientation markers, then was updated to draw the LC `512×384×8bpp`
+indexed debug pattern scaled to a `720×540` centered viewport on the `720×1280`
+physical panel. Serial capture after flashing showed the app alive and repeatedly
+setting backlight to 35%/100%; camera/user confirmation verified the earlier
+BSP pattern renders and flashes.
 
 Touch probing (`src/machine_lc/tab5_touch.c`) initializes the Tab5 system I2C bus
 on GPIO31/GPIO32 and probes GT911 at `0x14` plus ST7123 at `0x55`. If GT911 ACKs,

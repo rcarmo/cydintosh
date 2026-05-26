@@ -176,7 +176,8 @@ Apache/MIT upstream files and avoiding the full demo app/LVGL layer. The separat
 - initializes SYS-I2C and PI4IOE reset/power outputs;
 - probes GT911 (`0x14`) vs ST7123 (`0x55`);
 - initializes the ILI9881C/ST7703-compatible or ST7123 MIPI-DSI path;
-- draws a real `720x1280` RGB565 stripe/orientation pattern;
+- draws a real `720x1280` RGB565 stripe/orientation pattern, or the LC
+  `512x384x8bpp` indexed debug pattern scaled to a `720x540` centered viewport;
 - pulses backlight between 35% and 100%.
 
 Serial capture from the flashed smoke image shows the app alive in the brightness
@@ -201,9 +202,10 @@ It does not read touch coordinates or emit ADB mouse packets yet.
 
 1. Keep the vendored BSP isolated under `components_tab5/` so Mac Plus builds do
    not pull Tab5/P4-only managed dependencies.
-2. Replace the stripe fill with LC `512x384` indexed test-pattern scaling and
-   centering now that the physical panel path is visually confirmed.
-3. Route the LC guest framebuffer through the BSP panel handle.
+2. Route the LC guest framebuffer through the BSP panel handle, reusing the
+   verified LC indexed-pattern scaling path.
+3. Replace the debug CLUT/test pattern with ROM/System-driven VRAM updates once
+   the LC memory map and video registers are implemented.
 
 ## Open risks
 

@@ -156,8 +156,9 @@ Current LC/P4 diagnostics include ROM partition mmap validation, LC-only Musashi
 68EC020/68020 configuration, trace/perf counters, provisional memory decoder,
 read-only disk trace scaffolding, Tab5 backlight/touch probes, software-only
 display pattern checksums, and a visually confirmed M5Stack-BSP-based physical
-display smoke image. The Tab5 USB/JTAG device must be present before flashing or
-validating hardware output.
+display smoke image that now renders the LC `512×384×8bpp` indexed debug pattern
+scaled into the Tab5 panel. The Tab5 USB/JTAG device must be present before
+flashing or validating hardware output.
 
 ## Board profiles and PlatformIO environments
 
