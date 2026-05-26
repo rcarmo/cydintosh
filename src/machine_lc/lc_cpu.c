@@ -585,6 +585,11 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE);
 
     memset(bus->ram, 0, bus->ram_size);
+#if LC_ENABLE_SYNTHETIC_RAM_TEST_LIST
+    ESP_LOGW(TAG,
+             "LC ROM entry micro-probe synthetic RAM-test list enabled: list=0x%08x diagnostic_only=yes",
+             (unsigned)LC_SYNTHETIC_RAM_TEST_LIST_BASE);
+#endif
     lc_musashi_bus_reset_stats();
     lc_musashi_bus_attach(bus);
     m68k_init();

@@ -114,13 +114,18 @@ reset dispatch at `0x4084641c`, reaches the `0x40845c0c` slot/video probe, then
 runs a long RAM-fill/check at `0x40846850`. The first version of the VIA model
 kept the ORA/no-handshake bit 0 latched high and skipped D7 bit 26 at
 `0x40846494`; modeling ORA reads as external-pin state with bit 0 low now reaches
-`0x40846462` and carries D7 bit 26 into the later preflight path. This is progress
-in the reset-dispatch model, but it still selects the diagnostic monitor:
-`serial-capture-20260526-221749.log` stops at `0x40849fca` with
-`d7=0x05430304`, `d6=0x00007ff4`, and no fake serial receive data. The next boot
-milestone is to decode the reset-dispatch/diagnostic-preflight state around
-`0x4084639a`-`0x40846630` and `0x40848cda`-`0x40848d5c`, including PRAM/ADB/VIA
-pin state and slot descriptor expectations, without faking serial input.
+`0x40846462` and carries D7 bit 26 into the later preflight path. This is progress in the reset-dispatch model, and a later diagnostic showed why
+the previous RAM-fill path went through a bogus illegal exception: the seeded
+entry path's RAM-region descriptor list is at top of RAM (`0x043fffe4`, masked to
+`0x003fffe4`) and was overwritten by the destructive RAM fill. A diagnostic-only
+synthetic descriptor-list read for the reset-region loop now avoids the odd-PC
+illegal at `0x40846905` and reaches the next RAM lane/copy test. It still selects
+the diagnostic monitor: `serial-capture-20260526-225329.log` returns from
+`0x40846c5c` with `d6=0x00007fff`, branches at `0x408465c0`, and stops at
+`0x40849ff8` with `d7=0x04430013` and no fake serial receive data. The next boot
+milestone is to decode/fix the RAM lane/copy test behavior and the surrounding
+reset-dispatch/diagnostic-preflight state, including PRAM/ADB/VIA pin state and
+slot descriptor expectations, without faking serial input.
 
 ## ROM metadata
 

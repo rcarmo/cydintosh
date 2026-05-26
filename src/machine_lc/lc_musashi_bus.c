@@ -40,15 +40,32 @@ static lc_rom_watchpoint_t rom_watchpoints[] = {
     {0x00003048u, "machine-probe-next", false},
     {0x00003054u, "machine-probe-resume", false},
     {0x00003a96u, "hw-table-relocate", false},
+    {0x0004638cu, "diagnostic-stub-set-bit24", false},
+    {0x00046396u, "diagnostic-stub-jump-preflight", false},
     {0x00046674u, "slot-sense-pack-entry", false},
     {0x00046680u, "slot-sense-pack-flags", false},
     {0x000466cau, "slot-sense-pack-return", false},
     {0x0004641cu, "reset-dispatch-machine-class", false},
     {0x00046462u, "reset-dispatch-set-bit26", false},
     {0x00046494u, "reset-dispatch-skip-bit26", false},
+    {0x00046576u, "reset-region-list-entry", false},
+    {0x00046580u, "reset-region-list-start", false},
+    {0x00046582u, "reset-region-list-load", false},
+    {0x000465a4u, "reset-region-fill-return", false},
+    {0x000465a8u, "reset-region-fill-error-test", false},
+    {0x000465acu, "reset-region-next", false},
+    {0x000465b0u, "reset-region-copy-entry", false},
+    {0x000465c0u, "reset-region-copy-error-test", false},
+    {0x000465d2u, "reset-vector-relocate-entry", false},
+    {0x000465e0u, "reset-subtest-table-start", false},
     {0x000465e4u, "reset-subtest-table-loop", false},
+    {0x00046604u, "reset-subtest-return", false},
+    {0x00046610u, "reset-subtest-error-class", false},
+    {0x00046618u, "reset-subtest-error-report", false},
     {0x00046620u, "reset-subtest-bit26-check", false},
+    {0x00046624u, "reset-subtest-restore", false},
     {0x00046628u, "reset-subtest-monitor-branch", false},
+    {0x0004662eu, "reset-subtest-done", false},
     {0x00046630u, "reset-final-bit26-check", false},
     {0x000467a6u, "machine-sense-dispatch", false},
     {0x000467b4u, "slot-mem-test-entry", false},
@@ -59,6 +76,10 @@ static lc_rom_watchpoint_t rom_watchpoints[] = {
     {0x00048cd2u, "diagnostic-preflight-entry-branch", false},
     {0x00048cdau, "diagnostic-preflight-sense", false},
     {0x00048ce8u, "diagnostic-preflight-bit26-test", false},
+    {0x00048d08u, "diagnostic-preflight-bit26-path", false},
+    {0x00048d2cu, "diagnostic-preflight-set-monitor-flags", false},
+    {0x00048d44u, "diagnostic-preflight-cache-flags", false},
+    {0x00048d5cu, "diagnostic-preflight-monitor-branch2", false},
     {0x00048d04u, "diagnostic-preflight-monitor-branch", false},
     {0x00045c0cu, "f14000-slot-probe-start", false},
     {0x00045e3au, "f14000-slot-probe-outer-wait", false},
@@ -84,6 +105,35 @@ static void lc_musashi_bus_reset_rom_watchpoints(void) {
     }
 }
 
+static uint16_t lc_musashi_bus_peek_ram16(uint32_t address) {
+    if (active_bus == NULL || !active_bus->initialized || active_bus->ram == NULL ||
+        address + 1u >= active_bus->ram_size) {
+        return 0xffffu;
+    }
+    return (uint16_t)(((uint16_t)active_bus->ram[address] << 8u) |
+                      (uint16_t)active_bus->ram[address + 1u]);
+}
+
+static void lc_musashi_bus_log_exception_stack(uint32_t pc) {
+    if ((pc & 0x000fffffu) != 0x0004638cu) {
+        return;
+    }
+    const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+    const uint16_t w0 = lc_musashi_bus_peek_ram16(sp + 0u);
+    const uint16_t w1 = lc_musashi_bus_peek_ram16(sp + 2u);
+    const uint16_t w2 = lc_musashi_bus_peek_ram16(sp + 4u);
+    const uint16_t w3 = lc_musashi_bus_peek_ram16(sp + 6u);
+    const uint16_t w4 = lc_musashi_bus_peek_ram16(sp + 8u);
+    const uint16_t w5 = lc_musashi_bus_peek_ram16(sp + 10u);
+    const uint16_t w6 = lc_musashi_bus_peek_ram16(sp + 12u);
+    const uint16_t w7 = lc_musashi_bus_peek_ram16(sp + 14u);
+    ESP_LOGW(TAG,
+             "LC diagnostic exception stack: sp=0x%08" PRIx32
+             " words=%04x %04x %04x %04x %04x %04x %04x %04x"
+             " frame_pc=0x%04x%04x format_vector=0x%04x",
+             sp, w0, w1, w2, w3, w4, w5, w6, w7, w1, w2, w3);
+}
+
 static void lc_musashi_bus_log_rom_watchpoint(uint32_t pc) {
     const uint32_t rom_offset = pc & 0x000fffffu;
     for (size_t i = 0; i < sizeof(rom_watchpoints) / sizeof(rom_watchpoints[0]); i++) {
@@ -92,17 +142,21 @@ static void lc_musashi_bus_log_rom_watchpoint(uint32_t pc) {
             continue;
         }
         watch->seen = true;
+        lc_musashi_bus_log_exception_stack(pc);
         ESP_LOGI(TAG,
                  "LC ROM watchpoint: label=%s pc=0x%08" PRIx32
-                 " prev_pc=0x%08" PRIx32
-                 " d0=0x%08x d1=0x%08x d2=0x%08x d6=0x%08x d7=0x%08x"
-                 " a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x a6=0x%08x sp=0x%08x usp=0x%08x sr=0x%04x",
+                 " prev_pc=0x%08" PRIx32 " ir=0x%04x"
+                 " d0=0x%08x d1=0x%08x d2=0x%08x d3=0x%08x d4=0x%08x d5=0x%08x d6=0x%08x d7=0x%08x"
+                 " a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x a4=0x%08x a5=0x%08x a6=0x%08x sp=0x%08x usp=0x%08x sr=0x%04x",
                  watch->label, pc, previous_instruction_pc,
-                 m68k_get_reg(NULL, M68K_REG_D0), m68k_get_reg(NULL, M68K_REG_D1),
-                 m68k_get_reg(NULL, M68K_REG_D2), m68k_get_reg(NULL, M68K_REG_D6),
+                 m68k_get_reg(NULL, M68K_REG_IR), m68k_get_reg(NULL, M68K_REG_D0),
+                 m68k_get_reg(NULL, M68K_REG_D1), m68k_get_reg(NULL, M68K_REG_D2),
+                 m68k_get_reg(NULL, M68K_REG_D3), m68k_get_reg(NULL, M68K_REG_D4),
+                 m68k_get_reg(NULL, M68K_REG_D5), m68k_get_reg(NULL, M68K_REG_D6),
                  m68k_get_reg(NULL, M68K_REG_D7), m68k_get_reg(NULL, M68K_REG_A0),
                  m68k_get_reg(NULL, M68K_REG_A1), m68k_get_reg(NULL, M68K_REG_A2),
-                 m68k_get_reg(NULL, M68K_REG_A3), m68k_get_reg(NULL, M68K_REG_A6),
+                 m68k_get_reg(NULL, M68K_REG_A3), m68k_get_reg(NULL, M68K_REG_A4),
+                 m68k_get_reg(NULL, M68K_REG_A5), m68k_get_reg(NULL, M68K_REG_A6),
                  m68k_get_reg(NULL, M68K_REG_SP), m68k_get_reg(NULL, M68K_REG_USP),
                  m68k_get_reg(NULL, M68K_REG_SR));
         return;
@@ -229,6 +283,23 @@ int cpu_irq_ack(int level) {
     irq_ack_count++;
     lc_trace_record(LC_TRACE_EVENT_INTERRUPT, 0, (uint32_t)level, 0, 0, false);
     return (int)M68K_INT_ACK_AUTOVECTOR;
+}
+
+int cpu_illg_callback(int opcode) {
+    const uint32_t ppc = m68k_get_reg(NULL, M68K_REG_PPC);
+    const uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
+    const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+    lc_trace_record(LC_TRACE_EVENT_ILLEGAL_INSTRUCTION, ppc, pc, (uint32_t)opcode, 2, false);
+    ESP_LOGW(TAG,
+             "LC illegal instruction callback: opcode=0x%04x ppc=0x%08" PRIx32
+             " pc=0x%08" PRIx32 " current_pc=0x%08" PRIx32
+             " prev_pc=0x%08" PRIx32 " sp=0x%08" PRIx32
+             " d0=0x%08x d1=0x%08x d2=0x%08x d3=0x%08x d7=0x%08x sr=0x%04x",
+             opcode & 0xffff, ppc, pc, current_instruction_pc, previous_instruction_pc, sp,
+             m68k_get_reg(NULL, M68K_REG_D0), m68k_get_reg(NULL, M68K_REG_D1),
+             m68k_get_reg(NULL, M68K_REG_D2), m68k_get_reg(NULL, M68K_REG_D3),
+             m68k_get_reg(NULL, M68K_REG_D7), m68k_get_reg(NULL, M68K_REG_SR));
+    return 0;
 }
 
 void cpu_instr_callback(int pc) {

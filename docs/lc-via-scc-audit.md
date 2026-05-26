@@ -212,12 +212,16 @@ model, the reset dispatcher reaches `0x4084641c`, sees machine-class low byte
 `0x40846494` without setting D7 bit 26 because that bit is still latched high from
 the earlier init table. Modeling ORA register 15 reads as external-pin state with
 bit 0 low lets the ROM hit `0x40846462` and carry D7 bit 26 through the later
-slot/video and RAM-fill checks. That is a more plausible VIA model, but it still
-selects the diagnostic monitor: `serial-capture-20260526-221749.log` reaches
-`0x40849fca` with `d7=0x05430304`, `d6=0x00007ff4`, and `d0=0x0000000c`. The
-frontier is therefore now the reset-dispatch/diagnostic-preflight decision around
-`0x4084639a`-`0x40846630` and `0x40848cda`-`0x40848d5c`, plus the still-provisional
-VIA/slot descriptor state that leads to the monitor. The earlier
+slot/video and RAM-fill checks. That is a more plausible VIA model, but it exposed
+a seeded-entry RAM descriptor artifact: the descriptor list at top of RAM was
+itself overwritten by the destructive RAM fill, causing a bogus illegal exception
+at `ppc=0x40846905` (`opcode=0xcbff`). A diagnostic-only synthetic descriptor-list
+read for the `0x40846580` reset-region loop now avoids that artifact and reaches
+the next RAM lane/copy test. The current frontier is `serial-capture-20260526-225329.log`:
+`0x40846c5c` returns `d6=0x00007fff`, `0x408465c0` branches to diagnostic
+preflight, and the ROM reaches the monitor guard at `0x40849ff8`. The frontier is
+therefore now the RAM lane/copy test plus the still-provisional low-memory/VIA/slot
+descriptor state that leads to the monitor. The earlier
 `0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
 through zero RAM, not a normal reset-overlay write sequence.
 
@@ -225,9 +229,10 @@ through zero RAM, not a normal reset-overlay write sequence.
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
 2. Identify why the seeded reset-body path selects the ROM monitor/diagnostic
-   dispatcher after reset dispatch, the NuBus/slot-video probe, and RAM fill;
-   focus on reset flags, VIA ORA/PRAM/ADB pin state, and slot descriptor state
-   before considering fake serial input or bypasses.
+   dispatcher after reset dispatch, the NuBus/slot-video probe, RAM fill, and
+   RAM lane/copy test; focus on memory-bus accuracy, reset flags,
+   VIA ORA/PRAM/ADB pin state, and slot descriptor state before considering fake
+   serial input or bypasses.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the

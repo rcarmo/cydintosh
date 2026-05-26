@@ -193,8 +193,16 @@ RAM-fill/check at `0x40846850`, and later enters monitor setup. With pure VIA
 latches it reaches `0x408498da` via `0x40848d04` with `d6=0x00117b34`,
 `d7=0x01000304`, and `usp=0x50000304` (`serial-capture-20260526-221437.log`).
 After modeling the VIA ORA/no-handshake alias as external bit 0 low, reset
-dispatch sets D7 bit 26 at `0x40846462`, but the ROM still reaches the monitor
-poll at `0x40849fca`, now with `d7=0x05430304` and `d6=0x00007ff4`
-(`serial-capture-20260526-221749.log`). The next CPU-core step is to decode the
-reset-dispatch/diagnostic-preflight state around `0x4084639a`-`0x40846630` and
-`0x40848cda`-`0x40848d5c` before adding any fake serial input or bypass.
+dispatch sets D7 bit 26 at `0x40846462`, but the first RAM-fill return exposed a
+seeded-entry artifact: the ROM's RAM-region descriptor list lives at the top of
+RAM (`0x043fffe4` masked to `0x003fffe4`) and was overwritten by the destructive
+RAM fill, so the next descriptor became `0x6db6db6d` and the CPU took an illegal
+instruction exception at odd `ppc=0x40846905` (`opcode=0xcbff`). A diagnostic-only
+synthetic top-of-RAM descriptor-list read now preserves the intended
+`[0x00000000, 0x00400000, 0xffffffff]` list for the reset-region loop. That
+advances past the bogus illegal into the next RAM lane/copy test, but the ROM
+still branches to monitor from `0x408465c0` with `d6=0x00007fff` and reaches the
+monitor guard at `0x40849ff8` (`serial-capture-20260526-225329.log`). The next
+CPU-core step is to understand why the `0x40846c5c` byte/word/long RAM lane test
+reports `d6=0x00007fff` under the current memory-bus/Musashi model before adding
+any fake serial input or bypass.

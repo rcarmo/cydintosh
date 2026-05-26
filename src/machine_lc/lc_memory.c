@@ -66,6 +66,35 @@ static bool address_in_window(uint32_t address, uint32_t base, uint32_t size) {
     return address >= base && address < (base + size);
 }
 
+static bool lc_memory_should_read_synthetic_ram_test_list(uint32_t pc, uint32_t address) {
+#if LC_ENABLE_SYNTHETIC_RAM_TEST_LIST
+    const uint32_t rom_offset = pc & 0x000fffffu;
+    return address_in_window(address, LC_SYNTHETIC_RAM_TEST_LIST_BASE, 12u) &&
+           rom_offset >= 0x00046580u && rom_offset < 0x000465b0u;
+#else
+    (void)pc;
+    (void)address;
+    return false;
+#endif
+}
+
+static uint8_t lc_memory_read_synthetic_ram_test_list(uint32_t address) {
+#if LC_ENABLE_SYNTHETIC_RAM_TEST_LIST
+    static const uint32_t list_words[] = {
+        0x00000000u,
+        LC_GUEST_RAM_SIZE,
+        0xffffffffu,
+    };
+    const uint32_t offset = address - LC_SYNTHETIC_RAM_TEST_LIST_BASE;
+    const uint32_t word = list_words[offset >> 2u];
+    const unsigned shift = (unsigned)(24u - ((offset & 3u) * 8u));
+    return (uint8_t)(word >> shift);
+#else
+    (void)address;
+    return 0xffu;
+#endif
+}
+
 const char *lc_memory_region_name(lc_addr_region_t region) {
     switch (region) {
     case LC_ADDR_REGION_RAM:
@@ -810,7 +839,13 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
     switch (decoded.region) {
     case LC_ADDR_REGION_RAM:
         if (decoded.offset < bus->ram_size) {
-            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, bus->ram[decoded.offset], 1,
+            const uint32_t pc = lc_musashi_bus_current_pc();
+            if (lc_memory_should_read_synthetic_ram_test_list(pc, address)) {
+                const uint8_t value = lc_memory_read_synthetic_ram_test_list(address);
+                lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, false);
+                return value;
+            }
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, bus->ram[decoded.offset], 1,
                             false);
             return bus->ram[decoded.offset];
         }
