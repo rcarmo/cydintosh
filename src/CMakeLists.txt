@@ -5,7 +5,7 @@ if(CYD_MACHINE_MAC_LC OR "${IDF_TARGET}" STREQUAL "esp32p4")
     idf_component_register(
         SRCS "tab5_lc_smoke.c" "machine_lc/lc_rom.c" "machine_lc/lc_cpu.c" "machine_lc/lc_memory.c" "machine_lc/lc_trace.c" "machine_lc/lc_perf.c" "machine_lc/lc_video.c" "machine_lc/lc_disk.c" "machine_lc/tab5_backlight.c" "machine_lc/tab5_bsp_display_smoke.c" "machine_lc/tab5_display_smoke.c" "machine_lc/tab5_touch.c"
         INCLUDE_DIRS "." "machine_lc" "${CMAKE_SOURCE_DIR}/include" "${UMAC_DIR}/include" "${MUSASHI_DIR}"
-        REQUIRES driver esp_psram esp_partition esp_hw_support heap m5stack_tab5
+        REQUIRES driver esp_psram esp_partition esp_hw_support heap m5stack_tab5 esp_lcd_touch esp_lcd_touch_gt911 esp_lcd_touch_st7123
     )
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         CYD_MACHINE_MAC_LC=1

@@ -146,7 +146,7 @@ skeleton, not a booting LC emulator.
 | Display | 5-inch MIPI-DSI path, physical target `720×1280` in the BSP/demo code |
 | Display controller/path | ILI9881C and/or ST7123 path in M5Stack demo code |
 | Backlight | GPIO22 / `LEDA`, via M5Stack BSP LEDC path in display-smoke image |
-| Touch | GT911 at `0x14` and/or ST7123 at `0x55` on I2C GPIO31/GPIO32 |
+| Touch | ST7123 at `0x55` confirmed on current unit; GT911 fallback at `0x14`; I2C GPIO31/GPIO32, INT GPIO23 |
 | LC ROM | local-only `vendor/mac-lc.rom`, 512KB, not committed |
 | LC boot disk | local-only `vendor/lc-disk.img`, read-only workflow, not committed |
 | Guest RAM target | 4MB initial PSRAM-backed target, 2MB fallback probe |
@@ -160,8 +160,11 @@ display smoke image that now renders the LC `512×384×8bpp` indexed debug patte
 scaled into the Tab5 panel through reusable BSP `init`/`flush_indexed` and
 dirty-row `flush_indexed_dirty` paths. The dirty-row self-test currently inverts a
 24-row LC band and updates only the corresponding centered-viewport physical rows
-before entering the brightness heartbeat. The Tab5 USB/JTAG device must be
-present before flashing or validating hardware output.
+before entering the brightness heartbeat. The display-smoke heartbeat also
+initializes the confirmed ST7123 touch driver and polls touch samples, mapping raw
+`720×1280` panel coordinates into the centered LC `512×384` viewport for later ADB
+mouse work. The Tab5 USB/JTAG device must be present before flashing or validating
+hardware output.
 
 ## Board profiles and PlatformIO environments
 

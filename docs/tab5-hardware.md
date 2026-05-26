@@ -83,10 +83,9 @@ between 35% and 100%.
 
 Open items:
 
-- confirm visible display-smoke pattern/brightness pulse after power-button wake;
-- route LC `512×384×8bpp` indexed framebuffer into the BSP-initialized DSI panel;
-- validate touch probing for GT911/ST7123 on GPIO31/GPIO32 once display smoke is stable;
-- implement touch coordinate reads and calibration/orientation transforms;
+- capture a user-touch coordinate sample now that the ST7123 reader initializes;
+- calibrate/orient the touch-to-LC viewport transform with real touches;
+- replace display-smoke debug draws with ROM/System-driven LC VRAM updates;
 - map touch to ADB mouse packets after the LC input model exists.
 
 ## Initial LC flash layout
@@ -213,10 +212,14 @@ checksum `0x3b4a1479`, validated a dirty-row partial update for LC rows `180-203
 backlight to 35%/100%; camera/user confirmation verified the BSP pattern renders
 and flashes.
 
-Touch probing (`src/machine_lc/tab5_touch.c`) initializes the Tab5 system I2C bus
-on GPIO31/GPIO32 and probes GT911 at `0x14` plus ST7123 at `0x55`. If GT911 ACKs,
-it attempts a metadata-only product-ID read from register `0x8140`. This is still
-a probe scaffold; no touch coordinates are consumed and nothing is mapped to ADB.
+Touch support (`src/machine_lc/tab5_touch.c`) now reuses the M5Stack BSP system
+I2C bus on GPIO31/GPIO32, probes GT911 at `0x14` plus ST7123 at `0x55`, and
+initializes the matching Espressif `esp_lcd_touch` driver. The current Tab5 unit
+ACKs ST7123 at `0x55`; serial capture shows firmware `3(1.71.1.3)`, max touch
+coordinates `720×1280`, and max touches `10`. The display-smoke heartbeat polls
+samples and maps panel coordinates into the centered LC `512×384` viewport
+(`720×540` at offset `0,370`). A no-touch polling sample is validated; real touch
+coordinate calibration and ADB mouse mapping are still pending.
 
 Video scaffolding (`src/machine_lc/lc_video.c`) defines the first guest mode as
 `512×384×8bpp`, `rowBytes=512`, `60Hz` VBL target, and separate PSRAM-backed

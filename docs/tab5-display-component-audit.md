@@ -204,15 +204,27 @@ button once, as required by the patched official demo during testing.
 
 ## Touch scaffold status
 
-The branch now has a Tab5-only I2C/touch probe scaffold in
-`src/machine_lc/tab5_touch.c`. It uses the ESP-IDF 5.5 I2C master API to:
+The branch now has a Tab5-only touch reader in `src/machine_lc/tab5_touch.c`. It
+reuses the M5Stack BSP I2C handle on GPIO31/GPIO32 and can:
 
-- initialize I2C0 on GPIO31/GPIO32;
 - probe GT911 at `0x14`;
 - read GT911 product ID at register `0x8140` if present;
-- probe ST7123 touch at `0x55`.
+- probe ST7123 touch at `0x55`;
+- instantiate `esp_lcd_touch_new_i2c_st7123()` or `esp_lcd_touch_new_i2c_gt911()`;
+- poll `esp_lcd_touch_read_data()` / `esp_lcd_touch_get_data()`;
+- map raw `720×1280` panel coordinates into the centered LC `512×384` viewport.
 
-It does not read touch coordinates or emit ADB mouse packets yet.
+Current hardware serial capture confirms ST7123 is present and the driver starts:
+
+```text
+Tab5 touch I2C probe addr=0x55 result=ESP_OK
+ST7123: Firmware version: 3(1.71.1.3), Max.X: 720, Max.Y: 1280, Max.Touchs: 10
+Tab5 touch reader initialized: controller=ST7123 max=720x1280 int_gpio=23 lc_viewport=720x540+0+370
+Tab5 touch sample: controller=ST7123 no-touch
+```
+
+It does not emit ADB mouse packets yet. Real touch coordinate samples still need a
+finger-on-panel validation pass before calibration/orientation can be finalized.
 
 ## Bring-up recommendation
 

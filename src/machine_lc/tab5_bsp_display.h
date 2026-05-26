@@ -11,6 +11,8 @@
 #define TAB5_LC_VIEWPORT_SCALE_DEN 32u
 #define TAB5_LC_VIEWPORT_W ((LC_VIDEO_WIDTH * TAB5_LC_VIEWPORT_SCALE_NUM) / TAB5_LC_VIEWPORT_SCALE_DEN)
 #define TAB5_LC_VIEWPORT_H ((LC_VIDEO_HEIGHT * TAB5_LC_VIEWPORT_SCALE_NUM) / TAB5_LC_VIEWPORT_SCALE_DEN)
+#define TAB5_LC_OFFSET_X ((720u - TAB5_LC_VIEWPORT_W) / 2u)
+#define TAB5_LC_OFFSET_Y ((1280u - TAB5_LC_VIEWPORT_H) / 2u)
 
 esp_err_t tab5_bsp_display_init(void);
 esp_err_t tab5_bsp_display_set_brightness(uint8_t percent);

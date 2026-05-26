@@ -39,7 +39,7 @@ not a Macintosh LC emulator loop. It currently provides:
 - temporary `esp32-p4-tab5-bootdiag` no-PSRAM GPIO22/PI4IOE isolation image;
 - vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills, visually confirmed on hardware, now exposing reusable full and dirty-row LC indexed framebuffer flush paths;
 - software-only 720×1280 physical-panel smoke pattern checksums;
-- Tab5 I2C touch probe scaffold for GT911/ST7123 presence.
+- Tab5 touch reader scaffold: ST7123/GT911 probing, driver init, no-touch polling, and raw-panel to LC-viewport coordinate mapping.
 
 Guest LC ROM code is not executed yet. The next boot milestone is to verify the
 actual reset-vector mapping, select `M68K_CPU_TYPE_68EC020` at runtime, and start

@@ -1,4 +1,5 @@
 #include "tab5_bsp_display.h"
+#include "tab5_touch.h"
 
 #include "bsp/display.h"
 #include "bsp/m5stack_tab5.h"
@@ -24,8 +25,6 @@ static const char *TAG = "tab5_bsp_smoke";
 #define TAB5_STRIP_ROWS 32
 #define TAB5_DIRTY_STRIP_ROWS 16
 #define TAB5_LC_BORDER_PX 4
-#define TAB5_LC_OFFSET_X ((BSP_LCD_H_RES - TAB5_LC_VIEWPORT_W) / 2)
-#define TAB5_LC_OFFSET_Y ((BSP_LCD_V_RES - TAB5_LC_VIEWPORT_H) / 2)
 
 typedef enum {
     TAB5_PANEL_UNKNOWN = 0,
@@ -334,11 +333,21 @@ esp_err_t tab5_bsp_display_draw_lc_test_pattern(void) {
 }
 
 _Noreturn void tab5_bsp_display_brightness_heartbeat_loop(void) {
-    ESP_LOGI(TAG, "Tab5 BSP display brightness heartbeat loop active");
+    ESP_LOGI(TAG, "Tab5 BSP display brightness/touch heartbeat loop active");
+    uint32_t no_touch_log_divider = 0;
     while (true) {
         tab5_bsp_display_set_brightness(35);
         vTaskDelay(pdMS_TO_TICKS(700));
         tab5_bsp_display_set_brightness(100);
+
+        tab5_touch_sample_t touch_sample = {0};
+        esp_err_t touch_err = tab5_touch_read_sample(&touch_sample);
+        if (touch_err == ESP_OK && touch_sample.pressed) {
+            tab5_touch_log_sample(&touch_sample);
+        } else if ((no_touch_log_divider++ % 5u) == 0u) {
+            tab5_touch_log_sample(&touch_sample);
+        }
+
         vTaskDelay(pdMS_TO_TICKS(700));
     }
 }
@@ -348,6 +357,14 @@ _Noreturn void tab5_bsp_display_smoke_run(void) {
     ESP_ERROR_CHECK(tab5_bsp_display_init());
     ESP_ERROR_CHECK(tab5_bsp_display_set_brightness(100));
     ESP_ERROR_CHECK(tab5_bsp_display_draw_lc_test_pattern());
-    ESP_LOGI(TAG, "LC display smoke pattern drawn; entering brightness heartbeat");
+    tab5_touch_controller_t touch_controller = TAB5_TOUCH_CONTROLLER_NONE;
+    esp_err_t touch_err = tab5_touch_init_reader(&touch_controller);
+    if (touch_err == ESP_OK) {
+        ESP_LOGI(TAG, "Tab5 touch reader ready in display smoke: controller=%s",
+                 tab5_touch_controller_name(touch_controller));
+    } else {
+        ESP_LOGW(TAG, "Tab5 touch reader unavailable in display smoke: %s", esp_err_to_name(touch_err));
+    }
+    ESP_LOGI(TAG, "LC display smoke pattern drawn; entering brightness/touch heartbeat");
     tab5_bsp_display_brightness_heartbeat_loop();
 }
