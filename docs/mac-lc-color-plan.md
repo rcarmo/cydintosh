@@ -17,7 +17,8 @@ Completed setup:
 No LC boot is claimed yet. The first firmware target is a skeleton that logs
 ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists.
 The branch now also has an LC-only Musashi config scaffold for 68EC020/68020,
-selected only by the Tab5/P4 LC environment.
+selected only by the Tab5/P4 LC environment, plus LC CPU diagnostics that log the
+intended 68EC020 mode and raw ROM vector candidates without executing guest code.
 
 ## ROM metadata
 

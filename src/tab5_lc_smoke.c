@@ -1,5 +1,6 @@
 #include "board_profiles.h"
 #include "cyd_machine.h"
+#include "machine_lc/lc_cpu.h"
 #include "machine_lc/lc_rom.h"
 
 #include "esp_chip_info.h"
@@ -52,13 +53,15 @@ static void log_lc_rom_partition(void) {
         return;
     }
     lc_rom_log_info(&info);
+    lc_cpu_log_reset_vector_candidates(&info);
 }
 
 void app_main(void) {
     log_chip_info();
-    ESP_LOGI(TAG, "boot diagnostics: machine=%s rom_expected_size=0x%x cpu_mode=68020-first guest_ram=%d framebuffer=%dx%d@%dbpp",
+    ESP_LOGI(TAG, "boot diagnostics: machine=%s rom_expected_size=0x%x cpu_mode=68EC020-scaffold guest_ram=%d framebuffer=%dx%d@%dbpp",
              CYD_MACHINE_NAME, CYD_ROM_EXPECTED_SIZE, LC_GUEST_RAM_SIZE, DISP_WIDTH, DISP_HEIGHT,
              LC_GUEST_COLOR_DEPTH_BITS);
+    lc_cpu_log_config();
     log_lc_rom_partition();
     ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");
 }

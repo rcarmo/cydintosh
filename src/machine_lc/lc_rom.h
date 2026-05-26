@@ -1,6 +1,7 @@
 #ifndef MACHINE_LC_ROM_H
 #define MACHINE_LC_ROM_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
