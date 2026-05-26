@@ -43,6 +43,13 @@ class EntryHint:
     target_hint: str
 
 
+@dataclass(frozen=True)
+class IoAddressHint:
+    file_offset: int
+    value: int
+    alias24: int
+
+
 def be32(data: bytes, offset: int) -> int:
     return struct.unpack_from(">I", data, offset)[0]
 
@@ -319,6 +326,34 @@ def print_entry_analysis(data: bytes, args: argparse.Namespace) -> None:
         )
 
 
+def scan_io_address_hints(data: bytes) -> list[IoAddressHint]:
+    hints: list[IoAddressHint] = []
+    for offset in range(0, max(0, len(data) - 4 + 1), 2):
+        value = be32(data, offset)
+        value24 = value & 0x00FFFFFF
+        # Early LC ROM tables use 0x50fxxxxx 32-bit I/O addresses that alias to
+        # 0x00fxxxxx while the first 68EC020 probe is in 24-bit mode.
+        if 0x50F00000 <= value <= 0x50FFFFFF:
+            hints.append(IoAddressHint(file_offset=offset, value=value, alias24=value24))
+    hints.sort(key=lambda h: (h.value, h.file_offset))
+    return hints
+
+
+def print_io_analysis(data: bytes, args: argparse.Namespace) -> None:
+    hints = scan_io_address_hints(data)
+    unique_values: dict[int, IoAddressHint] = {}
+    for hint in hints:
+        unique_values.setdefault(hint.value, hint)
+    print("io_scan_enabled: True")
+    print(f"io_hints_found: {len(hints)}")
+    print(f"io_unique_values_found: {len(unique_values)}")
+    for index, hint in enumerate(list(unique_values.values())[: args.max_io_hints], start=1):
+        print(
+            f"io_hint_{index}: file_offset=0x{hint.file_offset:05X} "
+            f"value=0x{hint.value:08X} alias24=0x{hint.alias24:08X}"
+        )
+
+
 def print_vector_analysis(data: bytes, args: argparse.Namespace) -> None:
     rom_bases = tuple(parse_int(v) for v in args.rom_base)
     print("vector_scan_enabled: True")
@@ -371,6 +406,11 @@ def main() -> int:
         help="scan the ROM header area for trampoline/entry instructions such as PC-relative jumps",
     )
     parser.add_argument(
+        "--io-scan",
+        action="store_true",
+        help="scan for 0x50fxxxxx / 24-bit 0x00fxxxxx I/O address constants without dumping ROM contents",
+    )
+    parser.add_argument(
         "--scan-limit",
         type=parse_int,
         default=DEFAULT_SCAN_LIMIT,
@@ -406,6 +446,12 @@ def main() -> int:
         default=16,
         help="maximum entry hints to print (default: 16)",
     )
+    parser.add_argument(
+        "--max-io-hints",
+        type=int,
+        default=32,
+        help="maximum unique I/O address hints to print (default: 32)",
+    )
     args = parser.parse_args()
 
     data = args.rom.read_bytes()
@@ -417,6 +463,8 @@ def main() -> int:
         print_vector_analysis(data, args)
     if args.entry_scan:
         print_entry_analysis(data, args)
+    if args.io_scan:
+        print_io_analysis(data, args)
 
     if not (
         info["matches_expected_size"]

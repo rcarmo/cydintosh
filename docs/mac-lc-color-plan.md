@@ -62,22 +62,26 @@ The bounded on-device ROM-entry micro-probe now starts at `0x0040008c` in the
 24-bit ROM window. It reaches the guest `RESET` instruction, advances into the
 next ROM dispatcher, and records first explicit I/O stub accesses from ROM PCs
 around `0x00403124`-`0x0040314a` to `0x00f01c00`, `0x00f21c00`, and
-`0x00f41c00` (classified as `early-rom-probe-1c00-stride`). The latest capture
-summarized that explicit stub boundary as 108 reads and 144 writes, first at
-`pc=0x00403124 addr=0x00f21c00`, last at `pc=0x0040314a addr=0x00f01c00`. A
-one-off comparison showed the `0x4080008c` 32-bit candidate is not viable for the
-current 68EC020 probe because the EC020 core masks it to `0x0080008c`, producing
-unmapped reads.
+`0x00f41c00` (classified as `early-rom-probe-1c00-stride`). That loop is now
+modeled as a provisional VIA-style IER alias: writes set/clear IER bits and
+reads return bit 7 plus the current enable mask, which advances the ROM past the
+previous repeated 2832-read/3776-write loop. A `0x00800000` masked ROM alias was
+added after the guest switched toward the `0x40800000` ROM window and the
+68EC020 callbacks fetched masked `0x008xxxxx` addresses. With a 2M-cycle bounded
+probe, execution reaches `pc_after=0x40846af6` in a ROM checksum/test loop with
+no new unmapped blocker; generic early VIA-like accesses include `0x00f01e00`,
+`0x00f00600`, `0x00f00400`, and `0x00f00000`.
 This establishes `0x0040008c` as the first guarded execution target, while the
 real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
 also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
-reads/writes, mapped ROM reads, generic I/O stub reads/writes, ROM write blocking,
-unmapped-read logging, and a RAM-only synthetic 68EC020 reset/execute smoke test
-(`reset_pc=0x100`, `reset_sp=0x2000`, `cpu_type=3`). It also now shows the LC
-indexed diagnostic pattern on the Tab5 panel in the normal LC target; user
-confirmation reported the test pattern visible. The next boot milestone is to
-infer safe behavior for the explicit `early-rom-probe-1c00-stride` stub, then
-continue bounded ROM execution until the next missing device behavior is clear.
+reads/writes, mapped ROM reads including the masked ROM alias, generic I/O stub
+reads/writes, ROM write blocking, unmapped-read logging, and a RAM-only synthetic
+68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
+`cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
+panel in the normal LC target; user confirmation reported the test pattern
+visible. The next boot milestone is to turn the newly exposed generic VIA-like
+register accesses into a cautious LC VIA stub, then continue bounded ROM
+execution until the next missing device behavior is clear.
 
 ## ROM metadata
 

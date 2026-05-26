@@ -27,6 +27,7 @@ typedef struct {
 } lc_io_stub_stats_t;
 
 static lc_io_stub_stats_t io_stub_stats[LC_IO_STUB_KIND_COUNT];
+static uint8_t early_probe_via_ier;
 
 static bool address_in_window(uint32_t address, uint32_t base, uint32_t size) {
     return address >= base && address < (base + size);
@@ -40,6 +41,8 @@ const char *lc_memory_region_name(lc_addr_region_t region) {
         return "rom-24bit-candidate";
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
         return "rom-32bit-candidate";
+    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
+        return "rom-32bit-masked-candidate";
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
         return "io-24bit-candidate";
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
@@ -112,6 +115,15 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
         return decoded;
     }
 
+    if (address_in_window(address, LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE, LC_ROM_WINDOW_SIZE)) {
+        decoded.region = LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE;
+        decoded.base = LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE;
+        decoded.size = LC_ROM_WINDOW_SIZE;
+        decoded.offset = address - decoded.base;
+        decoded.name = lc_memory_region_name(decoded.region);
+        return decoded;
+    }
+
     if (address_in_window(address, LC_IO_24BIT_BASE_CANDIDATE, LC_IO_WINDOW_SIZE)) {
         decoded.region = LC_ADDR_REGION_IO_24BIT_CANDIDATE;
         decoded.base = LC_IO_24BIT_BASE_CANDIDATE;
@@ -150,6 +162,7 @@ bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded) {
         return decoded->writable;
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
     case LC_ADDR_REGION_UNMAPPED:
     default:
         return false;
@@ -256,6 +269,7 @@ void lc_memory_log_decoder_examples(void) {
         LC_GUEST_RAM_SIZE - 1u,
         LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
         LC_ROM_WINDOW_32BIT_BASE_CANDIDATE,
+        LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE,
         LC_IO_24BIT_BASE_CANDIDATE,
         LC_IO_24BIT_BASE_CANDIDATE + 0x00001c00u,
         LC_IO_24BIT_BASE_CANDIDATE + 0x00021c00u,
@@ -401,7 +415,16 @@ void lc_memory_log_io_stub_summary(void) {
 
 static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t address) {
     const uint32_t pc = lc_musashi_bus_current_pc();
-    const uint8_t value = 0xffu;
+    uint8_t value = 0xffu;
+    if (decoded->io_stub == LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE) {
+        // Offset 0x1c00 is the 6522 VIA IER register when VIA registers are
+        // decoded with A[12:9]. The early ROM probe writes 0xff, then clears
+        // one enable bit at a time and expects reads to return bit7 set plus
+        // the current enable mask. Treat the observed 0x00f?1c00 mirrors as
+        // one provisional VIA-style IER alias until the real LC VIA windows are
+        // fully decoded.
+        value = (uint8_t)(0x80u | early_probe_via_ier);
+    }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, false);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, false);
     lc_memory_log_io_stub_access(decoded, pc, address, value, false);
@@ -411,6 +434,14 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
 static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint32_t address,
                                           uint8_t value) {
     const uint32_t pc = lc_musashi_bus_current_pc();
+    if (decoded->io_stub == LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE) {
+        const uint8_t mask = (uint8_t)(value & 0x7fu);
+        if ((value & 0x80u) != 0) {
+            early_probe_via_ier = (uint8_t)(early_probe_via_ier | mask);
+        } else {
+            early_probe_via_ier = (uint8_t)(early_probe_via_ier & (uint8_t)~mask);
+        }
+    }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, true);
     lc_memory_log_io_stub_access(decoded, pc, address, value, true);
@@ -424,6 +455,7 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     }
     memset(bus, 0, sizeof(*bus));
     memset(io_stub_stats, 0, sizeof(io_stub_stats));
+    early_probe_via_ier = 0;
 
     size_t requested = LC_GUEST_RAM_SIZE;
     bus->ram = (uint8_t *)heap_caps_calloc(1, requested, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -476,6 +508,7 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
         break;
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
         if (decoded.offset < bus->rom_size) {
             const uint8_t value = bus->rom[decoded.offset];
             lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, false);
@@ -526,6 +559,7 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
         return lc_memory_io_stub_write8(&decoded, address, value);
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
         lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, lc_musashi_bus_current_pc(), address, value, 1, true);
         ESP_LOGW(TAG, "LC blocked ROM write addr=0x%08" PRIx32 " offset=0x%08" PRIx32
                       " value=0x%02x",

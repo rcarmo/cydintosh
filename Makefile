@@ -72,7 +72,7 @@ DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc build-tab5-display-smoke flash-tab5-display-smoke build-tab5-bootdiag flash-tab5-bootdiag flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-disk-info lc-video-test-pattern stable-artifacts flash-stable \
+	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc build-tab5-display-smoke flash-tab5-display-smoke build-tab5-bootdiag flash-tab5-bootdiag flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-rom-io-hints lc-disk-info lc-video-test-pattern stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
@@ -100,6 +100,7 @@ help:
 	@echo "  make capture-tab5-logs   - capture ESP32-P4 Tab5 serial logs"
 	@echo "  make lc-rom-info         - inspect local vendor/mac-lc.rom metadata only"
 	@echo "  make lc-rom-vectors      - scan local ROM metadata for plausible reset-vector/window candidates"
+	@echo "  make lc-rom-io-hints     - scan local ROM metadata for 0x50fxxxxx / 24-bit I/O constants"
 	@echo "  make lc-disk-info        - inspect local vendor/lc-disk.img metadata if present"
 	@echo "  make lc-video-test-pattern - render LC indexed debug pattern to artifacts/lc-video-test-pattern.ppm"
 	@echo "  make firmware            - alias for make build"
@@ -182,6 +183,9 @@ lc-rom-info:
 
 lc-rom-vectors:
 	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE) --vector-scan --entry-scan
+
+lc-rom-io-hints:
+	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE) --io-scan
 
 lc-disk-info:
 	python3 tools/inspect_lc_disk.py $(TAB5_LC_DISK_IMAGE) --allow-missing
