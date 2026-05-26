@@ -2,6 +2,7 @@
 #include "cyd_machine.h"
 #include "machine_lc/lc_cpu.h"
 #include "machine_lc/lc_memory.h"
+#include "machine_lc/lc_perf.h"
 #include "machine_lc/lc_rom.h"
 #include "machine_lc/lc_trace.h"
 
@@ -69,6 +70,7 @@ static void log_lc_rom_partition(void) {
 
 void app_main(void) {
     lc_trace_reset();
+    lc_perf_reset();
     lc_trace_record_marker(0x4c433030u); // 'LC00': skeleton start
     log_chip_info();
     ESP_LOGI(TAG, "boot diagnostics: machine=%s rom_expected_size=0x%x cpu_mode=68EC020-scaffold guest_ram=%d framebuffer=%dx%d@%dbpp",
@@ -83,6 +85,7 @@ void app_main(void) {
     lc_memory_probe_display_buffer_allocation();
     log_lc_rom_partition();
     lc_trace_record_marker(0x4c43304fu); // 'LC0O': skeleton diagnostics complete
+    lc_perf_log_summary();
     lc_trace_dump_recent(16);
     ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");
 }

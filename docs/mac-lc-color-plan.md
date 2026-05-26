@@ -26,7 +26,8 @@ candidates, I/O-window candidates, throttled unmapped-access logging, and a smal
 trace ring buffer that can dump recent diagnostic events on panic/hang paths in
 future reset-vector execution. CPU trace helpers now exist for exception-vector
 hits, illegal/unimplemented instructions, bus/address errors, and interrupt
-levels. The memory scaffold also has an early bring-up
+levels. Lightweight performance counters now exist for future CPU-loop,
+video-update, host-render, and display-flush timing. The memory scaffold also has an early bring-up
 write policy: RAM and I/O-candidate writes are allowed, while ROM/unmapped writes
 are flagged by the panic-on-unexpected-write policy. The branch now also has an
 LC-only Musashi config

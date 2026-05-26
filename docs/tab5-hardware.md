@@ -159,3 +159,8 @@ CPU trace helper hooks are available for exception-vector hits,
 illegal/unimplemented instructions, bus errors, address errors, and interrupt
 levels. They currently only provide a structured logging/trace-ring API; the
 actual Musashi callback/runtime wiring waits for reset-vector execution.
+
+Performance counter scaffolding (`src/machine_lc/lc_perf.c`) tracks count, total,
+minimum, average, and maximum microseconds for future CPU loop, video update,
+host render, and display flush phases, plus frame/FPS totals. The current
+skeleton logs an empty summary so the reporting path is already build-tested.
