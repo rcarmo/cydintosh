@@ -29,10 +29,10 @@ not a Macintosh LC emulator loop. It currently provides:
 - a trace ring and lightweight performance counters for later panic/hang dumps;
 - provisional 24-bit-first RAM/ROM/I/O address decoding, with 32-bit candidates
   logged only;
-- bounded LC memory-bus harness with PSRAM guest RAM, mapped ROM reads, generic
-  I/O stub reads/writes, ROM write blocking, and unmapped access logging;
+- bounded LC memory-bus harness with PSRAM guest RAM, mapped ROM reads, named
+  generic I/O stub reads/writes, ROM write blocking, and unmapped access logging;
 - LC Musashi callback bridge plus a RAM-only synthetic 68EC020 reset/execute
-  smoke probe, while LC ROM execution remains disabled;
+  smoke probe and a bounded ROM-entry micro-probe; full LC boot remains disabled;
 - 4MB guest RAM PSRAM allocation probe, 2MB fallback probe, separate indexed VRAM
   probe, and DMA-capable RGB565 strip-buffer probe;
 - panic-on-unexpected-write policy for ROM/unmapped writes while early ranges are
@@ -47,27 +47,34 @@ not a Macintosh LC emulator loop. It currently provides:
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 touch reader scaffold: ST7123/GT911 probing, driver init, no-touch polling, and raw-panel to LC-viewport coordinate mapping.
 
-Guest LC ROM code is not executed yet. The latest hardware diagnostic reflashed
-and verified the LC ROM partition, then ran the firmware-side vector and entry
-scanners. It confirmed offset 0 is not a plausible SP/PC reset vector, found 13
-heuristic vector-like pairs in the first `0x4000` bytes, and logged best current
-vector-like candidate `file_offset=0x00d58 sp=0x00186100 pc=0x00842f00
-rom_base=0x40800000`. The new entry scan is more useful than the noisy SP/PC
-heuristic: it identifies ROM-header PC-relative trampolines at file offsets
-`0x0000a`, `0x0000e`, and `0x0002a` targeting `0x0008c`, which disassembles to
-`move #0x2700,sr`; it also logs jumps to `0x01240`, `0x02310`, `0x02e00`, and a
-`reset` opcode at `0x000aa`. This strongly suggests a ROM-header trampoline/overlay
-entry path rather than a normal offset-0 68k vector table, but the overlay mapping
-is still unverified. The latest hardware diagnostic also validates the memory-bus
-harness and Musashi callback bridge without executing the LC ROM: 4MB PSRAM RAM
-reads/writes, mapped ROM reads from both candidate windows, generic I/O stub
-reads/writes, ROM write blocking, unmapped-read logging, and a RAM-only synthetic
-68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
-`cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
-panel in the normal LC target; user confirmation reported the test pattern visible.
-The next boot milestone remains verifying which ROM base/entry should be used for
-first real execution, then using the same bus path to record first LC ROM hardware
-accesses through the trace ring.
+Full LC boot is not enabled yet. The latest hardware diagnostic reflashed and
+verified the LC ROM partition, then ran the firmware-side vector and entry
+scanners plus a bounded ROM-entry micro-probe. The scanner confirmed offset 0 is
+not a plausible SP/PC reset vector, found 13 heuristic vector-like pairs in the
+first `0x4000` bytes, and logged best current vector-like candidate
+`file_offset=0x00d58 sp=0x00186100 pc=0x00842f00 rom_base=0x40800000`. The entry
+scan is more useful than the noisy SP/PC heuristic: it identifies ROM-header
+PC-relative trampolines at file offsets `0x0000a`, `0x0000e`, and `0x0002a`
+targeting `0x0008c`, which disassembles to `move #0x2700,sr`; it also logs jumps
+to `0x01240`, `0x02310`, `0x02e00`, and a `reset` opcode at `0x000aa`.
+
+The bounded on-device ROM-entry micro-probe now starts at `0x0040008c` in the
+24-bit ROM window. It reaches the guest `RESET` instruction, advances into the
+next ROM dispatcher, and records first generic I/O stub accesses from ROM PCs
+around `0x00403124`-`0x0040314a` to `0x00f01c00`, `0x00f21c00`, and
+`0x00f41c00` (all tagged `early-rom-probe-1c00-stride`). A one-off comparison
+showed the `0x4080008c` 32-bit candidate is not viable for the current 68EC020
+probe because the EC020 core masks it to `0x0080008c`, producing unmapped reads.
+This establishes `0x0040008c` as the first guarded execution target, while the
+real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
+also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
+reads/writes, mapped ROM reads, generic I/O stub reads/writes, ROM write blocking,
+unmapped-read logging, and a RAM-only synthetic 68EC020 reset/execute smoke test
+(`reset_pc=0x100`, `reset_sp=0x2000`, `cpu_type=3`). It also now shows the LC
+indexed diagnostic pattern on the Tab5 panel in the normal LC target; user
+confirmation reported the test pattern visible. The next boot milestone is to add
+an observed LC I/O decoder/stub boundary for the first `0x00f?1c00` accesses, then
+continue bounded ROM execution until the next missing device behavior is clear.
 
 ## ROM metadata
 

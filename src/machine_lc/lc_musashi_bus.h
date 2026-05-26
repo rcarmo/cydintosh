@@ -11,6 +11,7 @@ void lc_musashi_bus_attach(lc_memory_bus_t *bus);
 void lc_musashi_bus_detach(void);
 lc_memory_bus_t *lc_musashi_bus_active(void);
 uint32_t lc_musashi_bus_function_code(void);
+uint32_t lc_musashi_bus_current_pc(void);
 uint32_t lc_musashi_bus_reset_callback_count(void);
 void lc_musashi_bus_reset_stats(void);
 void lc_musashi_bus_log_stats(void);

@@ -117,6 +117,7 @@ static void log_lc_rom_partition(void) {
     err = lc_memory_bus_init(&cpu_bus, &map);
     if (err == ESP_OK) {
         lc_cpu_preview_rom_vector_candidates(&cpu_bus);
+        lc_cpu_probe_rom_entry_execution(&cpu_bus);
         lc_cpu_probe_synthetic_bus_execution(&cpu_bus);
         lc_memory_bus_free(&cpu_bus);
     } else {

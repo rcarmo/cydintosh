@@ -1,6 +1,7 @@
 #include "lc_memory.h"
 
 #include "board_profiles.h"
+#include "lc_musashi_bus.h"
 #include "lc_trace.h"
 
 #include "esp_err.h"
@@ -288,15 +289,52 @@ void lc_memory_probe_display_buffer_allocation(void) {
     log_heap_caps("heap psram after display probe", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
+static const char *lc_memory_io_stub_name(uint32_t offset) {
+    if ((offset & 0x0001ffffu) == 0x00001c00u) {
+        return "early-rom-probe-1c00-stride";
+    }
+    if (offset == 0) {
+        return "io-window-base/harness";
+    }
+    return "generic-io-stub";
+}
+
+static void lc_memory_log_io_stub_access(uint32_t pc, uint32_t address, uint32_t offset,
+                                         uint8_t value, bool write) {
+    static unsigned logged = 0;
+    static unsigned suppressed = 0;
+    const unsigned log_limit = 64;
+
+    if (logged < log_limit) {
+        ESP_LOGI(TAG,
+                 "LC I/O stub %s pc=0x%08" PRIx32 " addr=0x%08" PRIx32
+                 " offset=0x%08" PRIx32 " value=0x%02x name=%s",
+                 write ? "write" : "read", pc, address, offset, value,
+                 lc_memory_io_stub_name(offset));
+        logged++;
+        if (logged == log_limit) {
+            ESP_LOGI(TAG, "LC I/O stub logger reached %u entries; suppressing further I/O logs",
+                     log_limit);
+        }
+    } else {
+        suppressed++;
+        if ((suppressed & 0xffu) == 0) {
+            ESP_LOGI(TAG, "LC I/O stub logger suppressed %u additional entries", suppressed);
+        }
+    }
+}
+
 static uint8_t lc_memory_io_stub_read8(uint32_t address, uint32_t offset) {
-    (void)offset;
-    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, 0xffu, 1, false);
+    const uint32_t pc = lc_musashi_bus_current_pc();
+    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, 0xffu, 1, false);
+    lc_memory_log_io_stub_access(pc, address, offset, 0xffu, false);
     return 0xffu;
 }
 
 static esp_err_t lc_memory_io_stub_write8(uint32_t address, uint32_t offset, uint8_t value) {
-    (void)offset;
-    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, value, 1, true);
+    const uint32_t pc = lc_musashi_bus_current_pc();
+    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
+    lc_memory_log_io_stub_access(pc, address, offset, value, true);
     return ESP_OK;
 }
 
@@ -343,7 +381,7 @@ void lc_memory_bus_free(lc_memory_bus_t *bus) {
 
 uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
     if (bus == NULL || !bus->initialized) {
-        lc_memory_log_unmapped_access(0, address, 1, false);
+        lc_memory_log_unmapped_access(lc_musashi_bus_current_pc(), address, 1, false);
         return 0xffu;
     }
 
@@ -351,7 +389,7 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
     switch (decoded.region) {
     case LC_ADDR_REGION_RAM:
         if (decoded.offset < bus->ram_size) {
-            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, bus->ram[decoded.offset], 1,
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, bus->ram[decoded.offset], 1,
                             false);
             return bus->ram[decoded.offset];
         }
@@ -360,7 +398,7 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
         if (decoded.offset < bus->rom_size) {
             const uint8_t value = bus->rom[decoded.offset];
-            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, value, 1, false);
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, false);
             return value;
         }
         break;
@@ -372,7 +410,7 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
         break;
     }
 
-    lc_memory_log_unmapped_access(0, address, 1, false);
+    lc_memory_log_unmapped_access(lc_musashi_bus_current_pc(), address, 1, false);
     return 0xffu;
 }
 
@@ -390,7 +428,7 @@ uint32_t lc_memory_bus_read32(lc_memory_bus_t *bus, uint32_t address) {
 
 esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t value) {
     if (bus == NULL || !bus->initialized) {
-        lc_memory_log_unmapped_access(0, address, 1, true);
+        lc_memory_log_unmapped_access(lc_musashi_bus_current_pc(), address, 1, true);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -399,7 +437,7 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
     case LC_ADDR_REGION_RAM:
         if (decoded.offset < bus->ram_size) {
             bus->ram[decoded.offset] = value;
-            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, value, 1, true);
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, true);
             return ESP_OK;
         }
         break;
@@ -408,7 +446,7 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
         return lc_memory_io_stub_write8(address, decoded.offset, value);
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
-        lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, 0, address, value, 1, true);
+        lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, lc_musashi_bus_current_pc(), address, value, 1, true);
         ESP_LOGW(TAG, "LC blocked ROM write addr=0x%08" PRIx32 " offset=0x%08" PRIx32
                       " value=0x%02x",
                  address, decoded.offset, value);
@@ -418,7 +456,7 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
         break;
     }
 
-    lc_memory_log_unmapped_access(0, address, 1, true);
+    lc_memory_log_unmapped_access(lc_musashi_bus_current_pc(), address, 1, true);
     return ESP_ERR_INVALID_STATE;
 }
 

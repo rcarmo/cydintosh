@@ -162,12 +162,27 @@ Need to identify and/or implement:
 - SCC serial probe behavior sufficient to avoid boot hangs;
 - sound/ASC minimum stubs.
 
+## Observed LC ROM-entry I/O probes
+
+The first bounded ROM-entry micro-probe starts at `0x0040008c` in the 24-bit ROM
+window. It reaches the guest `RESET` instruction and then the early dispatcher.
+With 20k requested cycles, the first repeated I/O-candidate accesses are:
+
+| PC range | Address pattern | Current stub behavior | Notes |
+|---:|---:|---|---|
+| `0x00403124`-`0x0040314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | read `0xff`, accept writes | tagged `early-rom-probe-1c00-stride`; likely ROM hardware/memory probe table, exact device still unknown |
+
+A comparison probe using `0x4080008c` showed that the current 68EC020 path masks
+that address to `0x0080008c`, so first execution should stay with the 24-bit
+`0x0040008c` entry until/if 32-bit mode is explicitly enabled by the guest.
+
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. During first ROM execution, use the LC address decoder and trace ring to record
-   the first accesses into I/O candidate windows.
-3. Add an LC I/O decoder table from observed accesses before implementing devices.
+2. Turn the observed `0x00f?1c00` access pattern into an explicit LC I/O decoder
+   boundary before implementing device semantics.
+3. Continue bounded ROM execution and use the LC address decoder/trace ring to
+   record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the
    panic-on-unexpected-write policy until ranges are understood.
 5. Add RTC/PRAM responses before ADB if traces show time/PRAM probes happen first;

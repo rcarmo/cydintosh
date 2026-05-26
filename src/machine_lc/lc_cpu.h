@@ -20,6 +20,7 @@ void lc_cpu_log_reset_vector_candidates(const lc_rom_info_t *rom_info);
 void lc_cpu_scan_reset_vector_candidates(const lc_rom_map_t *rom_map);
 void lc_cpu_scan_rom_entry_hints(const lc_rom_map_t *rom_map);
 void lc_cpu_preview_rom_vector_candidates(lc_memory_bus_t *bus);
+void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus);
 void lc_cpu_probe_synthetic_bus_execution(lc_memory_bus_t *bus);
 void lc_cpu_log_trace_hook_status(void);
 void lc_cpu_trace_exception(uint8_t vector, uint32_t pc, uint16_t sr);

@@ -11,6 +11,7 @@ static const char *TAG = "lc_musashi_bus";
 
 static lc_memory_bus_t *active_bus;
 static uint32_t current_function_code;
+static uint32_t current_instruction_pc;
 static uint32_t reset_callback_count;
 static uint32_t irq_ack_count;
 static uint32_t instruction_callback_count;
@@ -41,12 +42,17 @@ uint32_t lc_musashi_bus_function_code(void) {
     return current_function_code;
 }
 
+uint32_t lc_musashi_bus_current_pc(void) {
+    return current_instruction_pc;
+}
+
 uint32_t lc_musashi_bus_reset_callback_count(void) {
     return reset_callback_count;
 }
 
 void lc_musashi_bus_reset_stats(void) {
     current_function_code = 0;
+    current_instruction_pc = 0;
     reset_callback_count = 0;
     irq_ack_count = 0;
     instruction_callback_count = 0;
@@ -54,9 +60,10 @@ void lc_musashi_bus_reset_stats(void) {
 
 void lc_musashi_bus_log_stats(void) {
     ESP_LOGI(TAG,
-             "Musashi callback stats: fc=%" PRIu32 " reset_callbacks=%" PRIu32
-             " irq_acks=%" PRIu32 " instruction_callbacks=%" PRIu32,
-             current_function_code, reset_callback_count, irq_ack_count,
+             "Musashi callback stats: fc=%" PRIu32 " pc=0x%08" PRIx32
+             " reset_callbacks=%" PRIu32 " irq_acks=%" PRIu32
+             " instruction_callbacks=%" PRIu32,
+             current_function_code, current_instruction_pc, reset_callback_count, irq_ack_count,
              instruction_callback_count);
 }
 
@@ -128,6 +135,7 @@ int cpu_irq_ack(int level) {
 
 void cpu_instr_callback(int pc) {
     instruction_callback_count++;
-    lc_trace_record(LC_TRACE_EVENT_MARKER, (uint32_t)pc, 0, 0x4c434943u, 0,
+    current_instruction_pc = (uint32_t)pc;
+    lc_trace_record(LC_TRACE_EVENT_MARKER, current_instruction_pc, 0, 0x4c434943u, 0,
                     false); // 'LCIC'
 }

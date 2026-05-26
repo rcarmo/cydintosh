@@ -142,13 +142,14 @@ Current address-map diagnostics are deliberately provisional and log both
 | Guest range | Purpose | Status |
 |---:|---|---|
 | `0x00000000`–`0x003fffff` | 4MB RAM target | allocation probe only |
-| `0x00400000`–`0x0047ffff` | 24-bit ROM candidate | reset-vector mapping unverified |
-| `0x40800000`–`0x4087ffff` | 32-bit ROM candidate | reset-vector mapping unverified |
-| `0x00f00000`–`0x00ffffff` | 24-bit I/O candidate | placeholder decoder only |
+| `0x00400000`–`0x0047ffff` | 24-bit ROM candidate | guarded entry probe reaches ROM dispatcher from `0x0040008c` |
+| `0x40800000`–`0x4087ffff` | 32-bit ROM candidate | not viable for current 68EC020 probe; EC020 masks `0x4080008c` to `0x0080008c` |
+| `0x00f00000`–`0x00ffffff` | 24-bit I/O candidate | generic named stubs; first ROM accesses at `0x00f?1c00` |
 | `0x50000000`–`0x500fffff` | 32-bit I/O candidate | placeholder decoder only |
 
-The decoder includes a throttled unmapped-access logger for the later CPU
-execution milestone; no guest code is executed by the current skeleton.
+The decoder includes throttled unmapped and I/O-stub access loggers for bounded
+CPU execution diagnostics. Full guest boot is not enabled; only a short ROM-entry
+micro-probe is run to discover the next missing hardware ranges.
 
 Display-memory diagnostics currently probe:
 
@@ -168,16 +169,20 @@ of diagnostics; later CPU execution/panic paths can reuse the same dump routine.
 The firmware-side ROM vector scanner now checks the mapped flash partition as
 well as the host-side `make lc-rom-vectors` path. With the LC ROM partition
 reflashed and verified, the hardware log found 13 heuristic vector-like pairs in
-the first `0x4000` bytes and selected the current best non-executed candidate
-`file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`.
+the first `0x4000` bytes and selected current best vector-like candidate
+`file_offset=0x00d58 sp=0x00186100 pc=0x00842f00 rom_base=0x40800000`; this is
+still considered noise compared with the ROM-header entry hints. The bounded
+entry micro-probe starts at `0x0040008c`, invokes the guest `RESET` callback once,
+continues to about `0x0040306c` with 20k requested cycles, and records first ROM
+I/O-stub probes at `0x00f01c00`, `0x00f21c00`, and `0x00f41c00`.
 
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM
 and unmapped writes are tagged as `would-panic` so the first CPU execution pass
-can fail loudly before hardware stubs are relaxed. The current non-executing
-memory-bus harness allocates 4MB PSRAM guest RAM, attaches the mapped 512KB ROM,
-returns `0xff` for generic I/O stub reads, accepts/logs generic I/O writes, blocks
-ROM writes, and logs unmapped reads. Hardware capture validates:
+can fail loudly before hardware stubs are relaxed. The memory-bus harness and
+bounded ROM-entry micro-probe allocate 4MB PSRAM guest RAM, attach the mapped
+512KB ROM, return `0xff` for generic I/O stub reads, accept/log generic I/O
+writes, block ROM writes, and log unmapped reads. Hardware capture validates:
 
 ```text
 LC memory bus initialized: ram=... size=0x400000 rom=... size=0x80000

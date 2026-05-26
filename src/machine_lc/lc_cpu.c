@@ -34,6 +34,26 @@ static const char *TAG = "lc_cpu";
 #define LC_CPU_ENTRY_SCAN_LIMIT 0x0100u
 #define LC_CPU_ENTRY_LOG_LIMIT 12u
 
+#ifndef LC_CPU_ROM_ENTRY_PROBE
+#define LC_CPU_ROM_ENTRY_PROBE 1
+#endif
+
+#ifndef LC_CPU_ROM_ENTRY_PROBE_CYCLES
+#define LC_CPU_ROM_ENTRY_PROBE_CYCLES 20000u
+#endif
+
+#ifndef LC_CPU_ROM_ENTRY_PROBE_BASE
+#define LC_CPU_ROM_ENTRY_PROBE_BASE LC_ROM_WINDOW_24BIT_BASE_CANDIDATE
+#endif
+
+#ifndef LC_CPU_ROM_ENTRY_PROBE_OFFSET
+#define LC_CPU_ROM_ENTRY_PROBE_OFFSET 0x0000008cu
+#endif
+
+#ifndef LC_CPU_ROM_ENTRY_PROBE_STACK
+#define LC_CPU_ROM_ENTRY_PROBE_STACK (LC_GUEST_RAM_SIZE - 0x1000u)
+#endif
+
 static const char *lc_cpu_type_name(unsigned int cpu_type) {
     switch (cpu_type) {
     case M68K_CPU_TYPE_68EC020:
@@ -478,6 +498,64 @@ void lc_cpu_preview_rom_vector_candidates(lc_memory_bus_t *bus) {
     }
 }
 
+void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
+#if LC_CPU_ROM_ENTRY_PROBE
+    if (bus == NULL || !bus->initialized || bus->ram == NULL || bus->rom == NULL) {
+        ESP_LOGW(TAG, "LC ROM entry micro-probe skipped: memory bus unavailable");
+        return;
+    }
+    if (LC_CPU_ROM_ENTRY_PROBE_OFFSET + 2u > bus->rom_size) {
+        ESP_LOGW(TAG, "LC ROM entry micro-probe skipped: entry offset 0x%08x outside ROM size=0x%zx",
+                 (unsigned)LC_CPU_ROM_ENTRY_PROBE_OFFSET, bus->rom_size);
+        return;
+    }
+
+    const uint32_t entry_pc = LC_CPU_ROM_ENTRY_PROBE_BASE + LC_CPU_ROM_ENTRY_PROBE_OFFSET;
+    ESP_LOGW(TAG,
+             "LC ROM entry micro-probe enabled: bounded diagnostic only, not a boot claim; base=0x%08x entry_offset=0x%05x cycles=%u stack=0x%08x",
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_BASE,
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_OFFSET,
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_CYCLES,
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK);
+
+    memset(bus->ram, 0, bus->ram_size);
+    lc_musashi_bus_reset_stats();
+    lc_musashi_bus_attach(bus);
+    m68k_init();
+    m68k_set_cpu_type(M68K_CPU_TYPE_68EC020);
+    m68k_pulse_reset();
+    m68k_set_reg(M68K_REG_SP, LC_CPU_ROM_ENTRY_PROBE_STACK);
+    m68k_set_reg(M68K_REG_SR, 0x2700u);
+    m68k_set_reg(M68K_REG_PC, entry_pc);
+
+    const uint16_t first_opcode = lc_memory_bus_read16(bus, entry_pc);
+    ESP_LOGI(TAG,
+             "LC ROM entry micro-probe: entry_pc=0x%08" PRIx32
+             " first_opcode=0x%04x hint=%s sp=0x%08x",
+             entry_pc, first_opcode, opcode_hint(first_opcode),
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK);
+    const int cycles = m68k_execute((int)LC_CPU_ROM_ENTRY_PROBE_CYCLES);
+    const unsigned int pc_after = m68k_get_reg(NULL, M68K_REG_PC);
+    const unsigned int sp_after = m68k_get_reg(NULL, M68K_REG_SP);
+    const unsigned int sr_after = m68k_get_reg(NULL, M68K_REG_SR);
+    const unsigned int d0_after = m68k_get_reg(NULL, M68K_REG_D0);
+    lc_trace_record(LC_TRACE_EVENT_CPU_CONFIG, pc_after, entry_pc, d0_after,
+                    (uint16_t)cycles, false);
+    ESP_LOGI(TAG,
+             "LC ROM entry micro-probe result: cycles=%d pc_after=0x%08x sp_after=0x%08x sr=0x%04x d0=0x%08x reset_callbacks=%" PRIu32,
+             cycles, pc_after, sp_after, sr_after, d0_after,
+             lc_musashi_bus_reset_callback_count());
+    lc_musashi_bus_log_stats();
+    lc_trace_dump_recent(48);
+    lc_musashi_bus_detach();
+    ESP_LOGW(TAG,
+             "LC ROM entry micro-probe completed; full LC ROM execution remains disabled until overlay and hardware stubs are verified");
+#else
+    (void)bus;
+    ESP_LOGI(TAG, "LC ROM entry micro-probe disabled at compile time");
+#endif
+}
+
 void lc_cpu_probe_synthetic_bus_execution(lc_memory_bus_t *bus) {
     if (bus == NULL || !bus->initialized) {
         ESP_LOGW(TAG, "LC synthetic CPU/bus probe skipped: memory bus unavailable");
@@ -497,6 +575,7 @@ void lc_cpu_probe_synthetic_bus_execution(lc_memory_bus_t *bus) {
     m68k_init();
     m68k_set_cpu_type(M68K_CPU_TYPE_68EC020);
     m68k_pulse_reset();
+    m68k_set_reg(M68K_REG_SR, 0x2700u);
     const unsigned int pc_after_reset = m68k_get_reg(NULL, M68K_REG_PC);
     const unsigned int sp_after_reset = m68k_get_reg(NULL, M68K_REG_SP);
     const int cycles = m68k_execute(64);
