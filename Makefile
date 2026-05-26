@@ -48,6 +48,10 @@ ROM_HEIGHT ?= 320
 endif
 SERIAL_PORT ?= /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 BAUD ?= 460800
+TAB5_LC_SERIAL_PORT ?= /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00
+TAB5_LC_BAUD ?= 921600
+TAB5_LC_ROM_IMAGE ?= vendor/mac-lc.rom
+TAB5_LC_ROM_OFFSET ?= 0x410000
 
 ifeq ($(PIO_ENV),esp32-8048s043c)
 ESP_CHIP ?= esp32s3
@@ -66,7 +70,7 @@ DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc capture-tab5-logs lc-rom-info stable-artifacts flash-stable \
+	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc flash-tab5-lc-rom capture-tab5-logs lc-rom-info stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
@@ -86,6 +90,7 @@ help:
 	@echo "  make build-8048s043c     - build ESP32-8048S043C/S3 profile"
 	@echo "  make build-tab5-lc       - build ESP32-P4 M5Stack Tab5 LC/color skeleton"
 	@echo "  make flash-tab5-lc       - flash ESP32-P4 M5Stack Tab5 LC/color skeleton [explicit target]"
+	@echo "  make flash-tab5-lc-rom   - validate and flash local vendor/mac-lc.rom to Tab5 LC ROM partition"
 	@echo "  make capture-tab5-logs   - capture ESP32-P4 Tab5 serial logs"
 	@echo "  make lc-rom-info         - inspect local vendor/mac-lc.rom metadata only"
 	@echo "  make firmware            - alias for make build"
@@ -144,11 +149,15 @@ build-tab5-lc:
 flash-tab5-lc:
 	$(PIO) run -e esp32-p4-tab5-lc-color -t upload
 
+flash-tab5-lc-rom: lc-rom-info
+	$(ESPTOOL) --chip esp32p4 --port $(TAB5_LC_SERIAL_PORT) --baud $(TAB5_LC_BAUD) write_flash $(TAB5_LC_ROM_OFFSET) $(TAB5_LC_ROM_IMAGE)
+	$(ESPTOOL) --chip esp32p4 --port $(TAB5_LC_SERIAL_PORT) --baud $(TAB5_LC_BAUD) verify_flash $(TAB5_LC_ROM_OFFSET) $(TAB5_LC_ROM_IMAGE)
+
 capture-tab5-logs:
-	python3 tools/capture_serial_logs.py --port /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00 --baud 115200 --duration 15
+	python3 tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration 15
 
 lc-rom-info:
-	python3 tools/inspect_lc_rom.py vendor/mac-lc.rom
+	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE)
 
 fs:
 	$(PIO) run -e $(PIO_ENV) -t buildfs

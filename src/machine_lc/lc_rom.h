@@ -24,8 +24,19 @@ typedef struct {
     bool first_long_ok;
 } lc_rom_info_t;
 
+typedef struct {
+    lc_rom_info_t info;
+    const uint8_t *bytes;
+    size_t size;
+    esp_partition_mmap_handle_t handle;
+    bool mapped;
+} lc_rom_map_t;
+
 uint32_t lc_read_be32(const uint8_t bytes[4]);
 esp_err_t lc_rom_probe(lc_rom_info_t *info);
+esp_err_t lc_rom_map(lc_rom_map_t *map);
+void lc_rom_unmap(lc_rom_map_t *map);
 void lc_rom_log_info(const lc_rom_info_t *info);
+void lc_rom_log_map_info(const lc_rom_map_t *map);
 
 #endif

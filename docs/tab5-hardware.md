@@ -104,3 +104,13 @@ pio run -e esp32-p4-tab5-lc-color
 ```
 
 The LC ROM itself is not committed. Use local `vendor/mac-lc.rom` only.
+Validate and flash it explicitly with:
+
+```bash
+make lc-rom-info
+make flash-tab5-lc-rom
+```
+
+`flash-tab5-lc-rom` writes only the local 512KB ROM image to the Tab5 LC ROM
+partition at `0x410000`; it does not erase the full device or commit/copy ROM
+contents into the repository.

@@ -15,10 +15,12 @@ Completed setup:
 - Original Tab5 flash: backed up before experiments
 
 No LC boot is claimed yet. The first firmware target is a skeleton that logs
-ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists.
-The branch now also has an LC-only Musashi config scaffold for 68EC020/68020,
-selected only by the Tab5/P4 LC environment, plus LC CPU diagnostics that log the
-intended 68EC020 mode and raw ROM vector candidates without executing guest code.
+ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists,
+then maps the first 512KB of that partition read-only through ESP-IDF flash
+`mmap` for diagnostics. The branch now also has an LC-only Musashi config
+scaffold for 68EC020/68020, selected only by the Tab5/P4 LC environment, plus LC
+CPU diagnostics that log the intended 68EC020 mode and raw ROM vector candidates
+without executing guest code.
 
 ## ROM metadata
 
@@ -36,12 +38,17 @@ Non-copyrighted metadata for the local file:
 | MD5 | `5d8662dfab70ac34663d6d54393f5018` |
 | First 16 bytes, metadata only | `35 0e ac f0 00 00 00 2a 06 7c 4e fa 00 80 4e fa` |
 
-Inspect locally with:
+Inspect locally and flash explicitly with:
 
 ```bash
 python3 tools/inspect_lc_rom.py vendor/mac-lc.rom
 make lc-rom-info
+make flash-tab5-lc-rom
 ```
+
+The firmware validates the flashed partition by checking that the `rom` data
+partition is at least `0x80000` bytes and that the mapped first long is
+`0x350EACF0`.
 
 ## Scope
 

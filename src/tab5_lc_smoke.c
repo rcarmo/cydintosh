@@ -54,6 +54,15 @@ static void log_lc_rom_partition(void) {
     }
     lc_rom_log_info(&info);
     lc_cpu_log_reset_vector_candidates(&info);
+
+    lc_rom_map_t map = {0};
+    err = lc_rom_map(&map);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mmap LC ROM partition: %s", esp_err_to_name(err));
+        return;
+    }
+    lc_rom_log_map_info(&map);
+    lc_rom_unmap(&map);
 }
 
 void app_main(void) {
