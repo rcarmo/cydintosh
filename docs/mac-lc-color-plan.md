@@ -37,7 +37,7 @@ not a Macintosh LC emulator loop. It currently provides:
   conversion, checksums, and off-device PPM rendering;
 - Tab5 GPIO22/LEDC backlight scaffold;
 - temporary `esp32-p4-tab5-bootdiag` no-PSRAM GPIO22/PI4IOE isolation image;
-- vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills, visually confirmed on hardware, now drawing the scaled LC indexed debug pattern;
+- vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills, visually confirmed on hardware, now exposing a reusable LC indexed framebuffer flush path;
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 I2C touch probe scaffold for GT911/ST7123 presence.
 

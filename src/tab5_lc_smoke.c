@@ -94,7 +94,7 @@ void app_main(void) {
     tab5_backlight_raw_gpio_boot_probe_loop();
 #endif
 #if defined(TAB5_LC_DISPLAY_SMOKE_ONLY) && TAB5_LC_DISPLAY_SMOKE_ONLY
-    ESP_ERROR_CHECK(tab5_bsp_display_smoke_run());
+    tab5_bsp_display_smoke_run();
 #endif
 
     lc_trace_reset();

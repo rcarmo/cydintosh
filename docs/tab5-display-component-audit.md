@@ -176,15 +176,28 @@ Apache/MIT upstream files and avoiding the full demo app/LVGL layer. The separat
 - initializes SYS-I2C and PI4IOE reset/power outputs;
 - probes GT911 (`0x14`) vs ST7123 (`0x55`);
 - initializes the ILI9881C/ST7703-compatible or ST7123 MIPI-DSI path;
+- exposes a reusable init/flush path:
+  - `tab5_bsp_display_init()`
+  - `tab5_bsp_display_flush_indexed()`
+  - `tab5_bsp_display_draw_lc_test_pattern()`
+  - `tab5_bsp_display_brightness_heartbeat_loop()`
 - draws a real `720x1280` RGB565 stripe/orientation pattern, or the LC
   `512x384x8bpp` indexed debug pattern scaled to a `720x540` centered viewport;
 - pulses backlight between 35% and 100%.
 
 Serial capture from the flashed smoke image shows the app alive in the brightness
-heartbeat loop. Camera/user confirmation verified that the panel visibly renders
-the pattern and flashes. If the panel appears asleep after future flashes, press
-the Tab5 power button once, as required by the patched official demo during
-testing.
+heartbeat loop. After the reusable flush refactor, logs confirm the LC indexed
+framebuffer is flushed through the BSP panel path:
+
+```text
+flushing LC indexed framebuffer: guest=512x384 scale=45/32 physical=720x540 offset=(0,370)
+LC indexed framebuffer flushed to Tab5: physical_rgb565_checksum=0x3b4a1479
+LC-on-Tab5 test pattern: indexed_checksum=0x7c329dc5 status=ESP_OK
+```
+
+Camera/user confirmation verified that the panel visibly renders the pattern and
+flashes. If the panel appears asleep after future flashes, press the Tab5 power
+button once, as required by the patched official demo during testing.
 
 ## Touch scaffold status
 
@@ -202,10 +215,10 @@ It does not read touch coordinates or emit ADB mouse packets yet.
 
 1. Keep the vendored BSP isolated under `components_tab5/` so Mac Plus builds do
    not pull Tab5/P4-only managed dependencies.
-2. Route the LC guest framebuffer through the BSP panel handle, reusing the
-   verified LC indexed-pattern scaling path.
-3. Replace the debug CLUT/test pattern with ROM/System-driven VRAM updates once
+2. Replace the debug CLUT/test pattern with ROM/System-driven VRAM updates once
    the LC memory map and video registers are implemented.
+3. Add dirty-rectangle/dirty-row aware partial flushes on top of the current full
+   centered-viewport indexed flush.
 
 ## Open risks
 
