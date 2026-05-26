@@ -1,10 +1,14 @@
 #include "lc_cpu.h"
 
+#include "board_profiles.h"
 #include "esp_log.h"
+#include "lc_memory.h"
 #include "lc_trace.h"
 #include "m68k.h"
 
 #include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 static const char *TAG = "lc_cpu";
 
@@ -19,6 +23,9 @@ static const char *TAG = "lc_cpu";
 #ifdef M68K_FIXED_CPU_TYPE
 #error "Macintosh LC CPU scaffold must not use M68K_FIXED_CPU_TYPE"
 #endif
+
+#define LC_CPU_VECTOR_SCAN_LIMIT 0x4000u
+#define LC_CPU_VECTOR_LOG_LIMIT 8u
 
 static const char *lc_cpu_type_name(unsigned int cpu_type) {
     switch (cpu_type) {
@@ -62,6 +69,169 @@ void lc_cpu_log_reset_vector_candidates(const lc_rom_info_t *rom_info) {
              raw_first_long, raw_second_long);
     ESP_LOGW(TAG,
              "LC reset SP/PC mapping is not verified yet; first long currently doubles as ROM fingerprint, not a trusted stack pointer");
+}
+
+static bool plausible_initial_sp(uint32_t sp, const char **reason_out, unsigned *score_out) {
+    const char *reason = "sp-ok";
+    unsigned score = 1;
+    if (sp == 0) {
+        reason = "sp-zero";
+        goto reject;
+    }
+    if ((sp & 1u) != 0) {
+        reason = "sp-odd";
+        goto reject;
+    }
+    if (sp > LC_GUEST_RAM_SIZE) {
+        reason = "sp-outside-initial-ram";
+        goto reject;
+    }
+    if (sp >= LC_GUEST_RAM_SIZE - 0x10000u) {
+        reason = "sp-near-ram-top";
+        score += 2;
+    } else {
+        reason = "sp-in-ram";
+    }
+    if (reason_out != NULL) {
+        *reason_out = reason;
+    }
+    if (score_out != NULL) {
+        *score_out = score;
+    }
+    return true;
+
+reject:
+    if (reason_out != NULL) {
+        *reason_out = reason;
+    }
+    if (score_out != NULL) {
+        *score_out = 0;
+    }
+    return false;
+}
+
+static bool pc_in_rom_window(uint32_t pc, uint32_t rom_base, size_t rom_size,
+                             uint32_t *rom_offset_out, unsigned *score_out) {
+    unsigned score = 1;
+    if ((pc & 1u) != 0) {
+        return false;
+    }
+
+    uint32_t rom_offset = 0;
+    if (pc >= rom_base && pc < rom_base + rom_size) {
+        rom_offset = pc - rom_base;
+        score += 2;
+    } else {
+        const uint32_t pc24 = pc & 0x00ffffffu;
+        const uint32_t base24 = rom_base & 0x00ffffffu;
+        if (pc24 < base24 || pc24 >= base24 + rom_size) {
+            return false;
+        }
+        rom_offset = pc24 - base24;
+        score += 1;
+    }
+
+    if (rom_offset < 0x1000u) {
+        score += 2;
+    }
+    if ((pc & 0xff000000u) == (rom_base & 0xff000000u)) {
+        score += 1;
+    }
+    if (rom_offset_out != NULL) {
+        *rom_offset_out = rom_offset;
+    }
+    if (score_out != NULL) {
+        *score_out = score;
+    }
+    return true;
+}
+
+void lc_cpu_scan_reset_vector_candidates(const lc_rom_map_t *rom_map) {
+    if (rom_map == NULL || !rom_map->mapped || rom_map->bytes == NULL || rom_map->size < 8) {
+        ESP_LOGW(TAG, "LC reset-vector scan unavailable: ROM is not mapped");
+        return;
+    }
+
+    const uint32_t rom_bases[] = {
+        LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
+        LC_ROM_WINDOW_32BIT_BASE_CANDIDATE,
+    };
+    const size_t scan_limit = rom_map->size < LC_CPU_VECTOR_SCAN_LIMIT ? rom_map->size : LC_CPU_VECTOR_SCAN_LIMIT;
+    unsigned candidates = 0;
+    unsigned logged = 0;
+    unsigned best_score = 0;
+    uint32_t best_offset = 0;
+    uint32_t best_sp = 0;
+    uint32_t best_pc = 0;
+    uint32_t best_rom_base = 0;
+    uint32_t best_pc_rom_offset = 0;
+    const char *best_sp_reason = "none";
+
+    ESP_LOGI(TAG, "LC reset-vector scan: limit=0x%zx initial_ram=0x%08x rom_bases=0x%08x,0x%08x",
+             scan_limit, LC_GUEST_RAM_SIZE, LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
+             LC_ROM_WINDOW_32BIT_BASE_CANDIDATE);
+
+    for (size_t offset = 0; offset + 8u <= scan_limit; offset += 4u) {
+        const uint32_t sp = lc_read_be32(&rom_map->bytes[offset]);
+        const uint32_t pc = lc_read_be32(&rom_map->bytes[offset + 4u]);
+        const char *sp_reason = NULL;
+        unsigned sp_score = 0;
+        if (!plausible_initial_sp(sp, &sp_reason, &sp_score)) {
+            continue;
+        }
+
+        for (size_t base_index = 0; base_index < sizeof(rom_bases) / sizeof(rom_bases[0]);
+             base_index++) {
+            uint32_t pc_rom_offset = 0;
+            unsigned pc_score = 0;
+            const uint32_t rom_base = rom_bases[base_index];
+            if (!pc_in_rom_window(pc, rom_base, rom_map->size, &pc_rom_offset, &pc_score)) {
+                continue;
+            }
+
+            unsigned score = sp_score + pc_score;
+            if (offset == 0) {
+                score += 3;
+            }
+            candidates++;
+            lc_trace_record(LC_TRACE_EVENT_ROM_VECTOR_CANDIDATE, pc, rom_base, sp,
+                            (uint16_t)offset, false);
+            if (score > best_score) {
+                best_score = score;
+                best_offset = (uint32_t)offset;
+                best_sp = sp;
+                best_pc = pc;
+                best_rom_base = rom_base;
+                best_pc_rom_offset = pc_rom_offset;
+                best_sp_reason = sp_reason;
+            }
+            if (logged < LC_CPU_VECTOR_LOG_LIMIT) {
+                ESP_LOGI(TAG,
+                         "LC vector candidate[%u]: file_offset=0x%05x sp=0x%08" PRIx32
+                         " pc=0x%08" PRIx32 " rom_base=0x%08" PRIx32
+                         " pc_rom_offset=0x%05" PRIx32 " score=%u sp=%s",
+                         logged, (unsigned)offset, sp, pc, rom_base, pc_rom_offset, score,
+                         sp_reason);
+                logged++;
+            }
+        }
+    }
+
+    ESP_LOGI(TAG, "LC reset-vector scan complete: candidates=%u logged=%u", candidates, logged);
+    if (candidates == 0) {
+        ESP_LOGW(TAG,
+                 "LC reset-vector scan found no plausible SP/PC pairs in first 0x%zx bytes; ROM overlay/reset mapping remains unknown",
+                 scan_limit);
+        return;
+    }
+    ESP_LOGI(TAG,
+             "LC reset-vector best candidate: file_offset=0x%05" PRIx32 " sp=0x%08" PRIx32
+             " pc=0x%08" PRIx32 " rom_base=0x%08" PRIx32
+             " pc_rom_offset=0x%05" PRIx32 " score=%u sp=%s",
+             best_offset, best_sp, best_pc, best_rom_base, best_pc_rom_offset, best_score,
+             best_sp_reason);
+    ESP_LOGW(TAG,
+             "LC reset-vector scan is heuristic only; do not execute guest ROM until overlay and hardware stubs are verified");
 }
 
 void lc_cpu_log_trace_hook_status(void) {

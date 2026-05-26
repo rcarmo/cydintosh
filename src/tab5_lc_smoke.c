@@ -86,6 +86,7 @@ static void log_lc_rom_partition(void) {
         return;
     }
     lc_rom_log_map_info(&map);
+    lc_cpu_scan_reset_vector_candidates(&map);
     lc_rom_unmap(&map);
 }
 

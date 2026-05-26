@@ -164,6 +164,11 @@ A small LC trace ring buffer (`LC_TRACE_RING_SIZE`, default 128 entries) records
 skeleton markers, CPU config, ROM vector candidates, decoded memory accesses, and
 unmapped accesses. The current skeleton dumps the most recent entries at the end
 of diagnostics; later CPU execution/panic paths can reuse the same dump routine.
+The firmware-side ROM vector scanner now checks the mapped flash partition as
+well as the host-side `make lc-rom-vectors` path. With the LC ROM partition
+reflashed and verified, the hardware log found 13 heuristic vector-like pairs in
+the first `0x4000` bytes and selected the current best non-executed candidate
+`file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`.
 
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM
@@ -172,8 +177,9 @@ can fail loudly before hardware stubs are relaxed.
 
 CPU trace helper hooks are available for exception-vector hits,
 illegal/unimplemented instructions, bus errors, address errors, and interrupt
-levels. They currently only provide a structured logging/trace-ring API; the
-actual Musashi callback/runtime wiring waits for reset-vector execution.
+levels. They currently only provide a structured logging/trace-ring API; actual
+Musashi callback/runtime wiring still waits for verified ROM overlay/reset-vector
+mapping.
 
 Performance counter scaffolding (`src/machine_lc/lc_perf.c`) tracks count, total,
 minimum, average, and maximum microseconds for future CPU loop, video update,

@@ -152,9 +152,10 @@ skeleton, not a booting LC emulator.
 | Guest RAM target | 4MB initial PSRAM-backed target, 2MB fallback probe |
 | Guest video target | 512×384, 8-bit indexed color, dirty-row RGB565 strip conversion and Tab5 partial-flush scaffold |
 
-Current LC/P4 diagnostics include ROM partition mmap validation, LC-only Musashi
-68EC020/68020 configuration, trace/perf counters, provisional memory decoder,
-read-only disk trace scaffolding, Tab5 backlight/touch probes, software-only
+Current LC/P4 diagnostics include ROM partition mmap validation, on-device ROM
+vector candidate scanning, LC-only Musashi 68EC020/68020 configuration,
+trace/perf counters, provisional memory decoder, read-only disk trace scaffolding,
+Tab5 backlight/touch probes, software-only
 display pattern checksums, and a visually confirmed M5Stack-BSP-based physical
 display smoke image that now renders the LC `512×384×8bpp` indexed debug pattern
 scaled into the Tab5 panel through reusable BSP `init`/`flush_indexed` and
@@ -163,8 +164,12 @@ dirty-row `flush_indexed_dirty` paths. The dirty-row self-test currently inverts
 before entering the brightness heartbeat. The display-smoke heartbeat also
 initializes the confirmed ST7123 touch driver and polls touch samples, mapping raw
 `720×1280` panel coordinates into the centered LC `512×384` viewport for later ADB
-mouse work. The Tab5 USB/JTAG device must be present before flashing or validating
-hardware output.
+mouse work. The latest LC skeleton capture also verified the flashed LC ROM
+partition after reflashing `vendor/mac-lc.rom`: first long `0x350eacf0`, 13
+heuristic vector-like pairs in the first `0x4000` bytes, and best current
+candidate `file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`
+(non-executing heuristic only). The Tab5 USB/JTAG device must be present before
+flashing or validating hardware output.
 
 ## Board profiles and PlatformIO environments
 

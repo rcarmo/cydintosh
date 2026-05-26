@@ -20,7 +20,8 @@ not a Macintosh LC emulator loop. It currently provides:
 - ESP32-P4/chip/heap/PSRAM diagnostics;
 - LC ROM partition probing plus read-only `esp_partition_mmap()` validation for
   the first 512KB;
-- metadata-only LC ROM vector/window scanning via `make lc-rom-vectors`;
+- metadata-only LC ROM vector/window scanning via `make lc-rom-vectors` and the
+  same heuristic scanner in firmware diagnostics;
 - LC-only Musashi configuration for 68EC020/68020, selected only by the Tab5/P4
   environment;
 - CPU trace helper scaffolds for reset-vector candidates, exception vectors,
@@ -41,9 +42,14 @@ not a Macintosh LC emulator loop. It currently provides:
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 touch reader scaffold: ST7123/GT911 probing, driver init, no-touch polling, and raw-panel to LC-viewport coordinate mapping.
 
-Guest LC ROM code is not executed yet. The next boot milestone is to verify the
-actual reset-vector mapping, select `M68K_CPU_TYPE_68EC020` at runtime, and start
-recording first hardware accesses through the LC trace ring.
+Guest LC ROM code is not executed yet. The latest hardware diagnostic reflashed
+and verified the LC ROM partition, then ran the firmware-side vector scanner. It
+confirmed offset 0 is not a plausible SP/PC reset vector, found 13 heuristic
+vector-like pairs in the first `0x4000` bytes, and logged best current candidate
+`file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`. This is
+only a heuristic; the next boot milestone remains verifying the real ROM overlay
+mapping, selecting `M68K_CPU_TYPE_68EC020` at runtime, and recording first
+hardware accesses through the LC trace ring.
 
 ## ROM metadata
 
@@ -72,11 +78,13 @@ make flash-tab5-lc-rom
 ```
 
 `make lc-rom-vectors` scans metadata-only SP/PC pairs against the provisional
-24-bit and 32-bit ROM window candidates. It is a heuristic aid only; the current
-offset-0 words are not a plausible reset SP/PC pair, so actual reset-vector
-mapping still needs runtime verification. The firmware validates the flashed
-partition by checking that the `rom` data partition is at least `0x80000` bytes
-and that the mapped first long is `0x350EACF0`. See `docs/lc-boot-media.md` for
+24-bit and 32-bit ROM window candidates. The firmware now runs the same style of
+bounded scan against the mapped flash partition and records candidates into the
+trace ring. It is a heuristic aid only; the current offset-0 words are not a
+plausible reset SP/PC pair, so actual reset-vector mapping still needs runtime
+verification. The firmware validates the flashed partition by checking that the
+`rom` data partition is at least `0x80000` bytes and that the mapped first long is
+`0x350EACF0`. See `docs/lc-boot-media.md` for
 the local-only read-only disk image workflow around `vendor/lc-disk.img` and the
 firmware-side disk I/O trace/write-blocking scaffold. See
 `docs/lc-via-scc-audit.md` for the current Mac Plus VIA/SCC reuse audit before LC
