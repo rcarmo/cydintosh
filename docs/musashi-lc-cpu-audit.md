@@ -187,9 +187,14 @@ With the SCC-like no-input/transmit-ready stub, `serial-capture-20260526-213538.
 advances to `0x40849fca` with `d0=0x00008000`, `d7=0x01020304`, and
 `stopped_on_monitor=1`. ROM watchpoint instrumentation in
 `src/machine_lc/lc_musashi_bus.c` now confirms this seeded path does return to
-`0x408000b4`, reaches the normal reset continuation at `0x408008e0`, enters the
-`0x40845c0c` slot/video probe, and later enters monitor setup at `0x408498da`
-with `d6=0x00117b34`, `d7=0x01000304`, and `usp=0x50000304`
-(`serial-capture-20260526-215201.log`). The next CPU-core step is to decode that
-diagnostic accumulator and determine why the reset path selects the diagnostic
-monitor before adding any fake serial input or bypass.
+`0x408000b4`, reaches the normal reset continuation at `0x408008e0`, enters reset
+dispatch at `0x4084641c`, runs the `0x40845c0c` slot/video probe, performs a long
+RAM-fill/check at `0x40846850`, and later enters monitor setup. With pure VIA
+latches it reaches `0x408498da` via `0x40848d04` with `d6=0x00117b34`,
+`d7=0x01000304`, and `usp=0x50000304` (`serial-capture-20260526-221437.log`).
+After modeling the VIA ORA/no-handshake alias as external bit 0 low, reset
+dispatch sets D7 bit 26 at `0x40846462`, but the ROM still reaches the monitor
+poll at `0x40849fca`, now with `d7=0x05430304` and `d6=0x00007ff4`
+(`serial-capture-20260526-221749.log`). The next CPU-core step is to decode the
+reset-dispatch/diagnostic-preflight state around `0x4084639a`-`0x40846630` and
+`0x40848cda`-`0x40848d5c` before adding any fake serial input or bypass.

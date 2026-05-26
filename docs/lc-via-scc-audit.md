@@ -201,23 +201,33 @@ advances through the monitor initialization path and stops at `0x40849fca`, the
 serial command/read poll. That capture records `d7=0x01020304`, `d0=0x00008000`
 (no input), 27 reads and 24 writes to `early-f04000-device`, and the last status
 read from `+0x0002` as `0x04`. Follow-up ROM watchpoint captures
-(`serial-capture-20260526-214830.log` and `serial-capture-20260526-215201.log`)
+(`serial-capture-20260526-214830.log`, `serial-capture-20260526-215201.log`,
+`serial-capture-20260526-220805.log`, and `serial-capture-20260526-221437.log`)
 show that the seeded reset-body path does return through `0x408000b4` and reaches
 the normal reset continuation at `0x408008e0` before entering the `0x40845c0c`
-`0x00f14000` slot/video probe family. The later monitor path is entered at
-`0x408498da` with `d6=0x00117b34`, `d7=0x01000304`, `usp=0x50000304`, then
-initializes the SCC-like block through `0x40849e96` and waits for monitor input at
-`0x40849fca`. This confirms the new frontier is not a missing transmit-ready bit;
-the ROM is selecting its diagnostic monitor after the slot/video/probe phase. The
-earlier `0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of
-continuing through zero RAM, not a normal reset-overlay write sequence.
+`0x00f14000` slot/video probe family. The later monitor path is entered from reset
+dispatch, not from a missing SCC transmit-ready bit. With the simple VIA latch
+model, the reset dispatcher reaches `0x4084641c`, sees machine-class low byte
+`0x04`, tests bit 0 at the ORA/no-handshake alias `0x50f01e00`, and branches to
+`0x40846494` without setting D7 bit 26 because that bit is still latched high from
+the earlier init table. Modeling ORA register 15 reads as external-pin state with
+bit 0 low lets the ROM hit `0x40846462` and carry D7 bit 26 through the later
+slot/video and RAM-fill checks. That is a more plausible VIA model, but it still
+selects the diagnostic monitor: `serial-capture-20260526-221749.log` reaches
+`0x40849fca` with `d7=0x05430304`, `d6=0x00007ff4`, and `d0=0x0000000c`. The
+frontier is therefore now the reset-dispatch/diagnostic-preflight decision around
+`0x4084639a`-`0x40846630` and `0x40848cda`-`0x40848d5c`, plus the still-provisional
+VIA/slot descriptor state that leads to the monitor. The earlier
+`0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
+through zero RAM, not a normal reset-overlay write sequence.
 
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
 2. Identify why the seeded reset-body path selects the ROM monitor/diagnostic
-   dispatcher after the NuBus/slot-video probe; focus on reset flags and real
-   VIA/SCC status bits before considering fake serial input or bypasses.
+   dispatcher after reset dispatch, the NuBus/slot-video probe, and RAM fill;
+   focus on reset flags, VIA ORA/PRAM/ADB pin state, and slot descriptor state
+   before considering fake serial input or bypasses.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the

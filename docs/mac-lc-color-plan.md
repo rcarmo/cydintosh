@@ -107,13 +107,20 @@ SCC-like transmit-ready/no-input status stub, the bounded probe advances through
 monitor initialization and stops at `0x40849fca`, the serial command/read poll,
 with `d0=0x00008000` (no input), `d7=0x01020304`, and no fake receive data.
 Follow-up ROM watchpoint instrumentation (`serial-capture-20260526-214830.log`,
-`serial-capture-20260526-215201.log`) confirms the seeded reset body returns to
-`0x408000b4`, branches to the normal reset continuation at `0x408008e0`, reaches
-the `0x40845c0c` slot/video probe, and only later enters the diagnostic monitor
-setup at `0x408498da` with `d6=0x00117b34`, `d7=0x01000304`, and
-`usp=0x50000304`. The next boot milestone is to decode the diagnostic accumulator
-and identify the real hardware/reset/PRAM condition that selects the monitor path
-without faking serial input.
+`serial-capture-20260526-215201.log`, `serial-capture-20260526-220805.log`, and
+`serial-capture-20260526-221437.log`) confirms the seeded reset body returns to
+`0x408000b4`, branches to the normal reset continuation at `0x408008e0`, enters
+reset dispatch at `0x4084641c`, reaches the `0x40845c0c` slot/video probe, then
+runs a long RAM-fill/check at `0x40846850`. The first version of the VIA model
+kept the ORA/no-handshake bit 0 latched high and skipped D7 bit 26 at
+`0x40846494`; modeling ORA reads as external-pin state with bit 0 low now reaches
+`0x40846462` and carries D7 bit 26 into the later preflight path. This is progress
+in the reset-dispatch model, but it still selects the diagnostic monitor:
+`serial-capture-20260526-221749.log` stops at `0x40849fca` with
+`d7=0x05430304`, `d6=0x00007ff4`, and no fake serial receive data. The next boot
+milestone is to decode the reset-dispatch/diagnostic-preflight state around
+`0x4084639a`-`0x40846630` and `0x40848cda`-`0x40848d5c`, including PRAM/ADB/VIA
+pin state and slot descriptor expectations, without faking serial input.
 
 ## ROM metadata
 

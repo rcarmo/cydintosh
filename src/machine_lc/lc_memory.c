@@ -23,6 +23,8 @@ static const char *TAG = "lc_memory";
 #define LC_RAM_SIZE_TOP_PROBE_BYTES 0x10u
 #define LC_EARLY_VIA_IER_REGISTER 14u
 #define LC_EARLY_VIA_IFR_REGISTER 13u
+#define LC_EARLY_VIA_ORA_NO_HANDSHAKE_REGISTER 15u
+#define LC_EARLY_VIA_ORA_EXTERNAL_LOW_MASK 0x01u
 
 typedef struct {
     uint32_t reads;
@@ -620,6 +622,16 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
             value = (uint8_t)(0x80u | early_probe_via_ier);
         } else if (reg == LC_EARLY_VIA_IFR_REGISTER) {
             value = 0;
+        } else if (reg == LC_EARLY_VIA_ORA_NO_HANDSHAKE_REGISTER) {
+            // Register 15 is the 6522 ORA/no-handshake alias under the
+            // provisional A[12:9] decode. Reads reflect external pin state,
+            // not just the output latch. The reset dispatcher clears bit 1
+            // and then tests bit 0 at 0x50f01e00; leaving bit 0 latched high
+            // from the earlier init table sends the ROM into its diagnostic
+            // monitor path. Model that external bit as low until the real LC
+            // VIA/ADB/PRAM lines are decoded.
+            value = (uint8_t)(early_lc_via_registers[reg] &
+                              (uint8_t)~LC_EARLY_VIA_ORA_EXTERNAL_LOW_MASK);
         } else {
             value = early_lc_via_registers[reg];
         }

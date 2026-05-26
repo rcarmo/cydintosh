@@ -14,6 +14,7 @@ static const char *TAG = "lc_musashi_bus";
 static lc_memory_bus_t *active_bus;
 static uint32_t current_function_code;
 static uint32_t current_instruction_pc;
+static uint32_t previous_instruction_pc;
 static uint32_t reset_callback_count;
 static uint32_t irq_ack_count;
 static uint32_t instruction_callback_count;
@@ -35,12 +36,42 @@ static lc_rom_watchpoint_t rom_watchpoints[] = {
     {0x000008e0u, "normal-reset-continuation", false},
     {0x00002e00u, "hw-init-entry", false},
     {0x00002f18u, "machine-id-dispatch", false},
+    {0x00002f52u, "machine-dispatch-fallback", false},
     {0x00003048u, "machine-probe-next", false},
+    {0x00003054u, "machine-probe-resume", false},
     {0x00003a96u, "hw-table-relocate", false},
+    {0x00046674u, "slot-sense-pack-entry", false},
+    {0x00046680u, "slot-sense-pack-flags", false},
+    {0x000466cau, "slot-sense-pack-return", false},
+    {0x0004641cu, "reset-dispatch-machine-class", false},
+    {0x00046462u, "reset-dispatch-set-bit26", false},
+    {0x00046494u, "reset-dispatch-skip-bit26", false},
+    {0x000465e4u, "reset-subtest-table-loop", false},
+    {0x00046620u, "reset-subtest-bit26-check", false},
+    {0x00046628u, "reset-subtest-monitor-branch", false},
+    {0x00046630u, "reset-final-bit26-check", false},
+    {0x000467a6u, "machine-sense-dispatch", false},
+    {0x000467b4u, "slot-mem-test-entry", false},
+    {0x00046804u, "slot-mem-test-return", false},
+    {0x00046850u, "ram-fill-forward-entry", false},
+    {0x0004694cu, "ram-fill-forward-return", false},
+    {0x00048cd0u, "diagnostic-preflight-entry", false},
+    {0x00048cd2u, "diagnostic-preflight-entry-branch", false},
+    {0x00048cdau, "diagnostic-preflight-sense", false},
+    {0x00048ce8u, "diagnostic-preflight-bit26-test", false},
+    {0x00048d04u, "diagnostic-preflight-monitor-branch", false},
     {0x00045c0cu, "f14000-slot-probe-start", false},
     {0x00045e3au, "f14000-slot-probe-outer-wait", false},
+    {0x00045e44u, "f14000-slot-probe-wait-complete", false},
+    {0x00045e38u, "f14000-slot-probe-return", false},
     {0x00049890u, "diagnostic-monitor-vector", false},
     {0x0004989cu, "diagnostic-monitor-entry", false},
+    {0x000498a0u, "diagnostic-monitor-clear-flags", false},
+    {0x000498a8u, "diagnostic-monitor-post-sense", false},
+    {0x000498b0u, "diagnostic-monitor-bit26-test", false},
+    {0x000498beu, "diagnostic-monitor-bit12-test", false},
+    {0x000498ccu, "diagnostic-monitor-slot-call", false},
+    {0x000498d6u, "diagnostic-monitor-slot-jump", false},
     {0x000498dau, "diagnostic-monitor-io-setup", false},
     {0x00049e68u, "monitor-select-io-base", false},
     {0x00049e96u, "monitor-init-scc-like", false},
@@ -63,9 +94,10 @@ static void lc_musashi_bus_log_rom_watchpoint(uint32_t pc) {
         watch->seen = true;
         ESP_LOGI(TAG,
                  "LC ROM watchpoint: label=%s pc=0x%08" PRIx32
+                 " prev_pc=0x%08" PRIx32
                  " d0=0x%08x d1=0x%08x d2=0x%08x d6=0x%08x d7=0x%08x"
                  " a0=0x%08x a1=0x%08x a2=0x%08x a3=0x%08x a6=0x%08x sp=0x%08x usp=0x%08x sr=0x%04x",
-                 watch->label, pc,
+                 watch->label, pc, previous_instruction_pc,
                  m68k_get_reg(NULL, M68K_REG_D0), m68k_get_reg(NULL, M68K_REG_D1),
                  m68k_get_reg(NULL, M68K_REG_D2), m68k_get_reg(NULL, M68K_REG_D6),
                  m68k_get_reg(NULL, M68K_REG_D7), m68k_get_reg(NULL, M68K_REG_A0),
@@ -115,6 +147,7 @@ uint32_t lc_musashi_bus_reset_callback_count(void) {
 void lc_musashi_bus_reset_stats(void) {
     current_function_code = 0;
     current_instruction_pc = 0;
+    previous_instruction_pc = 0;
     reset_callback_count = 0;
     irq_ack_count = 0;
     instruction_callback_count = 0;
@@ -206,4 +239,5 @@ void cpu_instr_callback(int pc) {
 #endif
     lc_trace_record(LC_TRACE_EVENT_MARKER, current_instruction_pc, 0, 0x4c434943u, 0,
                     false); // 'LCIC'
+    previous_instruction_pc = current_instruction_pc;
 }
