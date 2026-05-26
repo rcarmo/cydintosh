@@ -31,8 +31,9 @@ video-update, host-render, and display-flush timing. A diagnostic 512×384×8-bi
 indexed video scaffold can generate a CLUT-backed test pattern, track dirty rows,
 convert dirty strips to RGB565, checksum both indexed/RGB paths, and render the
 same debug pattern off-device as a PPM image without using the Tab5 display
-driver yet. A Tab5-only GPIO22/LEDC backlight scaffold is wired into startup
-diagnostics ahead of full DSI panel init. The memory scaffold also has an early bring-up
+driver yet. A Tab5-only GPIO22/LEDC backlight scaffold and a software-only
+720×1280 physical-panel smoke-pattern generator are wired into startup diagnostics
+ahead of full DSI panel init. The memory scaffold also has an early bring-up
 write policy: RAM and I/O-candidate writes are allowed, while ROM/unmapped writes
 are flagged by the panic-on-unexpected-write policy. The branch now also has an
 LC-only Musashi config

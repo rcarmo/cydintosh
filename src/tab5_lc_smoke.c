@@ -7,6 +7,7 @@
 #include "machine_lc/lc_trace.h"
 #include "machine_lc/lc_video.h"
 #include "machine_lc/tab5_backlight.h"
+#include "machine_lc/tab5_display_smoke.h"
 
 #include "esp_chip_info.h"
 #include "esp_err.h"
@@ -92,6 +93,7 @@ void app_main(void) {
     lc_memory_probe_guest_ram_allocation();
     lc_memory_probe_display_buffer_allocation();
     lc_video_probe_test_pattern();
+    tab5_display_smoke_probe_patterns();
     log_lc_rom_partition();
     lc_trace_record_marker(0x4c43304fu); // 'LC0O': skeleton diagnostics complete
     lc_perf_log_summary();

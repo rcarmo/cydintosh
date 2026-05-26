@@ -169,6 +169,12 @@ Backlight control (`src/machine_lc/tab5_backlight.c`) uses LEDC on GPIO22
 (`LEDA`) with a safe default boot brightness of `TAB5_BACKLIGHT_BOOT_PERCENT=20`.
 It is Tab5/P4-only and does not initialize the MIPI-DSI panel.
 
+A software-only physical-panel smoke scaffold (`src/machine_lc/tab5_display_smoke.c`)
+generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`) before
+any panel driver is linked. It covers solid color bands, corner/orientation
+markers, a 1-bit checker pattern, and an indexed palette ramp. These are build
+and allocation checks only until a real DSI panel is initialized on hardware.
+
 Video scaffolding (`src/machine_lc/lc_video.c`) defines the first guest mode as
 `512×384×8bpp`, `rowBytes=512`, `60Hz` VBL target, and separate PSRAM-backed
 indexed VRAM. It initializes a deterministic debug RGB565 CLUT, generates a
