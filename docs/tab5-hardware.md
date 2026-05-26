@@ -177,10 +177,19 @@ Backlight control (`src/machine_lc/tab5_backlight.c`) uses LEDC on GPIO22
 (`LEDA`) with the same basic LEDC settings as the M5Stack demo BSP: low-speed
 LEDC timer0/channel1, 5kHz, 12-bit duty. The safe default boot brightness is
 `TAB5_BACKLIGHT_BOOT_PERCENT=20`. It is Tab5/P4-only and does not initialize the
-MIPI-DSI panel. The skeleton now initializes backlight at the start of `app_main`,
+MIPI-DSI panel. The skeleton initializes backlight at the start of `app_main`,
 runs a strong 0%→100% boot pulse, and then enters a repeating heartbeat pulse at
 the end of diagnostics so app startup can be observed even if USB console logs are
 silent.
+
+A separate minimal boot diagnostic environment is available as
+`esp32-p4-tab5-bootdiag` / `make flash-tab5-bootdiag`. It disables boot-time
+PSRAM init and skips LC probes, then loops forever toggling GPIO22 high/low with
+1.5s periods. Before entering the loop it also initializes the Tab5 SYS-I2C
+PI4IOE expanders with the same reset/output subset used by the M5Stack BSP,
+releasing LCD/touch reset-related expander outputs. This is a temporary isolation
+image for black-screen bring-up; it should not be mistaken for the normal LC
+skeleton firmware.
 
 A software-only physical-panel smoke scaffold (`src/machine_lc/tab5_display_smoke.c`)
 generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`) before

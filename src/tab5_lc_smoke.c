@@ -89,6 +89,10 @@ static void log_lc_rom_partition(void) {
 }
 
 void app_main(void) {
+#if defined(TAB5_LC_BOOT_DIAG_ONLY) && TAB5_LC_BOOT_DIAG_ONLY
+    tab5_backlight_raw_gpio_boot_probe_loop();
+#endif
+
     lc_trace_reset();
     lc_perf_reset();
     lc_trace_record_marker(0x4c433030u); // 'LC00': skeleton start

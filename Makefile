@@ -72,7 +72,7 @@ DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-disk-info lc-video-test-pattern stable-artifacts flash-stable \
+	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc build-tab5-bootdiag flash-tab5-bootdiag flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-disk-info lc-video-test-pattern stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
@@ -92,6 +92,8 @@ help:
 	@echo "  make build-8048s043c     - build ESP32-8048S043C/S3 profile"
 	@echo "  make build-tab5-lc       - build ESP32-P4 M5Stack Tab5 LC/color skeleton"
 	@echo "  make flash-tab5-lc       - flash ESP32-P4 M5Stack Tab5 LC/color skeleton [explicit target]"
+	@echo "  make build-tab5-bootdiag - build minimal Tab5 GPIO22/USB boot diagnostic image"
+	@echo "  make flash-tab5-bootdiag - flash minimal Tab5 GPIO22/USB boot diagnostic image [explicit target]"
 	@echo "  make flash-tab5-lc-rom   - validate and flash local vendor/mac-lc.rom to Tab5 LC ROM partition"
 	@echo "  make capture-tab5-logs   - capture ESP32-P4 Tab5 serial logs"
 	@echo "  make lc-rom-info         - inspect local vendor/mac-lc.rom metadata only"
@@ -153,6 +155,12 @@ build-tab5-lc:
 
 flash-tab5-lc:
 	$(PIO) run -e esp32-p4-tab5-lc-color -t upload
+
+build-tab5-bootdiag:
+	$(PIO) run -e esp32-p4-tab5-bootdiag
+
+flash-tab5-bootdiag:
+	$(PIO) run -e esp32-p4-tab5-bootdiag -t upload
 
 flash-tab5-lc-rom: lc-rom-info
 	$(ESPTOOL) --chip esp32p4 --port $(TAB5_LC_SERIAL_PORT) --baud $(TAB5_LC_BAUD) write_flash $(TAB5_LC_ROM_OFFSET) $(TAB5_LC_ROM_IMAGE)

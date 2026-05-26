@@ -148,13 +148,21 @@ The branch now has a Tab5-only LEDC backlight scaffold in
 ```text
 GPIO22 / LEDA
 LEDC low-speed mode
-timer 0, channel 0
-5 kHz, 10-bit duty
+timer 0, channel 1
+5 kHz, 12-bit duty
 TAB5_BACKLIGHT_BOOT_PERCENT = 20
 ```
 
 This intentionally does not initialize DSI or draw to the panel. It only provides
 safe brightness control for the later display smoke test.
+
+For black-screen isolation, the branch also has a temporary
+`esp32-p4-tab5-bootdiag` PlatformIO environment and `make flash-tab5-bootdiag`
+target. That image disables PSRAM boot init, skips LC diagnostics, applies a
+minimal M5Stack-BSP-faithful PI4IOE SYS-I2C expander init subset, and loops
+forever toggling GPIO22 high/low. If that still produces no visible change, the
+next useful display milestone is a real DSI panel smoke test rather than more
+standalone backlight PWM experiments.
 
 ## Touch scaffold status
 

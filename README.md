@@ -289,6 +289,9 @@ make build PIO_ENV=esp32-cyd2usb-mac512x384-rotfit
 
 # Experimental ESP32-P4 / M5Stack Tab5 LC-color diagnostic skeleton
 make build-tab5-lc
+
+# Temporary minimal Tab5 boot/backlight isolation image
+make build-tab5-bootdiag
 ```
 
 Direct PlatformIO commands are also supported:
@@ -298,6 +301,7 @@ pio run -e esp32-cyd2usb
 pio run -e esp32-8048s043c
 pio run -e esp32-cyd2usb-mac512x384-rotfit
 pio run -e esp32-p4-tab5-lc-color
+pio run -e esp32-p4-tab5-bootdiag
 ```
 
 Build just the LittleFS image:
@@ -378,6 +382,10 @@ make lc-video-test-pattern
 make flash-tab5-lc
 make flash-tab5-lc-rom
 make capture-tab5-logs
+
+# Temporary black-screen isolation image: no PSRAM boot init, no LC probes,
+# PI4IOE reset/output subset, then GPIO22 high/low loop.
+make flash-tab5-bootdiag
 ```
 
 `make flash-tab5-lc-rom` writes only `vendor/mac-lc.rom` to the LC ROM partition

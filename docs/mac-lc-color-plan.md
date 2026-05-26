@@ -36,6 +36,7 @@ not a Macintosh LC emulator loop. It currently provides:
 - 512×384×8-bit indexed video scaffold with debug CLUT, dirty rows, RGB565 strip
   conversion, checksums, and off-device PPM rendering;
 - Tab5 GPIO22/LEDC backlight scaffold;
+- temporary `esp32-p4-tab5-bootdiag` no-PSRAM GPIO22/PI4IOE isolation image;
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 I2C touch probe scaffold for GT911/ST7123 presence.
 
