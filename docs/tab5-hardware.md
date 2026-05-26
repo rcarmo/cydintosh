@@ -163,5 +163,11 @@ actual Musashi callback/runtime wiring waits for reset-vector execution.
 
 Performance counter scaffolding (`src/machine_lc/lc_perf.c`) tracks count, total,
 minimum, average, and maximum microseconds for future CPU loop, video update,
-host render, and display flush phases, plus frame/FPS totals. The current
-skeleton logs an empty summary so the reporting path is already build-tested.
+host render, and display flush phases, plus frame/FPS totals.
+
+Video scaffolding (`src/machine_lc/lc_video.c`) defines the first guest mode as
+`512×384×8bpp`, `rowBytes=512`, `60Hz` VBL target, and separate PSRAM-backed
+indexed VRAM. It initializes a deterministic debug RGB565 CLUT and generates a
+border/ramp/stripe test pattern into the indexed framebuffer, logging only a
+checksum and timing sample. This validates color-framebuffer logic without a Tab5
+display driver.

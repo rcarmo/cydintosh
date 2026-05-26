@@ -27,7 +27,9 @@ trace ring buffer that can dump recent diagnostic events on panic/hang paths in
 future reset-vector execution. CPU trace helpers now exist for exception-vector
 hits, illegal/unimplemented instructions, bus/address errors, and interrupt
 levels. Lightweight performance counters now exist for future CPU-loop,
-video-update, host-render, and display-flush timing. The memory scaffold also has an early bring-up
+video-update, host-render, and display-flush timing. A diagnostic 512×384×8-bit
+indexed video scaffold can generate a CLUT-backed test pattern and checksum it
+without using the Tab5 display driver yet. The memory scaffold also has an early bring-up
 write policy: RAM and I/O-candidate writes are allowed, while ROM/unmapped writes
 are flagged by the panic-on-unexpected-write policy. The branch now also has an
 LC-only Musashi config
