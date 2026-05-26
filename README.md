@@ -23,7 +23,7 @@ ESP32-S3 800×480 RGB panel board.
 | ESP32-2432S028 / CYD2USB | Build-compatible legacy target. Uses 128KB emulated Mac RAM and the original 240×320 display path. |
 | ESP32-2432S028 Mac512×384 rotated-fit | Experimental CYD2USB profile for a larger square-pixel Mac framebuffer downsampled to the 240×320 LCD. |
 | ESP32-8048S043C | Hardware-validated ESP32-S3 target. Boots System 6 + After Dark 2 from a 1.44MB HFS image, fills the 800×480 panel in portrait mode, and runs at roughly 65–67 FPS in recent serial captures. |
-| M5Stack Tab5 / ESP32-P4 LC color | Experimental branch-only target. Builds a diagnostic Macintosh LC/color skeleton with 512KB ROM mmap validation, 68EC020/68020 Musashi scaffold, 4MB RAM/VRAM probes, indexed-color renderer scaffolding, Tab5 backlight/touch/display smoke diagnostics, disk trace scaffolding, and no claimed LC boot yet. |
+| M5Stack Tab5 / ESP32-P4 LC color | Experimental branch-only target. Builds a diagnostic Macintosh LC/color skeleton with 512KB ROM mmap validation, 68EC020/68020 Musashi scaffold, 4MB RAM/VRAM probes, indexed-color renderer scaffolding, Tab5 backlight/touch/display smoke diagnostics, disk trace scaffolding, and bounded ROM-entry probes. Latest probe advances through the NuBus/slot-video probe and stops in the ROM serial monitor no-input poll; no claimed LC boot yet. |
 
 Latest validated ESP32-8048S043C characteristics:
 

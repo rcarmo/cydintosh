@@ -98,13 +98,17 @@ keeps the LC ROM unpatched, so the current diagnostic reports only the observed
 ready/complete bits at `early-f14000-device` offset `+0x0804`. A one-bit trial
 advanced out of the inner write/poll loop but stopped in the outer wait at
 `0x40845e3a`; reporting bits 0 and 1 (`0x03`) advances through the slot/video
-probe. The latest hardware capture (`serial-capture-20260526-212157.log`) reaches
-the known ROM diagnostic/serial-monitor dispatcher at `0x40849eae` after
-49.5M cycles, with `d7=0x01000304` (bits 24, 9, 8, and 2 set), first
-`0x00f04000` status read value `0x04`, and `stopped_on_monitor=1`. The next boot
-milestone is to understand why the reset path selects that monitor/diagnostic
-path and to identify the next real VIA/SCC/reset flag requirement without faking
-serial input.
+probe. The `serial-capture-20260526-212157.log` hardware capture reached the
+broad ROM diagnostic/serial-monitor guard at `0x40849eae` after 49.5M cycles,
+with `d7=0x01000304` (bits 24, 9, 8, and 2 set), first `0x00f04000` status read
+value `0x04`, and `stopped_on_monitor=1`. The latest hardware capture
+(`serial-capture-20260526-213538.log`) narrows that result: after a conservative
+SCC-like transmit-ready/no-input status stub, the bounded probe advances through
+monitor initialization and stops at `0x40849fca`, the serial command/read poll,
+with `d0=0x00008000` (no input), `d7=0x01020304`, and no fake receive data. The
+next boot milestone is to understand why the reset path selects that
+monitor/diagnostic path and to identify the next real VIA/SCC/reset flag
+requirement without faking serial input.
 
 ## ROM metadata
 

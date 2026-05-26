@@ -179,8 +179,12 @@ the invalid zero-RAM path from a bare entry and sets `vbr=0x40846140`. A local
 macemu/BasiliskII reference search identifies the `0x00f14000`/`0x50f14000`
 frontier as a physical NuBus/slot video-probe family. Reporting only the observed
 `+0x0804` ready/complete bits (`0x03`) advances the unpatched LC ROM through that
-probe; the latest 100M-cycle hardware capture (`serial-capture-20260526-212157.log`)
-then reaches the ROM-monitor guard at `0x40849eae` after 49.5M cycles with
-`d2=0x50000304`, `d7=0x01000304`, and `stopped_on_monitor=1`. The next CPU-core
-step is to determine why the reset path selects that diagnostic monitor path
-before adding any fake serial input or bypass.
+probe; the `serial-capture-20260526-212157.log` 100M-cycle hardware capture
+then reached the broad ROM-monitor guard at `0x40849eae` after 49.5M cycles with
+`d2=0x50000304`, `d7=0x01000304`, and `stopped_on_monitor=1`. The guard is now
+narrowed to no-input command polling sites so the monitor setup path can run.
+With the SCC-like no-input/transmit-ready stub, `serial-capture-20260526-213538.log`
+advances to `0x40849fca` with `d0=0x00008000`, `d7=0x01020304`, and
+`stopped_on_monitor=1`. The next CPU-core step is to determine why the reset path
+selects that diagnostic monitor path before adding any fake serial input or
+bypass.

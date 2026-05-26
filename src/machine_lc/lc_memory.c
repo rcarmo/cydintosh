@@ -52,6 +52,7 @@ static uint8_t early_probe_via_ier;
 static uint8_t early_lc_via_registers[LC_EARLY_VIA_REGISTER_COUNT];
 static uint8_t early_f04000_registers[LC_EARLY_F04000_REGISTER_COUNT];
 static uint8_t early_f14000_registers[LC_EARLY_F14000_REGISTER_COUNT];
+static bool early_f04000_tx_ready_once;
 static uint32_t masked_rom_shadow_writes;
 static uint32_t masked_rom_shadow_first_pc;
 static uint32_t masked_rom_shadow_first_addr;
@@ -624,14 +625,16 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
         }
     } else if (decoded->io_stub == LC_IO_STUB_EARLY_F04000_DEVICE) {
         const uint32_t reg_offset = decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u);
-        if (reg_offset == 0u || reg_offset == 2u || reg_offset == 4u) {
-            // Provisional SCC-like status aliases: transmit buffer empty, no
-            // receive character available (bit0 clear).  The seeded reset-body
-            // probe reaches the ROM diagnostic monitor through reads at +0 and
-            // then its no-input polling loop reads +2/+6.  Keep these as
-            // no-input status values; do not fake serial input to escape the
-            // monitor.
+        if (reg_offset == 0u || reg_offset == 4u) {
+            // Provisional SCC-like status aliases: transmitter empty, no
+            // receive character available.  The ROM diagnostic monitor also
+            // polls +2 after writing a byte to +6; that path gets a single
+            // bit0-ready pulse below so transmit can complete without faking
+            // serial input for the later command/read loop.
             value = 0x04u;
+        } else if (reg_offset == 2u) {
+            value = early_f04000_tx_ready_once ? 0x05u : 0x04u;
+            early_f04000_tx_ready_once = false;
         } else if (reg_offset == 6u) {
             value = 0x00u;
         } else {
@@ -690,6 +693,9 @@ static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint3
     } else if (decoded->io_stub == LC_IO_STUB_EARLY_F04000_DEVICE) {
         const uint32_t reg_offset = decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u);
         early_f04000_registers[reg_offset] = value;
+        if (reg_offset == 6u) {
+            early_f04000_tx_ready_once = true;
+        }
         lc_memory_update_offset_stats(early_f04000_offset_stats, (uint16_t)reg_offset,
                                       pc, value, true);
     } else if (decoded->io_stub == LC_IO_STUB_EARLY_F14000_DEVICE) {
@@ -716,6 +722,7 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     memset(early_lc_via_registers, 0xff, sizeof(early_lc_via_registers));
     memset(early_f04000_registers, 0xff, sizeof(early_f04000_registers));
     memset(early_f14000_registers, 0xff, sizeof(early_f14000_registers));
+    early_f04000_tx_ready_once = false;
     masked_rom_shadow_writes = 0;
     masked_rom_shadow_first_pc = 0;
     masked_rom_shadow_first_addr = 0;

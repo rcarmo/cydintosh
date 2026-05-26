@@ -200,14 +200,17 @@ these physical probes and installs a generated Slot Manager declaration ROM in
 `early-f14000-device` stub reports only the observed ready/complete bits at
 `+0x0804`. One-bit `0x02` status advanced out of the inner byte-output loop but
 stopped in the outer wait at `0x40845e3a`; `0x03` status advances through the
-slot/video probe. The latest capture (`serial-capture-20260526-212157.log`) then
-reaches the ROM diagnostic/serial monitor guard at `0x40849eae` after 49.5M
-cycles, with `d7=0x01000304` and first `0x00f04000` status read value `0x04`.
+slot/video probe. The `serial-capture-20260526-212157.log` capture then reached
+the broad ROM diagnostic/serial monitor guard at `0x40849eae` after 49.5M cycles,
+with `d7=0x01000304` and first `0x00f04000` status read value `0x04`.
 `early-f14000-device` recorded 417 reads and 319 writes in that run; offset
 `0x0804` was read 294 times with final value `0x03`. The `0x00f04000`-class range
-remains modeled as SCC-like no-input status/data (`early-f04000-device`, status
-aliases `+0`/`+2`/`+4` return `0x04`, data `+6` returns `0x00`) for paths that
-reach it.
+is now modeled as SCC-like no-input status/data (`early-f04000-device`): `+0` and
+`+4` return `0x04`, `+2` returns a one-shot `0x05` only after transmit-data writes
+to `+6` and otherwise `0x04`, and `+6` returns `0x00`. The latest capture
+(`serial-capture-20260526-213538.log`) advances through monitor initialization
+and stops at `0x40849fca`, the serial command/read poll, with `d0=0x00008000`,
+`d7=0x01020304`, and no fake receive input.
 
 The previous `0x0080xxxx` masked-ROM write stream was reclassified as an artifact
 of continuing through zero-filled RAM after the invalid unseeded `0x00402e00`

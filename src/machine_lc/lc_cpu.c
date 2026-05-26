@@ -76,9 +76,12 @@ static const char *TAG = "lc_cpu";
 
 static bool lc_cpu_pc_is_rom_monitor_loop(uint32_t pc) {
     const uint32_t rom_offset = pc & 0x000fffffu;
-    return (rom_offset >= 0x000499b0u && rom_offset < 0x0004a018u) ||
-           rom_offset == 0x00049fcau || rom_offset == 0x00049ff8u ||
-           rom_offset == 0x000499eau;
+    // The ROM monitor block includes useful output/initialization helpers.
+    // Stop only at the no-input command polling sites so the bounded probe can
+    // run the SCC setup/transmit path and expose the next dependency without
+    // accepting fake serial input.
+    return rom_offset == 0x00049fcau || rom_offset == 0x00049ff8u ||
+           rom_offset == 0x0004a02au;
 }
 
 static uint16_t lc_cpu_peek16_no_trace(const lc_memory_bus_t *bus, uint32_t address) {

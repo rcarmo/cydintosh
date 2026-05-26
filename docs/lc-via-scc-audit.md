@@ -173,7 +173,7 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 | `0x00403124`-`0x4080314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | provisional VIA IER set/clear/readback | explicit `early-rom-probe-1c00-stride` stub; offset `0x1c00` matches VIA register 14/IER under A[12:9] decode; this advances the previous constant-`0xff` loop |
 | `0x00403226` onward | `0x00f01e00`, `0x00f00600`, `0x00f00400`, `0x00f00000` plus mirrors | `early-lc-via-register` plus base-window harness | newly exposed VIA-like register accesses after the IER behavior; likely ORA/DDRB/DDRA/ORB style offsets, still not claimed as final LC VIA mapping |
 | `0x40845c0c` onward | around `0x00f14800` plus offsets `0x0000`, `0x0400`, `0x0804` from the `0x00f14000`-class base | `early-f14000-device` | physical NuBus/slot video-probe family by macemu/BasiliskII reference; reports only observed `+0x0804` ready/complete bits `0x03` so the unpatched LC ROM can advance past the probe |
-| `0x40849eaa` onward, in earlier monitor-reaching captures | around `0x00f04000`/`0x50f04000`, notably offsets `+0`, `+2`, and `+6` | `early-f04000-device` | SCC-like status/data block; offsets `+0`/`+2`/`+4` currently return transmit-ready/no-RX status `0x04`, offset `+6` returns `0x00`; this does not fake serial input |
+| `0x40849eaa` onward, in monitor-reaching captures | around `0x00f04000`/`0x50f04000`, notably offsets `+0`, `+2`, and `+6` | `early-f04000-device` | SCC-like status/data block from ROM address-map words at `0x33f0`-`0x3400`; offsets `+0`/`+4` return `0x04`, offset `+2` returns one-shot `0x05` only after a guest transmit-data write to `+6` and otherwise `0x04`, and offset `+6` returns `0x00`; this lets monitor transmit-complete paths advance without faking receive input |
 | `0x4084a672` onward | `0x00effffc`, `0x00dffffc`, ... down toward configured RAM and `0x00fffffc` top-of-space probes | `ram-size-probe` | high-memory sizing probe; writes ignored and reads return absent-memory value above configured 4MB RAM |
 
 A comparison probe using `0x4080008c` showed that the 68EC020 path masks that
@@ -193,10 +193,18 @@ video callbacks. In Cydintosh the unpatched LC ROM first spun with `+0x0804=0x00
 reporting bit 1 (`0x02`) advanced through the inner byte-output loop but stopped
 at the outer `0x40845e3a` wait, while reporting bits 0 and 1 (`0x03`) advanced to
 the ROM monitor/diagnostic dispatcher around `0x40849eae` after 49.5M cycles
-(`serial-capture-20260526-212157.log`). The monitor stop records
+(`serial-capture-20260526-212157.log`). That monitor stop records
 `d7=0x01000304` (bits 24, 9, 8, and 2 set) and first `0x00f04000` status read
-value `0x04`. The earlier `0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
-through zero RAM, not a normal reset-overlay write sequence.
+value `0x04`. After narrowing the guard to actual no-input polling sites and
+adding the SCC-like transmit-ready one-shot, `serial-capture-20260526-213538.log`
+advances through the monitor initialization path and stops at `0x40849fca`, the
+serial command/read poll. That capture records `d7=0x01020304`, `d0=0x00008000`
+(no input), 27 reads and 24 writes to `early-f04000-device`, and the last status
+read from `+0x0002` as `0x04`. This confirms the new frontier is not a missing
+transmit-ready bit; the seeded reset-body path is explicitly waiting in the ROM
+monitor for serial input. The earlier `0x008039xx`/`0x00803428`/`0x00807428`
+write stream was an artifact of continuing through zero RAM, not a normal
+reset-overlay write sequence.
 
 ## Recommended next steps
 
