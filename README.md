@@ -150,16 +150,18 @@ skeleton, not a booting LC emulator.
 | LC ROM | local-only `vendor/mac-lc.rom`, 512KB, not committed |
 | LC boot disk | local-only `vendor/lc-disk.img`, read-only workflow, not committed |
 | Guest RAM target | 4MB initial PSRAM-backed target, 2MB fallback probe |
-| Guest video target | 512×384, 8-bit indexed color, dirty-row RGB565 strip conversion scaffold |
+| Guest video target | 512×384, 8-bit indexed color, dirty-row RGB565 strip conversion and Tab5 partial-flush scaffold |
 
 Current LC/P4 diagnostics include ROM partition mmap validation, LC-only Musashi
 68EC020/68020 configuration, trace/perf counters, provisional memory decoder,
 read-only disk trace scaffolding, Tab5 backlight/touch probes, software-only
 display pattern checksums, and a visually confirmed M5Stack-BSP-based physical
 display smoke image that now renders the LC `512×384×8bpp` indexed debug pattern
-scaled into the Tab5 panel through a reusable BSP `init`/`flush_indexed` path. The
-Tab5 USB/JTAG device must be present before flashing or validating hardware
-output.
+scaled into the Tab5 panel through reusable BSP `init`/`flush_indexed` and
+dirty-row `flush_indexed_dirty` paths. The dirty-row self-test currently inverts a
+24-row LC band and updates only the corresponding centered-viewport physical rows
+before entering the brightness heartbeat. The Tab5 USB/JTAG device must be
+present before flashing or validating hardware output.
 
 ## Board profiles and PlatformIO environments
 

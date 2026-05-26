@@ -179,6 +179,7 @@ Apache/MIT upstream files and avoiding the full demo app/LVGL layer. The separat
 - exposes a reusable init/flush path:
   - `tab5_bsp_display_init()`
   - `tab5_bsp_display_flush_indexed()`
+  - `tab5_bsp_display_flush_indexed_dirty()`
   - `tab5_bsp_display_draw_lc_test_pattern()`
   - `tab5_bsp_display_brightness_heartbeat_loop()`
 - draws a real `720x1280` RGB565 stripe/orientation pattern, or the LC
@@ -192,6 +193,8 @@ framebuffer is flushed through the BSP panel path:
 ```text
 flushing LC indexed framebuffer: guest=512x384 scale=45/32 physical=720x540 offset=(0,370)
 LC indexed framebuffer flushed to Tab5: physical_rgb565_checksum=0x3b4a1479
+LC dirty framebuffer flushed to Tab5: guest_rows=24 range=180-203 physical_rows=34 strips=3 checksum=0x33892af9 status=ESP_OK
+LC-on-Tab5 dirty-row self-test: rows=180-203 status=ESP_OK
 LC-on-Tab5 test pattern: indexed_checksum=0x7c329dc5 status=ESP_OK
 ```
 
@@ -217,8 +220,8 @@ It does not read touch coordinates or emit ADB mouse packets yet.
    not pull Tab5/P4-only managed dependencies.
 2. Replace the debug CLUT/test pattern with ROM/System-driven VRAM updates once
    the LC memory map and video registers are implemented.
-3. Add dirty-rectangle/dirty-row aware partial flushes on top of the current full
-   centered-viewport indexed flush.
+3. Replace the current deterministic dirty-row self-test with ROM/System-driven
+   dirty row marks once LC VRAM/register writes are connected to the renderer.
 
 ## Open risks
 

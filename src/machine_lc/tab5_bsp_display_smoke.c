@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
+#include "lc_perf.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -21,6 +22,8 @@ static const char *TAG = "tab5_bsp_smoke";
 #define TAB5_GT911_ADDR 0x14
 #define TAB5_ST7123_ADDR 0x55
 #define TAB5_STRIP_ROWS 32
+#define TAB5_DIRTY_STRIP_ROWS 16
+#define TAB5_LC_BORDER_PX 4
 #define TAB5_LC_OFFSET_X ((BSP_LCD_H_RES - TAB5_LC_VIEWPORT_W) / 2)
 #define TAB5_LC_OFFSET_Y ((BSP_LCD_V_RES - TAB5_LC_VIEWPORT_H) / 2)
 
@@ -75,6 +78,43 @@ static uint16_t smoke_background_pixel(int x, int y) {
         return rgb565(42, 42, 58);
     }
     return rgb565(6, 10, 18);
+}
+
+static bool panel_xy_in_lc_viewport(int x, int y) {
+    return x >= (int)TAB5_LC_OFFSET_X && x < (int)(TAB5_LC_OFFSET_X + TAB5_LC_VIEWPORT_W) &&
+           y >= (int)TAB5_LC_OFFSET_Y && y < (int)(TAB5_LC_OFFSET_Y + TAB5_LC_VIEWPORT_H);
+}
+
+static uint16_t scaled_lc_viewport_pixel(const uint8_t *indexed_pixels,
+                                         const uint16_t palette_rgb565[LC_VIDEO_CLUT_ENTRIES],
+                                         int panel_x, int panel_y) {
+    const int rel_x = panel_x - (int)TAB5_LC_OFFSET_X;
+    const int rel_y = panel_y - (int)TAB5_LC_OFFSET_Y;
+    const unsigned sx = (unsigned)(((uint32_t)rel_x * LC_VIDEO_WIDTH) / TAB5_LC_VIEWPORT_W);
+    const unsigned sy = (unsigned)(((uint32_t)rel_y * LC_VIDEO_HEIGHT) / TAB5_LC_VIEWPORT_H);
+
+    uint16_t px = palette_rgb565[indexed_pixels[(size_t)sy * LC_VIDEO_ROWBYTES + sx]];
+
+    // Make the scaled LC viewport unmistakable on camera and keep dirty flushes
+    // consistent with the full-frame smoke render.
+    if (rel_x < TAB5_LC_BORDER_PX ||
+        (int)TAB5_LC_VIEWPORT_W - rel_x <= TAB5_LC_BORDER_PX ||
+        rel_y < TAB5_LC_BORDER_PX ||
+        (int)TAB5_LC_VIEWPORT_H - rel_y <= TAB5_LC_BORDER_PX) {
+        px = rgb565(255, 255, 255);
+    }
+    return px;
+}
+
+static int guest_dirty_run_to_physical_y0(uint16_t guest_row) {
+    return (int)TAB5_LC_OFFSET_Y +
+           (int)(((uint32_t)guest_row * TAB5_LC_VIEWPORT_H) / LC_VIDEO_HEIGHT);
+}
+
+static int guest_dirty_run_to_physical_y1(uint16_t guest_row_exclusive) {
+    return (int)TAB5_LC_OFFSET_Y +
+           (int)((((uint32_t)guest_row_exclusive * TAB5_LC_VIEWPORT_H) + LC_VIDEO_HEIGHT - 1u) /
+                 LC_VIDEO_HEIGHT);
 }
 
 esp_err_t tab5_bsp_display_init(void) {
@@ -144,21 +184,8 @@ esp_err_t tab5_bsp_display_flush_indexed(const uint8_t *indexed_pixels, size_t i
             const int py = y + row;
             for (int x = 0; x < BSP_LCD_H_RES; x++) {
                 uint16_t px = smoke_background_pixel(x, py);
-                if (x >= (int)TAB5_LC_OFFSET_X && x < (int)(TAB5_LC_OFFSET_X + TAB5_LC_VIEWPORT_W) &&
-                    py >= (int)TAB5_LC_OFFSET_Y && py < (int)(TAB5_LC_OFFSET_Y + TAB5_LC_VIEWPORT_H)) {
-                    const unsigned sx = (unsigned)(((uint32_t)(x - TAB5_LC_OFFSET_X) * LC_VIDEO_WIDTH) /
-                                                   TAB5_LC_VIEWPORT_W);
-                    const unsigned sy = (unsigned)(((uint32_t)(py - TAB5_LC_OFFSET_Y) * LC_VIDEO_HEIGHT) /
-                                                   TAB5_LC_VIEWPORT_H);
-                    px = palette_rgb565[indexed_pixels[(size_t)sy * LC_VIDEO_ROWBYTES + sx]];
-
-                    // Make the scaled LC viewport unmistakable on camera.
-                    if (x - (int)TAB5_LC_OFFSET_X < 4 ||
-                        (int)(TAB5_LC_OFFSET_X + TAB5_LC_VIEWPORT_W) - x <= 4 ||
-                        py - (int)TAB5_LC_OFFSET_Y < 4 ||
-                        (int)(TAB5_LC_OFFSET_Y + TAB5_LC_VIEWPORT_H) - py <= 4) {
-                        px = rgb565(255, 255, 255);
-                    }
+                if (panel_xy_in_lc_viewport(x, py)) {
+                    px = scaled_lc_viewport_pixel(indexed_pixels, palette_rgb565, x, py);
                 }
                 strip[(size_t)row * BSP_LCD_H_RES + x] = px;
                 rgb565_checksum = fnv1a_update16(rgb565_checksum, px);
@@ -175,6 +202,99 @@ esp_err_t tab5_bsp_display_flush_indexed(const uint8_t *indexed_pixels, size_t i
     return ESP_OK;
 }
 
+esp_err_t tab5_bsp_display_flush_indexed_dirty(
+    const uint8_t *indexed_pixels, size_t indexed_size,
+    const uint16_t palette_rgb565[LC_VIDEO_CLUT_ENTRIES],
+    const uint8_t dirty_rows[LC_VIDEO_HEIGHT]) {
+    if (indexed_pixels == NULL || palette_rgb565 == NULL || dirty_rows == NULL ||
+        indexed_size < LC_VIDEO_INDEXED_SIZE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(tab5_bsp_display_init(), TAG,
+                        "display init failed before dirty indexed flush");
+
+    const lc_video_dirty_summary_t dirty = lc_video_summarize_dirty_rows(dirty_rows);
+    if (!dirty.any_dirty) {
+        ESP_LOGI(TAG, "LC dirty framebuffer flush skipped: no dirty rows");
+        return ESP_OK;
+    }
+
+    const size_t pixels = (size_t)TAB5_LC_VIEWPORT_W * TAB5_DIRTY_STRIP_ROWS;
+    uint16_t *strip = heap_caps_malloc(pixels * sizeof(uint16_t),
+                                       MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (strip == NULL) {
+        strip = heap_caps_malloc(pixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    if (strip == NULL) {
+        ESP_LOGE(TAG, "failed to allocate %u-row dirty BSP flush strip", TAB5_DIRTY_STRIP_ROWS);
+        return ESP_ERR_NO_MEM;
+    }
+
+    const uint64_t start_us = lc_perf_now_us();
+    uint32_t rgb565_checksum = 2166136261u;
+    uint16_t guest_row = dirty.first_row;
+    uint16_t physical_rows = 0;
+    uint16_t physical_strips = 0;
+    esp_err_t err = ESP_OK;
+
+    while (guest_row <= dirty.last_row) {
+        while (guest_row <= dirty.last_row && !dirty_rows[guest_row]) {
+            guest_row++;
+        }
+        if (guest_row > dirty.last_row) {
+            break;
+        }
+
+        const uint16_t run_start = guest_row;
+        while (guest_row <= dirty.last_row && dirty_rows[guest_row]) {
+            guest_row++;
+        }
+        const uint16_t run_end_exclusive = guest_row;
+
+        int y0 = guest_dirty_run_to_physical_y0(run_start);
+        int y1 = guest_dirty_run_to_physical_y1(run_end_exclusive);
+        if (y0 < (int)TAB5_LC_OFFSET_Y) {
+            y0 = (int)TAB5_LC_OFFSET_Y;
+        }
+        if (y1 > (int)(TAB5_LC_OFFSET_Y + TAB5_LC_VIEWPORT_H)) {
+            y1 = (int)(TAB5_LC_OFFSET_Y + TAB5_LC_VIEWPORT_H);
+        }
+
+        for (int y = y0; y < y1; y += TAB5_DIRTY_STRIP_ROWS) {
+            const int rows = (y + TAB5_DIRTY_STRIP_ROWS <= y1) ? TAB5_DIRTY_STRIP_ROWS : (y1 - y);
+            for (int row = 0; row < rows; row++) {
+                const int py = y + row;
+                for (int x = 0; x < (int)TAB5_LC_VIEWPORT_W; x++) {
+                    const int panel_x = (int)TAB5_LC_OFFSET_X + x;
+                    const uint16_t px = scaled_lc_viewport_pixel(indexed_pixels, palette_rgb565,
+                                                                 panel_x, py);
+                    strip[(size_t)row * TAB5_LC_VIEWPORT_W + x] = px;
+                    rgb565_checksum = fnv1a_update16(rgb565_checksum, px);
+                }
+            }
+            err = esp_lcd_panel_draw_bitmap(display_handles.panel, TAB5_LC_OFFSET_X, y,
+                                            TAB5_LC_OFFSET_X + TAB5_LC_VIEWPORT_W, y + rows,
+                                            strip);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "dirty indexed strip draw failed at y=%d rows=%d: %s", y, rows,
+                         esp_err_to_name(err));
+                goto out;
+            }
+            physical_rows += (uint16_t)rows;
+            physical_strips++;
+        }
+    }
+
+out:
+    lc_perf_record_us(LC_PERF_COUNTER_HOST_RENDER, lc_perf_now_us() - start_us);
+    ESP_LOGI(TAG,
+             "LC dirty framebuffer flushed to Tab5: guest_rows=%u range=%u-%u physical_rows=%u strips=%u checksum=0x%08" PRIx32 " status=%s",
+             dirty.dirty_rows, dirty.first_row, dirty.last_row, physical_rows, physical_strips,
+             rgb565_checksum, esp_err_to_name(err));
+    heap_caps_free(strip);
+    return err;
+}
+
 esp_err_t tab5_bsp_display_draw_lc_test_pattern(void) {
     uint8_t *indexed = heap_caps_malloc(LC_VIDEO_INDEXED_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (indexed == NULL) {
@@ -189,6 +309,24 @@ esp_err_t tab5_bsp_display_draw_lc_test_pattern(void) {
     lc_video_init_debug_palette(palette);
     const uint32_t indexed_checksum = lc_video_fill_test_pattern(indexed, LC_VIDEO_INDEXED_SIZE);
     esp_err_t err = tab5_bsp_display_flush_indexed(indexed, LC_VIDEO_INDEXED_SIZE, palette);
+
+    if (err == ESP_OK) {
+        uint8_t dirty_rows[LC_VIDEO_HEIGHT] = {0};
+        const uint16_t band_start = (uint16_t)(LC_VIDEO_HEIGHT / 2u - 12u);
+        const uint16_t band_end = (uint16_t)(band_start + 24u);
+        for (uint16_t y = band_start; y < band_end; y++) {
+            uint8_t *row = &indexed[(size_t)y * LC_VIDEO_ROWBYTES];
+            for (uint16_t x = 0; x < LC_VIDEO_WIDTH; x++) {
+                row[x] = (uint8_t)(0xffu - row[x]);
+            }
+            dirty_rows[y] = 1;
+        }
+        err = tab5_bsp_display_flush_indexed_dirty(indexed, LC_VIDEO_INDEXED_SIZE, palette,
+                                                   dirty_rows);
+        ESP_LOGI(TAG, "LC-on-Tab5 dirty-row self-test: rows=%u-%u status=%s", band_start,
+                 (uint16_t)(band_end - 1u), esp_err_to_name(err));
+    }
+
     ESP_LOGI(TAG, "LC-on-Tab5 test pattern: indexed_checksum=0x%08" PRIx32 " status=%s",
              indexed_checksum, esp_err_to_name(err));
     heap_caps_free(indexed);

@@ -204,11 +204,14 @@ hardware smoke path (`src/machine_lc/tab5_bsp_display_smoke.c`) uses the vendore
 M5Stack BSP to initialize the real panel. It first validated generic RGB565
 stripes/orientation markers, then was updated to draw the LC `512×384×8bpp`
 indexed debug pattern scaled to a `720×540` centered viewport on the `720×1280`
-physical panel. It now exposes a reusable `tab5_bsp_display_init()` plus
-`tab5_bsp_display_flush_indexed()` path so later LC VRAM updates can use the same
-BSP panel handle. Serial capture after flashing showed the app alive, flushed the
-LC indexed framebuffer with checksum `0x3b4a1479`, and repeatedly set backlight to
-35%/100%; camera/user confirmation verified the BSP pattern renders and flashes.
+physical panel. It now exposes reusable `tab5_bsp_display_init()`,
+`tab5_bsp_display_flush_indexed()`, and `tab5_bsp_display_flush_indexed_dirty()`
+paths so later LC VRAM updates can use the same BSP panel handle. Serial capture
+after flashing showed the app alive, flushed the LC indexed framebuffer with
+checksum `0x3b4a1479`, validated a dirty-row partial update for LC rows `180-203`
+(`34` physical rows, `3` strips, checksum `0x33892af9`), and repeatedly set
+backlight to 35%/100%; camera/user confirmation verified the BSP pattern renders
+and flashes.
 
 Touch probing (`src/machine_lc/tab5_touch.c`) initializes the Tab5 system I2C bus
 on GPIO31/GPIO32 and probes GT911 at `0x14` plus ST7123 at `0x55`. If GT911 ACKs,

@@ -16,6 +16,10 @@ esp_err_t tab5_bsp_display_init(void);
 esp_err_t tab5_bsp_display_set_brightness(uint8_t percent);
 esp_err_t tab5_bsp_display_flush_indexed(const uint8_t *indexed_pixels, size_t indexed_size,
                                          const uint16_t palette_rgb565[LC_VIDEO_CLUT_ENTRIES]);
+esp_err_t tab5_bsp_display_flush_indexed_dirty(
+    const uint8_t *indexed_pixels, size_t indexed_size,
+    const uint16_t palette_rgb565[LC_VIDEO_CLUT_ENTRIES],
+    const uint8_t dirty_rows[LC_VIDEO_HEIGHT]);
 esp_err_t tab5_bsp_display_draw_lc_test_pattern(void);
 _Noreturn void tab5_bsp_display_brightness_heartbeat_loop(void);
 _Noreturn void tab5_bsp_display_smoke_run(void);
