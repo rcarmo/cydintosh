@@ -175,7 +175,11 @@ shows `reset_pc=0x00000100`, `reset_sp=0x00002000`, `pc_after=0x00000104`,
 
 The current CPU-core diagnostic seeds the `0x00402e00` reset-body probe with the
 caller continuation used by the reset trampoline (`a6=0x004000b4`). That avoids
-the invalid zero-RAM path from a bare entry, sets `vbr=0x40846140`, and reaches
-the ROM monitor/diagnostic dispatcher. The next CPU-core step is to determine why
-that seeded path selects diagnostics rather than normal boot, using status/flag
-tracing before adding any fake serial input.
+the invalid zero-RAM path from a bare entry and sets `vbr=0x40846140`. The latest
+100M-cycle hardware capture (`serial-capture-20260526-205356.log`) no longer hits
+the ROM-monitor guard after the `0x00f14000` range was changed from generic
+`0xff` reads to latched per-offset diagnostics; it exhausts the cycle budget at
+`pc_after=0x40845ebc`, `d2=0x80000001`, `d7=0x01000304`, with
+`stopped_on_monitor=0`. The next CPU-core step is to identify what the ROM is
+polling in the `0x00f14000`-class device before adding any fake serial input or
+bypass.

@@ -16,6 +16,8 @@ static const char *TAG = "lc_memory";
 #define LC_IO_STUB_KIND_COUNT 7u
 #define LC_EARLY_VIA_REGISTER_COUNT 16u
 #define LC_EARLY_F04000_REGISTER_COUNT 256u
+#define LC_EARLY_F14000_REGISTER_COUNT 4096u
+#define LC_IO_OFFSET_STATS_SLOTS 24u
 #define LC_RAM_SIZE_TOP_PROBE_BYTES 0x10u
 #define LC_EARLY_VIA_IER_REGISTER 14u
 #define LC_EARLY_VIA_IFR_REGISTER 13u
@@ -31,10 +33,23 @@ typedef struct {
     bool seen;
 } lc_io_stub_stats_t;
 
+typedef struct {
+    uint32_t reads;
+    uint32_t writes;
+    uint32_t first_pc;
+    uint32_t last_pc;
+    uint16_t offset;
+    uint8_t last_value;
+    bool seen;
+} lc_io_offset_stats_t;
+
 static lc_io_stub_stats_t io_stub_stats[LC_IO_STUB_KIND_COUNT];
+static lc_io_offset_stats_t early_f04000_offset_stats[LC_IO_OFFSET_STATS_SLOTS];
+static lc_io_offset_stats_t early_f14000_offset_stats[LC_IO_OFFSET_STATS_SLOTS];
 static uint8_t early_probe_via_ier;
 static uint8_t early_lc_via_registers[LC_EARLY_VIA_REGISTER_COUNT];
 static uint8_t early_f04000_registers[LC_EARLY_F04000_REGISTER_COUNT];
+static uint8_t early_f14000_registers[LC_EARLY_F14000_REGISTER_COUNT];
 static uint32_t masked_rom_shadow_writes;
 static uint32_t masked_rom_shadow_first_pc;
 static uint32_t masked_rom_shadow_first_addr;
@@ -456,6 +471,49 @@ static void lc_memory_update_io_stub_stats(lc_io_stub_kind_t kind, uint32_t pc,
     }
 }
 
+static void lc_memory_update_offset_stats(lc_io_offset_stats_t *stats, uint16_t offset,
+                                          uint32_t pc, uint8_t value, bool write) {
+    lc_io_offset_stats_t *slot = NULL;
+    for (unsigned i = 0; i < LC_IO_OFFSET_STATS_SLOTS; i++) {
+        if (stats[i].seen && stats[i].offset == offset) {
+            slot = &stats[i];
+            break;
+        }
+        if (!stats[i].seen && slot == NULL) {
+            slot = &stats[i];
+        }
+    }
+    if (slot == NULL) {
+        slot = &stats[LC_IO_OFFSET_STATS_SLOTS - 1u];
+    }
+    if (!slot->seen) {
+        slot->seen = true;
+        slot->offset = offset;
+        slot->first_pc = pc;
+    }
+    slot->last_pc = pc;
+    slot->last_value = value;
+    if (write) {
+        slot->writes++;
+    } else {
+        slot->reads++;
+    }
+}
+
+static void lc_memory_log_offset_stats(const char *name, const lc_io_offset_stats_t *stats) {
+    for (unsigned i = 0; i < LC_IO_OFFSET_STATS_SLOTS; i++) {
+        if (!stats[i].seen) {
+            continue;
+        }
+        ESP_LOGI(TAG,
+                 "LC I/O offset summary: name=%s offset=0x%04x reads=%" PRIu32
+                 " writes=%" PRIu32 " first_pc=0x%08" PRIx32 " last_pc=0x%08" PRIx32
+                 " last_value=0x%02x",
+                 name, stats[i].offset, stats[i].reads, stats[i].writes,
+                 stats[i].first_pc, stats[i].last_pc, stats[i].last_value);
+    }
+}
+
 static void lc_memory_log_io_stub_access(const lc_addr_decode_t *decoded, uint32_t pc,
                                          uint32_t address, uint8_t value, bool write) {
     static unsigned logged = 0;
@@ -495,6 +553,8 @@ void lc_memory_log_io_stub_summary(void) {
                  stats->first_pc, stats->first_address, stats->last_pc, stats->last_address,
                  stats->last_value);
     }
+    lc_memory_log_offset_stats("early-f04000-device", early_f04000_offset_stats);
+    lc_memory_log_offset_stats("early-f14000-device", early_f14000_offset_stats);
     if (masked_rom_shadow_writes != 0) {
         ESP_LOGI(TAG,
                  "LC masked ROM shadow summary: writes=%" PRIu32
@@ -575,6 +635,13 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
         } else {
             value = early_f04000_registers[reg_offset];
         }
+        lc_memory_update_offset_stats(early_f04000_offset_stats, (uint16_t)reg_offset,
+                                      pc, value, false);
+    } else if (decoded->io_stub == LC_IO_STUB_EARLY_F14000_DEVICE) {
+        const uint32_t reg_offset = decoded->offset & (LC_EARLY_F14000_REGISTER_COUNT - 1u);
+        value = early_f14000_registers[reg_offset];
+        lc_memory_update_offset_stats(early_f14000_offset_stats, (uint16_t)reg_offset,
+                                      pc, value, false);
     }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, false);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, false);
@@ -608,7 +675,15 @@ static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint3
         decoded->io_stub == LC_IO_STUB_EARLY_LC_VIA_REGISTER) {
         lc_memory_write_early_via_register(decoded->offset, value);
     } else if (decoded->io_stub == LC_IO_STUB_EARLY_F04000_DEVICE) {
-        early_f04000_registers[decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u)] = value;
+        const uint32_t reg_offset = decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u);
+        early_f04000_registers[reg_offset] = value;
+        lc_memory_update_offset_stats(early_f04000_offset_stats, (uint16_t)reg_offset,
+                                      pc, value, true);
+    } else if (decoded->io_stub == LC_IO_STUB_EARLY_F14000_DEVICE) {
+        const uint32_t reg_offset = decoded->offset & (LC_EARLY_F14000_REGISTER_COUNT - 1u);
+        early_f14000_registers[reg_offset] = value;
+        lc_memory_update_offset_stats(early_f14000_offset_stats, (uint16_t)reg_offset,
+                                      pc, value, true);
     }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, true);
@@ -623,8 +698,11 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     }
     memset(bus, 0, sizeof(*bus));
     memset(io_stub_stats, 0, sizeof(io_stub_stats));
+    memset(early_f04000_offset_stats, 0, sizeof(early_f04000_offset_stats));
+    memset(early_f14000_offset_stats, 0, sizeof(early_f14000_offset_stats));
     memset(early_lc_via_registers, 0xff, sizeof(early_lc_via_registers));
     memset(early_f04000_registers, 0xff, sizeof(early_f04000_registers));
+    memset(early_f14000_registers, 0xff, sizeof(early_f14000_registers));
     masked_rom_shadow_writes = 0;
     masked_rom_shadow_first_pc = 0;
     masked_rom_shadow_first_addr = 0;

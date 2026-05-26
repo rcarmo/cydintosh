@@ -182,24 +182,31 @@ callback once, and recorded first ROM I/O-stub probes at `0x00f01c00`,
 `a4=0x40400000`, executes the ROM header/fingerprint bytes, trips an A-line
 exception while low vectors are still zero, and falls into zero-filled RAM. The
 current `0x00402e00` diagnostic seeds the reset trampoline continuation
-(`a6=0x004000b4`), which avoids the zero-RAM trap, sets `vbr=0x40846140`, and
-runs until the ROM diagnostic/serial-monitor dispatcher with `d7=0x01000304`
-(bits 24/9/8/2 set). The explicit `early-rom-probe-1c00-stride` stub now behaves as a
-provisional VIA IER alias instead of constant `0xff`: the former repeated
-2832-read/3776-write loop advances after IER-style set/clear/readback behavior.
-The masked ROM alias then lets the guest continue with `0x408xxxxx` PCs while
-Musashi fetch callbacks request `0x008xxxxx` addresses. The latest 20M-cycle
-capture advances through the checksum loop, high-RAM sizing probes, and the
-newly named `early-f14000-device` range. A 100M-cycle capture reaches the ROM
-diagnostic/serial monitor loop around `0x408498ec`/`0x40849fca`, with
-`pc_after=0x408499ea` and no unmapped blocker. Addresses above the configured 4MB
-RAM and below `0x00f00000`, plus the top 16 bytes of the 24-bit address space,
-are treated as non-present RAM-size probes. Early VIA-like accesses are
-summarized at `0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the
-`0x00f14000`-class range remains named but not identified, and the
-`0x00f04000`-class range is modeled as SCC-like no-input status/data
-(`early-f04000-device`, status aliases `+0`/`+2`/`+4` return `0x04`, data `+6`
-returns `0x00`).
+(`a6=0x004000b4`), which avoids the zero-RAM trap and sets `vbr=0x40846140`. The
+explicit `early-rom-probe-1c00-stride` stub now behaves as a provisional VIA IER
+alias instead of constant `0xff`: the former repeated 2832-read/3776-write loop
+advances after IER-style set/clear/readback behavior. The masked ROM alias then
+lets the guest continue with `0x408xxxxx` PCs while Musashi fetch callbacks
+request `0x008xxxxx` addresses. Addresses above the configured 4MB RAM and below
+`0x00f00000`, plus the top 16 bytes of the 24-bit address space, are treated as
+non-present RAM-size probes. Early VIA-like accesses are summarized at
+`0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`.
+
+Earlier captures with generic `0xff` handling for the `0x00f14000`-class range
+could continue to the ROM diagnostic/serial monitor loop around
+`0x40849eae`/`0x40849fca` with `d7=0x01000304` (bits 24/9/8/2 set) after reading
+SCC-like no-input status at `0x00f04000`. The current capture
+(`serial-capture-20260526-205356.log`) adds a latched register file and per-offset
+summaries for `early-f14000-device`; with those diagnostics the seeded 100M-cycle
+probe exhausts the budget at `pc_after=0x40845ebc`, `stopped_on_monitor=0`, not
+at the monitor guard. `early-f14000-device` recorded 129346 reads and 258547
+writes: offsets `0x0800`/`0x0803`/`0x0806`/`0x0801`/`0x0807`/`0x0802` are touched
+during setup, offsets `0x0000` and `0x0400` receive repeated `0xab` writes, and
+offset `0x0804` is read 129299 times with final value `0x00`. The range remains
+named but not identified. The `0x00f04000`-class range remains modeled as
+SCC-like no-input status/data (`early-f04000-device`, status aliases `+0`/`+2`/
+`+4` return `0x04`, data `+6` returns `0x00`) for paths that reach it.
+
 The previous `0x0080xxxx` masked-ROM write stream was reclassified as an artifact
 of continuing through zero-filled RAM after the invalid unseeded `0x00402e00`
 entry path, not as evidence of normal reset-body progress.

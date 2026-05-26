@@ -177,19 +177,20 @@ ROM dispatcher. The first explicit `early-rom-probe-1c00-stride` I/O probes at
 `0x00f01c00`, `0x00f21c00`, and `0x00f41c00` now use provisional VIA-style IER
 set/clear/readback behavior, which advances past the previous repeated
 2832-read/3776-write loop. The decoder also maps the 68EC020-masked
-`0x00800000` ROM alias after the guest moves toward `0x408xxxxx` PCs; the latest
-100M-cycle bounded probe from `0x0040008c` reaches the ROM diagnostic/serial
-monitor loop around `0x408498ec`/`0x40849fca` after the checksum loop,
-high-memory sizing probes, a named-but-not-identified `0x00f14000`-class I/O
-range, and an SCC-like `0x00f04000` status/data block. Alternate ROM-header
-probes show `0x00402e00`/`0x00402f18` avoid that monitor only when the
-`0x00402e00` probe is seeded with the reset trampoline's caller continuation
-(`a6=0x004000b4`); without that seed it falls into zero-filled RAM through the ROM
-header. With the seed, the probe sets `vbr=0x40846140`, advances through RAM/probe
-code, then stops on the known ROM diagnostic/serial-monitor dispatcher around
-`0x40849eae`/`0x40849fca`. Addresses above the configured 4MB RAM and below the
-I/O window, plus the top 16 bytes of the 24-bit address space, are modeled as
-non-present RAM-size probes. The memory-bus harness validates 4MB PSRAM RAM
+`0x00800000` ROM alias after the guest moves toward `0x408xxxxx` PCs. The current
+seeded `0x00402e00` reset-body probe uses the reset trampoline's caller
+continuation (`a6=0x004000b4`); without that seed it falls into zero-filled RAM
+through the ROM header. With the seed, the latest 100M-cycle hardware capture
+(`logs/serial-capture-20260526-205356.log`) avoids the previous zero-RAM trap,
+sets `vbr=0x40846140`, and exhausts the guarded cycle budget at
+`pc_after=0x40845ebc` instead of hitting the ROM-monitor guard. Per-offset diagnostics now
+show the hot loop is in the named-but-unidentified `0x00f14000`-class device:
+`early-f14000-device` logged 129346 reads and 258547 writes, dominated by writes
+to offsets `0x0000`/`0x0400` and reads from offset `0x0804` returning `0x00`.
+Earlier monitor-reaching captures still identify `0x00f04000` as an SCC-like
+no-input status/data block when that path is reached. Addresses above the
+configured 4MB RAM and below the I/O window, plus the top 16 bytes of the 24-bit
+address space, are modeled as non-present RAM-size probes. The memory-bus harness validates 4MB PSRAM RAM
 reads/writes, ROM window reads, generic I/O stub reads/writes, ROM write blocking,
 RAM-size probe handling, and unmapped-read logging. A RAM-only synthetic 68EC020 smoke program validates
 `m68k_init()`/`m68k_set_cpu_type()`/`m68k_pulse_reset()` and bounded

@@ -58,27 +58,24 @@ PC-relative trampolines at file offsets `0x0000a`, `0x0000e`, and `0x0002a`
 targeting `0x0008c`, which disassembles to `move #0x2700,sr`; it also logs jumps
 to `0x01240`, `0x02310`, `0x02e00`, and a `reset` opcode at `0x000aa`.
 
-The bounded on-device ROM-entry micro-probe now starts at `0x0040008c` in the
-24-bit ROM window. It reaches the guest `RESET` instruction, advances into the
-next ROM dispatcher, and records first explicit I/O stub accesses from ROM PCs
-around `0x00403124`-`0x0040314a` to `0x00f01c00`, `0x00f21c00`, and
-`0x00f41c00` (classified as `early-rom-probe-1c00-stride`). That loop is now
-modeled as a provisional VIA-style IER alias: writes set/clear IER bits and
-reads return bit 7 plus the current enable mask, which advances the ROM past the
-previous repeated 2832-read/3776-write loop. A `0x00800000` masked ROM alias was
-added after the guest switched toward the `0x40800000` ROM window and the
-68EC020 callbacks fetched masked `0x008xxxxx` addresses. With a 20M-cycle bounded
-probe, execution advances through the checksum loop, high-memory sizing probes,
-and the newly named `0x00f14000`-class early device range. A 100M-cycle probe
-then reaches the ROM's diagnostic/serial monitor loop around `0x408498ec` and
-`0x40849fca`, with `d0=0x8000` indicating no input available. High addresses from
-`0x00400000` up to the I/O window, plus the top 16 bytes of the 24-bit space, are
-now modeled as non-present RAM-size probe locations so the ROM can discover the
-configured 4MB RAM boundary without unexpected-write panics. Newly named early
-VIA-like accesses include `0x00f01e00`, `0x00f00600`, `0x00f00400`, and
-`0x00f00000`; the `0x00f14800` range is separated as `early-f14000-device`, and
-`0x00f04000` is separated as an SCC-like `early-f04000-device` no-input
-status/data block.
+The bounded on-device ROM-entry micro-probe first established `0x0040008c` in the
+24-bit ROM window as a guarded execution target. It reaches the guest `RESET`
+instruction, advances into the next ROM dispatcher, and records first explicit
+I/O stub accesses from ROM PCs around `0x00403124`-`0x0040314a` to
+`0x00f01c00`, `0x00f21c00`, and `0x00f41c00` (classified as
+`early-rom-probe-1c00-stride`). That loop is now modeled as a provisional
+VIA-style IER alias: writes set/clear IER bits and reads return bit 7 plus the
+current enable mask, which advances the ROM past the previous repeated
+2832-read/3776-write loop. A `0x00800000` masked ROM alias was added after the
+guest switched toward the `0x40800000` ROM window and the 68EC020 callbacks
+fetched masked `0x008xxxxx` addresses. High addresses from `0x00400000` up to the
+I/O window, plus the top 16 bytes of the 24-bit space, are now modeled as
+non-present RAM-size probe locations so the ROM can discover the configured 4MB
+RAM boundary without unexpected-write panics. Newly named early VIA-like accesses
+include `0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the
+`0x00f14800` range is separated as `early-f14000-device`, and `0x00f04000` is
+separated as an SCC-like `early-f04000-device` no-input status/data block when
+monitor paths reach it.
 This establishes `0x0040008c` as the first guarded execution target, while the
 real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
 also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
@@ -87,23 +84,26 @@ reads/writes, ROM write blocking, RAM-size probe handling, unmapped-read logging
 and a RAM-only synthetic 68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
 `cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
 panel in the normal LC target; user confirmation reported the test pattern
-visible. The `0x0040008c` guarded entry appears to end in a ROM diagnostic
-monitor, not yet in a normal Mac boot path. Alternate ROM-header probes show
-`0x00402e00` and `0x00402f18` avoid that monitor, while `0x00402310` reaches the
-same diagnostic monitor quickly and `0x00401240` falls into RAM-only trap/setup
-code. The current diagnostic default is `0x00402e00`, now seeded with the caller
-frame pointer/continuation used by the reset trampoline (`a6=0x004000b4`). Latest
-hardware capture (`serial-capture-20260526-204602.log`) shows this avoids the
-previous zero-filled RAM trap, sets `vbr=0x40846140`, runs RAM sizing/probe code,
-uses no-input SCC-like status (`0x00f04000` offset `+0` returns `0x04`), and stops
-on the known ROM diagnostic/serial-monitor dispatcher around
-`0x40849eae`/`0x40849fca` with `d7=0x01000304` (bits 24, 9, 8, and 2 set). The earlier direct `0x00402e00` probe without the
-caller `a6` seed jumped through `a4=0x40400000`, executed ROM header/fingerprint
-bytes, raised an A-line exception with zero low vectors, and fell into zero RAM;
-that is now treated as an invalid entry precondition rather than boot progress.
-The next boot milestone is to understand why the reset path still selects the ROM
-monitor/diagnostic path and whether specific hardware status bits or reset flags
-can steer it toward normal boot without faking serial input.
+visible. The current diagnostic default is `0x00402e00`, seeded with the caller
+frame pointer/continuation used by the reset trampoline (`a6=0x004000b4`). The
+earlier direct `0x00402e00` probe without that caller `a6` seed jumped through
+`a4=0x40400000`, executed ROM header/fingerprint bytes, raised an A-line
+exception with zero low vectors, and fell into zero RAM; that is now treated as an
+invalid entry precondition rather than boot progress. Earlier seeded captures
+could reach the known ROM diagnostic/serial-monitor dispatcher around
+`0x40849eae`/`0x40849fca` with `d7=0x01000304` (bits 24, 9, 8, and 2 set) after
+using no-input SCC-like status at `0x00f04000` (`+0` returning `0x04`). The latest
+hardware capture (`serial-capture-20260526-205356.log`) changes the provisional
+`0x00f14000` block from generic `0xff` reads to latched per-offset registers and
+adds per-offset summaries. With that behavior, the seeded probe no longer hits
+the monitor guard within 100M cycles: it exhausts the budget at
+`pc_after=0x40845ebc`, `d2=0x80000001`, `d7=0x01000304`,
+`stopped_on_monitor=0`. The hot
+range is `early-f14000-device` with 129346 reads and 258547 writes; offsets
+`0x0000`/`0x0400` receive the repeated `0xab` writes and offset `0x0804` is read
+129299 times with final value `0x00`. The next boot milestone is to identify the
+`0x00f14000`-class status protocol and determine which real hardware bit should
+advance this loop without faking serial input.
 
 ## ROM metadata
 
