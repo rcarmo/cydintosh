@@ -17,6 +17,8 @@ static const char *TAG = "lc_memory";
 #define LC_EARLY_VIA_REGISTER_COUNT 16u
 #define LC_EARLY_F04000_REGISTER_COUNT 256u
 #define LC_EARLY_F14000_REGISTER_COUNT 4096u
+#define LC_EARLY_F14000_POLL_STATUS_OFFSET 0x0804u
+#define LC_EARLY_F14000_POLL_READY_BITS 0x03u
 #define LC_IO_OFFSET_STATS_SLOTS 24u
 #define LC_RAM_SIZE_TOP_PROBE_BYTES 0x10u
 #define LC_EARLY_VIA_IER_REGISTER 14u
@@ -640,6 +642,17 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
     } else if (decoded->io_stub == LC_IO_STUB_EARLY_F14000_DEVICE) {
         const uint32_t reg_offset = decoded->offset & (LC_EARLY_F14000_REGISTER_COUNT - 1u);
         value = early_f14000_registers[reg_offset];
+        if (reg_offset == LC_EARLY_F14000_POLL_STATUS_OFFSET) {
+            // The seeded LC reset-body probe reaches a ROM routine that matches
+            // BasiliskII/macemu's documented physical NuBus/slot video probe
+            // family (`0x50f00000 / 0x50f14000`).  The routine writes bytes to
+            // offsets +0x0000/+0x0400 and polls +0x0804 bit 1 in its inner
+            // loop, then bit 0 in an outer wait before advancing.  Report only
+            // those two ready/complete bits for now so the bounded probe can
+            // discover the next real hardware dependency without patching ROM
+            // code or faking serial input.
+            value = (uint8_t)(value | LC_EARLY_F14000_POLL_READY_BITS);
+        }
         lc_memory_update_offset_stats(early_f14000_offset_stats, (uint16_t)reg_offset,
                                       pc, value, false);
     }

@@ -89,21 +89,22 @@ frame pointer/continuation used by the reset trampoline (`a6=0x004000b4`). The
 earlier direct `0x00402e00` probe without that caller `a6` seed jumped through
 `a4=0x40400000`, executed ROM header/fingerprint bytes, raised an A-line
 exception with zero low vectors, and fell into zero RAM; that is now treated as an
-invalid entry precondition rather than boot progress. Earlier seeded captures
-could reach the known ROM diagnostic/serial-monitor dispatcher around
-`0x40849eae`/`0x40849fca` with `d7=0x01000304` (bits 24, 9, 8, and 2 set) after
-using no-input SCC-like status at `0x00f04000` (`+0` returning `0x04`). The latest
-hardware capture (`serial-capture-20260526-205356.log`) changes the provisional
-`0x00f14000` block from generic `0xff` reads to latched per-offset registers and
-adds per-offset summaries. With that behavior, the seeded probe no longer hits
-the monitor guard within 100M cycles: it exhausts the budget at
-`pc_after=0x40845ebc`, `d2=0x80000001`, `d7=0x01000304`,
-`stopped_on_monitor=0`. The hot
-range is `early-f14000-device` with 129346 reads and 258547 writes; offsets
-`0x0000`/`0x0400` receive the repeated `0xab` writes and offset `0x0804` is read
-129299 times with final value `0x00`. The next boot milestone is to identify the
-`0x00f14000`-class status protocol and determine which real hardware bit should
-advance this loop without faking serial input.
+invalid entry precondition rather than boot progress. A local macemu/BasiliskII reference search matched this range to the same
+`0x50f00000 / 0x50f14000` physical NuBus/slot video-probe family documented in
+`BasiliskII/docs/AARCH64_JIT_BRINGUP.md`; `BasiliskII/src/rom_patches.cpp` skips
+those physical probes because BasiliskII provides video through its generated
+Slot Manager declaration ROM (`slot_rom.cpp`) and EMUL_OP video driver. Cydintosh
+keeps the LC ROM unpatched, so the current diagnostic reports only the observed
+ready/complete bits at `early-f14000-device` offset `+0x0804`. A one-bit trial
+advanced out of the inner write/poll loop but stopped in the outer wait at
+`0x40845e3a`; reporting bits 0 and 1 (`0x03`) advances through the slot/video
+probe. The latest hardware capture (`serial-capture-20260526-212157.log`) reaches
+the known ROM diagnostic/serial-monitor dispatcher at `0x40849eae` after
+49.5M cycles, with `d7=0x01000304` (bits 24, 9, 8, and 2 set), first
+`0x00f04000` status read value `0x04`, and `stopped_on_monitor=1`. The next boot
+milestone is to understand why the reset path selects that monitor/diagnostic
+path and to identify the next real VIA/SCC/reset flag requirement without faking
+serial input.
 
 ## ROM metadata
 

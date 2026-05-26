@@ -180,15 +180,15 @@ set/clear/readback behavior, which advances past the previous repeated
 `0x00800000` ROM alias after the guest moves toward `0x408xxxxx` PCs. The current
 seeded `0x00402e00` reset-body probe uses the reset trampoline's caller
 continuation (`a6=0x004000b4`); without that seed it falls into zero-filled RAM
-through the ROM header. With the seed, the latest 100M-cycle hardware capture
-(`logs/serial-capture-20260526-205356.log`) avoids the previous zero-RAM trap,
-sets `vbr=0x40846140`, and exhausts the guarded cycle budget at
-`pc_after=0x40845ebc` instead of hitting the ROM-monitor guard. Per-offset diagnostics now
-show the hot loop is in the named-but-unidentified `0x00f14000`-class device:
-`early-f14000-device` logged 129346 reads and 258547 writes, dominated by writes
-to offsets `0x0000`/`0x0400` and reads from offset `0x0804` returning `0x00`.
-Earlier monitor-reaching captures still identify `0x00f04000` as an SCC-like
-no-input status/data block when that path is reached. Addresses above the
+through the ROM header. With the seed, local macemu/BasiliskII references identify the same
+`0x50f00000 / 0x50f14000` address family as a physical NuBus/slot video probe
+that BasiliskII skips with ROM patches and replaces with a Slot Manager video
+resource. Cydintosh does not patch the LC ROM, so `early-f14000-device` now
+reports only the observed ready/complete bits at `+0x0804`. The latest 100M-cycle
+capture (`logs/serial-capture-20260526-212157.log`) advances through that probe
+and reaches the ROM diagnostic/serial monitor guard at `0x40849eae` after
+49.5M cycles, with `d7=0x01000304`. `0x00f04000` remains the next SCC-like
+no-input status/data block. Addresses above the
 configured 4MB RAM and below the I/O window, plus the top 16 bytes of the 24-bit
 address space, are modeled as non-present RAM-size probes. The memory-bus harness validates 4MB PSRAM RAM
 reads/writes, ROM window reads, generic I/O stub reads/writes, ROM write blocking,

@@ -192,20 +192,22 @@ request `0x008xxxxx` addresses. Addresses above the configured 4MB RAM and below
 non-present RAM-size probes. Early VIA-like accesses are summarized at
 `0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`.
 
-Earlier captures with generic `0xff` handling for the `0x00f14000`-class range
-could continue to the ROM diagnostic/serial monitor loop around
-`0x40849eae`/`0x40849fca` with `d7=0x01000304` (bits 24/9/8/2 set) after reading
-SCC-like no-input status at `0x00f04000`. The current capture
-(`serial-capture-20260526-205356.log`) adds a latched register file and per-offset
-summaries for `early-f14000-device`; with those diagnostics the seeded 100M-cycle
-probe exhausts the budget at `pc_after=0x40845ebc`, `stopped_on_monitor=0`, not
-at the monitor guard. `early-f14000-device` recorded 129346 reads and 258547
-writes: offsets `0x0800`/`0x0803`/`0x0806`/`0x0801`/`0x0807`/`0x0802` are touched
-during setup, offsets `0x0000` and `0x0400` receive repeated `0xab` writes, and
-offset `0x0804` is read 129299 times with final value `0x00`. The range remains
-named but not identified. The `0x00f04000`-class range remains modeled as
-SCC-like no-input status/data (`early-f04000-device`, status aliases `+0`/`+2`/
-`+4` return `0x04`, data `+6` returns `0x00`) for paths that reach it.
+A local macemu/BasiliskII reference search identifies this `0x00f14000` 24-bit
+alias as the same `0x50f14000` physical NuBus/slot video-probe family described
+in `BasiliskII/docs/AARCH64_JIT_BRINGUP.md`; BasiliskII's `rom_patches.cpp` skips
+these physical probes and installs a generated Slot Manager declaration ROM in
+`slot_rom.cpp` instead. Cydintosh keeps the LC ROM unpatched, so the current
+`early-f14000-device` stub reports only the observed ready/complete bits at
+`+0x0804`. One-bit `0x02` status advanced out of the inner byte-output loop but
+stopped in the outer wait at `0x40845e3a`; `0x03` status advances through the
+slot/video probe. The latest capture (`serial-capture-20260526-212157.log`) then
+reaches the ROM diagnostic/serial monitor guard at `0x40849eae` after 49.5M
+cycles, with `d7=0x01000304` and first `0x00f04000` status read value `0x04`.
+`early-f14000-device` recorded 417 reads and 319 writes in that run; offset
+`0x0804` was read 294 times with final value `0x03`. The `0x00f04000`-class range
+remains modeled as SCC-like no-input status/data (`early-f04000-device`, status
+aliases `+0`/`+2`/`+4` return `0x04`, data `+6` returns `0x00`) for paths that
+reach it.
 
 The previous `0x0080xxxx` masked-ROM write stream was reclassified as an artifact
 of continuing through zero-filled RAM after the invalid unseeded `0x00402e00`
