@@ -1,6 +1,7 @@
 #include "board_profiles.h"
 #include "cyd_machine.h"
 #include "machine_lc/lc_cpu.h"
+#include "machine_lc/lc_memory.h"
 #include "machine_lc/lc_rom.h"
 
 #include "esp_chip_info.h"
@@ -71,6 +72,8 @@ void app_main(void) {
              CYD_MACHINE_NAME, CYD_ROM_EXPECTED_SIZE, LC_GUEST_RAM_SIZE, DISP_WIDTH, DISP_HEIGHT,
              LC_GUEST_COLOR_DEPTH_BITS);
     lc_cpu_log_config();
+    lc_memory_log_initial_map();
+    lc_memory_probe_guest_ram_allocation();
     log_lc_rom_partition();
     ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");
 }

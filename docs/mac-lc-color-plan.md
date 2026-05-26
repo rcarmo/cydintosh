@@ -17,7 +17,9 @@ Completed setup:
 No LC boot is claimed yet. The first firmware target is a skeleton that logs
 ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists,
 then maps the first 512KB of that partition read-only through ESP-IDF flash
-`mmap` for diagnostics. The branch now also has an LC-only Musashi config
+`mmap` for diagnostics. It also logs a provisional 24-bit-first RAM/ROM memory
+map and probes whether a 4MB guest RAM allocation fits in PSRAM, with a 2MB
+fallback probe. The branch now also has an LC-only Musashi config
 scaffold for 68EC020/68020, selected only by the Tab5/P4 LC environment, plus LC
 CPU diagnostics that log the intended 68EC020 mode and raw ROM vector candidates
 without executing guest code.
@@ -120,12 +122,13 @@ before display/touch and LC emulation are added.
 3. Tab5 display smoke test shows known colors/orientation markers.
 4. Tab5 touch smoke test logs calibrated coordinates.
 5. LC ROM partition maps and validates size/first-long metadata.
-6. LC reset vector executes under a conservative 68EC020/68020 configuration.
-7. Missing hardware accesses are decoded and stubbed iteratively.
-8. Fixed color framebuffer displays diagnostic writes.
-9. ROM/System reaches a stable boot/probe phase.
-10. Read-only boot media begins loading.
-11. Finder desktop appears in color.
+6. Provisional LC RAM/ROM map and guest-RAM allocation diagnostics are logged.
+7. LC reset vector executes under a conservative 68EC020/68020 configuration.
+8. Missing hardware accesses are decoded and stubbed iteratively.
+9. Fixed color framebuffer displays diagnostic writes.
+10. ROM/System reaches a stable boot/probe phase.
+11. Read-only boot media begins loading.
+12. Finder desktop appears in color.
 
 ## Safety rules
 
