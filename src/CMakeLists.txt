@@ -3,9 +3,9 @@ set(MUSASHI_DIR "${UMAC_DIR}/external/Musashi")
 
 if(CYD_MACHINE_MAC_LC OR "${IDF_TARGET}" STREQUAL "esp32p4")
     idf_component_register(
-        SRCS "tab5_lc_smoke.c" "machine_lc/lc_rom.c" "machine_lc/lc_cpu.c" "machine_lc/lc_memory.c" "machine_lc/lc_trace.c" "machine_lc/lc_perf.c" "machine_lc/lc_video.c"
+        SRCS "tab5_lc_smoke.c" "machine_lc/lc_rom.c" "machine_lc/lc_cpu.c" "machine_lc/lc_memory.c" "machine_lc/lc_trace.c" "machine_lc/lc_perf.c" "machine_lc/lc_video.c" "machine_lc/tab5_backlight.c"
         INCLUDE_DIRS "." "machine_lc" "${CMAKE_SOURCE_DIR}/include" "${UMAC_DIR}/include" "${MUSASHI_DIR}"
-        REQUIRES esp_psram esp_partition esp_hw_support heap
+        REQUIRES driver esp_psram esp_partition esp_hw_support heap
     )
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         CYD_MACHINE_MAC_LC=1

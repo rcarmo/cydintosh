@@ -79,7 +79,7 @@ MIPI-DSI panel path.
 Open items:
 
 - identify the ESP-IDF/M5Stack component stack needed for `ILI9881C / ST7123` MIPI-DSI (see `docs/tab5-display-component-audit.md`);
-- implement display init and backlight control for GPIO22;
+- implement display init (backlight control for GPIO22 now has a Tab5-only LEDC scaffold);
 - implement a display smoke test before enabling any LC emulation;
 - implement touch probing for GT911/ST7123 on GPIO31/GPIO32;
 - map touch to ADB mouse packets after the LC input model exists.
@@ -164,6 +164,10 @@ actual Musashi callback/runtime wiring waits for reset-vector execution.
 Performance counter scaffolding (`src/machine_lc/lc_perf.c`) tracks count, total,
 minimum, average, and maximum microseconds for future CPU loop, video update,
 host render, and display flush phases, plus frame/FPS totals.
+
+Backlight control (`src/machine_lc/tab5_backlight.c`) uses LEDC on GPIO22
+(`LEDA`) with a safe default boot brightness of `TAB5_BACKLIGHT_BOOT_PERCENT=20`.
+It is Tab5/P4-only and does not initialize the MIPI-DSI panel.
 
 Video scaffolding (`src/machine_lc/lc_video.c`) defines the first guest mode as
 `512×384×8bpp`, `rowBytes=512`, `60Hz` VBL target, and separate PSRAM-backed

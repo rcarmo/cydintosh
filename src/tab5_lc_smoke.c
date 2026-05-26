@@ -6,8 +6,10 @@
 #include "machine_lc/lc_rom.h"
 #include "machine_lc/lc_trace.h"
 #include "machine_lc/lc_video.h"
+#include "machine_lc/tab5_backlight.h"
 
 #include "esp_chip_info.h"
+#include "esp_err.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -79,6 +81,11 @@ void app_main(void) {
              LC_GUEST_COLOR_DEPTH_BITS);
     lc_cpu_log_config();
     lc_cpu_log_trace_hook_status();
+    tab5_backlight_log_config();
+    esp_err_t bl_err = tab5_backlight_init(TAB5_BACKLIGHT_BOOT_PERCENT);
+    if (bl_err != ESP_OK) {
+        ESP_LOGE(TAG, "Tab5 backlight init failed: %s", esp_err_to_name(bl_err));
+    }
     lc_memory_log_initial_map();
     lc_memory_log_write_policy();
     lc_memory_log_decoder_examples();

@@ -140,6 +140,22 @@ TAB5_TOUCH_ST7123_ADDR = 0x55
 TAB5_LCD_BACKLIGHT_GPIO = 22
 ```
 
+## Backlight scaffold status
+
+The branch now has a Tab5-only LEDC backlight scaffold in
+`src/machine_lc/tab5_backlight.c`:
+
+```text
+GPIO22 / LEDA
+LEDC low-speed mode
+timer 0, channel 0
+5 kHz, 10-bit duty
+TAB5_BACKLIGHT_BOOT_PERCENT = 20
+```
+
+This intentionally does not initialize DSI or draw to the panel. It only provides
+safe brightness control for the later display smoke test.
+
 ## Bring-up recommendation
 
 1. Do **not** vendor the full M5Tab5 demo app or LVGL stack into this branch.
