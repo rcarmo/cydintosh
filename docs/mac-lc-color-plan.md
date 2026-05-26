@@ -58,12 +58,13 @@ Non-copyrighted metadata for the local file:
 | MD5 | `5d8662dfab70ac34663d6d54393f5018` |
 | First 16 bytes, metadata only | `35 0e ac f0 00 00 00 2a 06 7c 4e fa 00 80 4e fa` |
 
-Inspect locally and flash explicitly with:
+Inspect local ROM/disk metadata and flash the ROM explicitly with:
 
 ```bash
 python3 tools/inspect_lc_rom.py vendor/mac-lc.rom
 make lc-rom-info
 make lc-rom-vectors
+make lc-disk-info
 make flash-tab5-lc-rom
 ```
 
@@ -72,7 +73,8 @@ make flash-tab5-lc-rom
 offset-0 words are not a plausible reset SP/PC pair, so actual reset-vector
 mapping still needs runtime verification. The firmware validates the flashed
 partition by checking that the `rom` data partition is at least `0x80000` bytes
-and that the mapped first long is `0x350EACF0`.
+and that the mapped first long is `0x350EACF0`. See `docs/lc-boot-media.md` for
+the local-only read-only disk image workflow around `vendor/lc-disk.img`.
 
 ## Scope
 
