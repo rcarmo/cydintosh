@@ -139,13 +139,13 @@ skeleton, not a booting LC emulator.
 |---|---|
 | Board | M5Stack Tab5 |
 | SoC | ESP32-P4 rev v1.3 observed |
-| CPU | Dual Core + LP Core, 400MHz reported by esptool |
+| CPU | Dual Core + LP Core; branch targets the rev-v1.x 360MHz PlatformIO board path |
 | Flash | 16MB |
 | PSRAM | 32MB documented by M5Stack |
 | USB serial/JTAG | `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_80:F1:B2:D1:46:0D-if00` |
 | Display | 5-inch MIPI-DSI path, physical target `720×1280` in the BSP/demo code |
 | Display controller/path | ILI9881C and/or ST7123 path in M5Stack demo code |
-| Backlight | GPIO22 / `LEDA`, LEDC scaffold only |
+| Backlight | GPIO22 / `LEDA`, via M5Stack BSP LEDC path in display-smoke image |
 | Touch | GT911 at `0x14` and/or ST7123 at `0x55` on I2C GPIO31/GPIO32 |
 | LC ROM | local-only `vendor/mac-lc.rom`, 512KB, not committed |
 | LC boot disk | local-only `vendor/lc-disk.img`, read-only workflow, not committed |
@@ -154,9 +154,10 @@ skeleton, not a booting LC emulator.
 
 Current LC/P4 diagnostics include ROM partition mmap validation, LC-only Musashi
 68EC020/68020 configuration, trace/perf counters, provisional memory decoder,
-read-only disk trace scaffolding, Tab5 backlight/touch probes, and software-only
-display smoke patterns. The Tab5 USB/JTAG device must be present before flashing
-or validating hardware output.
+read-only disk trace scaffolding, Tab5 backlight/touch probes, software-only
+display pattern checksums, and a separate M5Stack-BSP-based physical display
+smoke image. The Tab5 USB/JTAG device must be present before flashing or
+validating hardware output.
 
 ## Board profiles and PlatformIO environments
 
@@ -167,6 +168,8 @@ or validating hardware output.
 | `esp32dev` | extends `esp32-cyd2usb` | `include/boards/esp32_2432s028.h` | Backward-compatible alias for older scripts/docs. |
 | `esp32-8048s043c` | `CYD_BOARD_ESP32_8048S043C` | `include/boards/esp32_8048s043c.h` | ESP32-S3 N16R8, 800×480 RGB panel, GT911 touch. |
 | `esp32-p4-tab5-lc-color` | `CYD_BOARD_M5STACK_TAB5_ESP32P4_LC` + `CYD_MACHINE_MAC_LC` | `include/boards/m5stack_tab5_esp32p4_lc.h` | Experimental Tab5/P4-only Macintosh LC/color skeleton. Uses `m68kconf_lc.h` and does not start Mac Plus `umac`. |
+| `esp32-p4-tab5-display-smoke` | `CYD_BOARD_M5STACK_TAB5_ESP32P4_LC` + `CYD_MACHINE_MAC_LC` | `include/boards/m5stack_tab5_esp32p4_lc.h` | Tab5-only M5Stack BSP physical MIPI-DSI smoke image; no LC emulation. |
+| `esp32-p4-tab5-bootdiag` | `CYD_BOARD_M5STACK_TAB5_ESP32P4_LC` + `CYD_MACHINE_MAC_LC` | `include/boards/m5stack_tab5_esp32p4_lc.h` | Minimal GPIO22/PI4IOE boot isolation image; no LC emulation. |
 
 Profile responsibilities:
 
@@ -290,6 +293,9 @@ make build PIO_ENV=esp32-cyd2usb-mac512x384-rotfit
 # Experimental ESP32-P4 / M5Stack Tab5 LC-color diagnostic skeleton
 make build-tab5-lc
 
+# M5Stack BSP-based physical Tab5 display smoke image
+make build-tab5-display-smoke
+
 # Temporary minimal Tab5 boot/backlight isolation image
 make build-tab5-bootdiag
 ```
@@ -301,6 +307,7 @@ pio run -e esp32-cyd2usb
 pio run -e esp32-8048s043c
 pio run -e esp32-cyd2usb-mac512x384-rotfit
 pio run -e esp32-p4-tab5-lc-color
+pio run -e esp32-p4-tab5-display-smoke
 pio run -e esp32-p4-tab5-bootdiag
 ```
 
@@ -382,6 +389,10 @@ make lc-video-test-pattern
 make flash-tab5-lc
 make flash-tab5-lc-rom
 make capture-tab5-logs
+
+# Physical DSI smoke test: M5Stack BSP init, 720x1280 RGB565 stripes,
+# then 35%/100% brightness heartbeat. Press power once if the panel is asleep.
+make flash-tab5-display-smoke
 
 # Temporary black-screen isolation image: no PSRAM boot init, no LC probes,
 # PI4IOE reset/output subset, then GPIO22 high/low loop.

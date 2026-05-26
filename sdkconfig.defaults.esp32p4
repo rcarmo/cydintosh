@@ -4,7 +4,8 @@ CONFIG_IDF_TARGET="esp32p4"
 # Connected Tab5 reports 16MB flash via ESP32-P4 USB-Serial/JTAG.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
-CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+# Match the official M5Tab5-UserDemo reference configuration.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 
 # Tab5 has 32MB hex/16-line PSRAM according to M5Stack docs. Keep it in malloc
 # capability pools so later LC RAM/framebuffer allocations can use SPIRAM.
@@ -31,3 +32,17 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # Wi-Fi/Bluetooth are not present on ESP32-P4; keep network stacks out of the LC target.
 # CONFIG_ESP_WIFI_ENABLED is not set
 # CONFIG_BT_ENABLED is not set
+
+
+# Connected Tab5 reports ESP32-P4 rev v1.3. ESP-IDF 5.5 defaults target rev
+# >=3.x for generic P4 configs, which can produce a bootloader that traps with
+# Illegal instruction on this board. Match the rev-v1.x path used to make the
+# official M5Tab5-UserDemo run on this hardware.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+CONFIG_ESP32P4_REV_MIN_FULL=100
+CONFIG_ESP_REV_MIN_FULL=100
+CONFIG_ESP32P4_REV_MAX_FULL=199
+CONFIG_ESP_REV_MAX_FULL=199
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=360

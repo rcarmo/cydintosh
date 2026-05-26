@@ -27,11 +27,13 @@ PlatformIO currently lists board `m5stack-tab5-p4` as:
 m5stack-tab5-p4  ESP32P4  360MHz  16MB  500KB  M5STACK Tab5 esp32-p4 Board (ES pre rev.300)
 ```
 
-The attached device reports ESP32-P4 rev v1.3. A first build attempt with
-`m5stack-tab5-p4` selected the `esp32p4_es` chip variant and failed to link
-(`sram_low`/`sram_high` linker region mismatch). The branch therefore keeps the
-Tab5-specific environment name but uses PlatformIO board `esp32-p4_r3` until a
-rev-v1.3 Tab5 board definition is available.
+The attached device reports ESP32-P4 rev v1.3, so the branch now uses
+`m5stack-tab5-p4` for Tab5 environments. A later attempt with the generic
+`esp32-p4_r3` board produced rev3/400MHz linker and bootloader settings; on this
+unit that trapped before `app_main` with `Illegal instruction` at the bootloader
+entry. The working configuration matches the official `M5Tab5-UserDemo` after
+patching it for ESP32-P4 rev <3.0: `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`,
+minimum rev `100`, maximum rev `199`, and 360MHz CPU.
 
 ## Original flash backup
 
@@ -72,17 +74,18 @@ Hardware details from the official M5Stack Tab5 documentation (`https://docs.m5s
 | Wireless coprocessor | ESP32-C6-MINI-1U, out of scope for initial LC bring-up |
 
 The branch board header records these values in
-`include/boards/m5stack_tab5_esp32p4_lc.h`. Full MIPI-DSI display and coordinate
-readout drivers are not implemented yet; the branch currently has backlight,
-touch-presence, and software-only display-smoke scaffolds.
+`include/boards/m5stack_tab5_esp32p4_lc.h`. The branch now vendors the
+M5Stack display BSP under `components_tab5/m5stack_tab5` and provides a separate
+hardware display-smoke image (`esp32-p4-tab5-display-smoke`) that initializes
+SYS-I2C/PI4IOE, detects GT911 vs ST7123, initializes the MIPI-DSI panel, draws a
+physical `720×1280` RGB565 stripe/orientation pattern, and then pulses backlight
+between 35% and 100%.
 
 Open items:
 
-- vendor or minimally port the ESP-IDF/M5Stack component stack needed for actual
-  `ILI9881C / ST7123` MIPI-DSI panel init (see `docs/tab5-display-component-audit.md`);
-- validate GPIO22 backlight control on hardware;
-- turn the software display smoke patterns into real DSI panel fills;
-- validate touch probing for GT911/ST7123 on GPIO31/GPIO32 once hardware is visible;
+- confirm visible display-smoke pattern/brightness pulse after power-button wake;
+- route LC `512×384×8bpp` indexed framebuffer into the BSP-initialized DSI panel;
+- validate touch probing for GT911/ST7123 on GPIO31/GPIO32 once display smoke is stable;
 - implement touch coordinate reads and calibration/orientation transforms;
 - map touch to ADB mouse packets after the LC input model exists.
 
@@ -98,11 +101,14 @@ Proposed `partitions-esp32p4-tab5-lc.csv` layout:
 | `0x410000` | `0x100000` | `rom` | LC ROM partition, 1MB aligned/reserved for 512KB ROM |
 | `0x510000` | `0xAF0000` | `disk` | LittleFS/disk images and diagnostics |
 
-Milestone 0 build result:
+Milestone 0/1 build results:
 
 ```text
 pio run -e esp32-p4-tab5-lc-color
-# SUCCESS with board=esp32-p4_r3, ESP-IDF 5.5.2, firmware.bin generated
+# SUCCESS with board=m5stack-tab5-p4, ESP-IDF 5.5.2, firmware.bin generated
+
+pio run -e esp32-p4-tab5-display-smoke
+# SUCCESS; BSP display smoke image builds and serial logs backlight heartbeat
 ```
 
 Hardware flashing requires the Tab5 USB/JTAG path to be present under
@@ -192,10 +198,11 @@ image for black-screen bring-up; it should not be mistaken for the normal LC
 skeleton firmware.
 
 A software-only physical-panel smoke scaffold (`src/machine_lc/tab5_display_smoke.c`)
-generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`) before
-any panel driver is linked. It covers solid color bands, corner/orientation
-markers, a 1-bit checker pattern, and an indexed palette ramp. These are build
-and allocation checks only until a real DSI panel is initialized on hardware.
+generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`). The
+hardware smoke path (`src/machine_lc/tab5_bsp_display_smoke.c`) uses the vendored
+M5Stack BSP to initialize the real panel and draw RGB565 stripes/orientation
+markers. Serial capture after flashing showed the app alive and repeatedly
+setting backlight to 35%/100%; visual confirmation is the remaining manual check.
 
 Touch probing (`src/machine_lc/tab5_touch.c`) initializes the Tab5 system I2C bus
 on GPIO31/GPIO32 and probes GT911 at `0x14` plus ST7123 at `0x55`. If GT911 ACKs,

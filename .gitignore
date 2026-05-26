@@ -11,6 +11,8 @@
 !/include/
 !/lib/
 !/components/
+!/components_tab5/
+!/components_tab5/**
 # Config header template
 !/include/user_config.h.tmpl
 /include/user_config.h

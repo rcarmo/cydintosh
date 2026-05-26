@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 3.16.0)
 
 if(CYD_MACHINE_MAC_LC)
     # LC/Tab5 smoke target intentionally avoids the current Mac Plus display/lib
-    # components until Tab5 display support is selected explicitly.
-    set(EXTRA_COMPONENT_DIRS "src" "components")
+    # components until Tab5 display support is selected explicitly. Tab5-only BSP
+    # components live under components_tab5 so Mac Plus builds do not pull P4-only
+    # managed dependencies.
+    set(EXTRA_COMPONENT_DIRS "src" "components" "components_tab5")
 else()
     set(EXTRA_COMPONENT_DIRS "src" "components" "lib")
 endif()

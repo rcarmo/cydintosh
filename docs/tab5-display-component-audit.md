@@ -153,16 +153,36 @@ timer 0, channel 1
 TAB5_BACKLIGHT_BOOT_PERCENT = 20
 ```
 
-This intentionally does not initialize DSI or draw to the panel. It only provides
-safe brightness control for the later display smoke test.
+This intentionally does not initialize DSI or draw to the panel. Standalone
+GPIO22/PWM tests were insufficient on the actual unit because the firmware was
+initially built with the wrong rev3 board/linker selection and trapped before
+`app_main`.
 
 For black-screen isolation, the branch also has a temporary
 `esp32-p4-tab5-bootdiag` PlatformIO environment and `make flash-tab5-bootdiag`
 target. That image disables PSRAM boot init, skips LC diagnostics, applies a
 minimal M5Stack-BSP-faithful PI4IOE SYS-I2C expander init subset, and loops
-forever toggling GPIO22 high/low. If that still produces no visible change, the
-next useful display milestone is a real DSI panel smoke test rather than more
-standalone backlight PWM experiments.
+forever toggling GPIO22 high/low.
+
+## BSP display smoke status
+
+The branch now vendors the M5Stack BSP component under
+`components_tab5/m5stack_tab5` with `BSP_CONFIG_NO_GRAPHIC_LIB=1`, preserving the
+Apache/MIT upstream files and avoiding the full demo app/LVGL layer. The separate
+`esp32-p4-tab5-display-smoke` environment:
+
+- uses PlatformIO board `m5stack-tab5-p4`, matching the connected ESP32-P4 rev v1.3;
+- selects ESP32-P4 rev <3.0, min rev `100`, max rev `199`, and 360MHz CPU;
+- initializes SYS-I2C and PI4IOE reset/power outputs;
+- probes GT911 (`0x14`) vs ST7123 (`0x55`);
+- initializes the ILI9881C/ST7703-compatible or ST7123 MIPI-DSI path;
+- draws a real `720x1280` RGB565 stripe/orientation pattern;
+- pulses backlight between 35% and 100%.
+
+Serial capture from the flashed smoke image shows the app alive in the brightness
+heartbeat loop. Visual confirmation remains manual; if the panel appears asleep,
+press the Tab5 power button once, as required by the patched official demo during
+testing.
 
 ## Touch scaffold status
 
@@ -178,19 +198,12 @@ It does not read touch coordinates or emit ADB mouse packets yet.
 
 ## Bring-up recommendation
 
-1. Do **not** vendor the full M5Tab5 demo app or LVGL stack into this branch.
-2. Vendor or minimally port only the display/touch component pieces needed for a
-   non-LVGL smoke test:
-   - ILI9881C init data/path first if using Espressif `esp_lcd_ili9881c`.
-   - ST7123 local panel driver only if the connected hardware requires it.
-3. Add a Tab5-only display smoke source that does not start LC emulation:
-   - DSI bus + DBI panel IO init.
-   - Backlight PWM on GPIO22.
-   - Solid RGB565 fills.
-   - Orientation markers in physical `720x1280` coordinates.
-   - Then LC `512x384` indexed test-pattern scaling/centering.
-4. Keep the current firmware skeleton as a safe fallback until the panel path is
-   confirmed on the actual Tab5 USB/JTAG device.
+1. Keep the vendored BSP isolated under `components_tab5/` so Mac Plus builds do
+   not pull Tab5/P4-only managed dependencies.
+2. Confirm the physical display-smoke pattern on hardware.
+3. Replace the stripe fill with LC `512x384` indexed test-pattern scaling and
+   centering once the physical panel path is visually confirmed.
+4. Only after that, route the LC guest framebuffer through the BSP panel handle.
 
 ## Open risks
 

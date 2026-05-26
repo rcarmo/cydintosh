@@ -37,6 +37,7 @@ not a Macintosh LC emulator loop. It currently provides:
   conversion, checksums, and off-device PPM rendering;
 - Tab5 GPIO22/LEDC backlight scaffold;
 - temporary `esp32-p4-tab5-bootdiag` no-PSRAM GPIO22/PI4IOE isolation image;
+- vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills;
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 I2C touch probe scaffold for GT911/ST7123 presence.
 
@@ -127,12 +128,17 @@ esp32-p4-tab5-lc-color
 Board selection:
 
 ```text
-esp32-p4_r3
+m5stack-tab5-p4
 ```
 
-The environment remains Tab5-specific, but `esp32-p4_r3` is used because the
-connected Tab5 reports ESP32-P4 rev v1.3 and PlatformIO's `m5stack-tab5-p4`
-entry currently targets the ES/pre-rev chip variant.
+The attached Tab5 reports ESP32-P4 rev v1.3, so the branch uses PlatformIO's
+M5Stack Tab5 ES/pre-rev300 board definition at 360MHz. The generic
+`esp32-p4_r3` board was tested and rejected for this unit because it generated
+rev3/400MHz linker and bootloader settings that trapped with `Illegal
+instruction` before `app_main`. The current sdkconfig defaults explicitly select
+`CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`, min rev `100`, max rev `199`, and
+360MHz CPU, matching the patched official `M5Tab5-UserDemo` that runs on this
+hardware.
 
 Initial skeleton source:
 

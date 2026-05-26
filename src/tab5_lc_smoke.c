@@ -8,6 +8,7 @@
 #include "machine_lc/lc_trace.h"
 #include "machine_lc/lc_video.h"
 #include "machine_lc/tab5_backlight.h"
+#include "machine_lc/tab5_bsp_display_smoke.h"
 #include "machine_lc/tab5_display_smoke.h"
 #include "machine_lc/tab5_touch.h"
 
@@ -91,6 +92,9 @@ static void log_lc_rom_partition(void) {
 void app_main(void) {
 #if defined(TAB5_LC_BOOT_DIAG_ONLY) && TAB5_LC_BOOT_DIAG_ONLY
     tab5_backlight_raw_gpio_boot_probe_loop();
+#endif
+#if defined(TAB5_LC_DISPLAY_SMOKE_ONLY) && TAB5_LC_DISPLAY_SMOKE_ONLY
+    ESP_ERROR_CHECK(tab5_bsp_display_smoke_run());
 #endif
 
     lc_trace_reset();
