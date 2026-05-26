@@ -175,13 +175,13 @@ flash-tab5-lc-rom: lc-rom-info
 	$(ESPTOOL) --chip esp32p4 --port $(TAB5_LC_SERIAL_PORT) --baud $(TAB5_LC_BAUD) verify_flash $(TAB5_LC_ROM_OFFSET) $(TAB5_LC_ROM_IMAGE)
 
 capture-tab5-logs:
-	$(SERIAL_PYTHON) tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration 15 --dtr-during-reset true --no-clear-after-reset
+	$(SERIAL_PYTHON) tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration 15 --dtr-during-reset false --no-clear-after-reset
 
 lc-rom-info:
 	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE)
 
 lc-rom-vectors:
-	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE) --vector-scan
+	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE) --vector-scan --entry-scan
 
 lc-disk-info:
 	python3 tools/inspect_lc_disk.py $(TAB5_LC_DISK_IMAGE) --allow-missing

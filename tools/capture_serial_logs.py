@@ -47,8 +47,8 @@ def toggle_reset(
     - boot strap is tied to DTR
 
     Some USB-Serial/JTAG boards invert or interpret DTR differently. The Tab5
-    enters download mode when DTR is low/false during reset, so callers can force
-    DTR high/true for a normal boot.
+    ESP32-P4 USB-Serial/JTAG path used by this branch currently resets cleanly
+    with DTR low/false during reset; callers can override this if needed.
     """
     try:
         ser.dtr = dtr_during_reset

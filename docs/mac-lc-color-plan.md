@@ -20,8 +20,8 @@ not a Macintosh LC emulator loop. It currently provides:
 - ESP32-P4/chip/heap/PSRAM diagnostics;
 - LC ROM partition probing plus read-only `esp_partition_mmap()` validation for
   the first 512KB;
-- metadata-only LC ROM vector/window scanning via `make lc-rom-vectors` and the
-  same heuristic scanner in firmware diagnostics;
+- metadata-only LC ROM vector/window scanning plus ROM-header entry/trampoline
+  hints via `make lc-rom-vectors` and matching firmware diagnostics;
 - LC-only Musashi configuration and linked core for 68EC020/68020, selected only
   by the Tab5/P4 environment;
 - CPU trace helper scaffolds for reset-vector candidates, exception vectors,
@@ -48,20 +48,26 @@ not a Macintosh LC emulator loop. It currently provides:
 - Tab5 touch reader scaffold: ST7123/GT911 probing, driver init, no-touch polling, and raw-panel to LC-viewport coordinate mapping.
 
 Guest LC ROM code is not executed yet. The latest hardware diagnostic reflashed
-and verified the LC ROM partition, then ran the firmware-side vector scanner. It
-confirmed offset 0 is not a plausible SP/PC reset vector, found 13 heuristic
-vector-like pairs in the first `0x4000` bytes, and logged best current candidate
-`file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`. This is
-only a heuristic. The latest hardware diagnostic also validates the memory-bus
+and verified the LC ROM partition, then ran the firmware-side vector and entry
+scanners. It confirmed offset 0 is not a plausible SP/PC reset vector, found 13
+heuristic vector-like pairs in the first `0x4000` bytes, and logged best current
+vector-like candidate `file_offset=0x00d58 sp=0x00186100 pc=0x00842f00
+rom_base=0x40800000`. The new entry scan is more useful than the noisy SP/PC
+heuristic: it identifies ROM-header PC-relative trampolines at file offsets
+`0x0000a`, `0x0000e`, and `0x0002a` targeting `0x0008c`, which disassembles to
+`move #0x2700,sr`; it also logs jumps to `0x01240`, `0x02310`, `0x02e00`, and a
+`reset` opcode at `0x000aa`. This strongly suggests a ROM-header trampoline/overlay
+entry path rather than a normal offset-0 68k vector table, but the overlay mapping
+is still unverified. The latest hardware diagnostic also validates the memory-bus
 harness and Musashi callback bridge without executing the LC ROM: 4MB PSRAM RAM
 reads/writes, mapped ROM reads from both candidate windows, generic I/O stub
 reads/writes, ROM write blocking, unmapped-read logging, and a RAM-only synthetic
 68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
 `cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
 panel in the normal LC target; user confirmation reported the test pattern visible.
-The next boot milestone remains verifying the real ROM overlay
-mapping, then using the same bus path to record first LC ROM hardware accesses
-through the trace ring.
+The next boot milestone remains verifying which ROM base/entry should be used for
+first real execution, then using the same bus path to record first LC ROM hardware
+accesses through the trace ring.
 
 ## ROM metadata
 
@@ -90,10 +96,11 @@ make flash-tab5-lc-rom
 ```
 
 `make lc-rom-vectors` scans metadata-only SP/PC pairs against the provisional
-24-bit and 32-bit ROM window candidates. The firmware now runs the same style of
-bounded scan against the mapped flash partition and records candidates into the
-trace ring. It is a heuristic aid only; the current offset-0 words are not a
-plausible reset SP/PC pair, so actual reset-vector mapping still needs runtime
+24-bit and 32-bit ROM window candidates and now also prints ROM-header
+entry/trampoline hints. The firmware runs the same style of bounded scans against
+the mapped flash partition and records vector-like candidates into the trace ring.
+It is a heuristic aid only; the current offset-0 words are not a plausible reset
+SP/PC pair, so actual reset-vector/overlay mapping still needs runtime
 verification. The firmware validates the flashed partition by checking that the
 `rom` data partition is at least `0x80000` bytes and that the mapped first long is
 `0x350EACF0`. See `docs/lc-boot-media.md` for

@@ -112,10 +112,11 @@ pio run -e esp32-p4-tab5-display-smoke
 ```
 
 Hardware flashing requires the Tab5 USB/JTAG path to be present under
-`/dev/serial/by-id/`. When capturing logs, keep DTR high during reset on this
-board; holding DTR low was observed to enter ROM download mode (`boot:0x204`).
-`make capture-tab5-logs` now uses PlatformIO's Python plus `--dtr-during-reset
-true --no-clear-after-reset` so very early boot output is not discarded.
+`/dev/serial/by-id/`. On the current Tab5 USB-Serial/JTAG path, log capture reset
+is reliable with DTR low/false during the RTS reset pulse; this captures the full
+boot log including the ESP-ROM banner and early LC diagnostics. `make
+capture-tab5-logs` uses PlatformIO's Python plus `--dtr-during-reset false
+--no-clear-after-reset` so very early boot output is not discarded.
 
 The LC ROM itself is not committed. Use local `vendor/mac-lc.rom` only.
 Validate, inspect vector/window candidates, and flash it explicitly with:
