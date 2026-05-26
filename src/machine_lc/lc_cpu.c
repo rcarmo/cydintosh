@@ -640,10 +640,19 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
                                          checkpoint_d7 != last_d7_checkpoint;
 #if LC_CPU_STOP_ON_ROM_MONITOR_LOOP
         if (lc_cpu_pc_is_rom_monitor_loop(checkpoint_pc)) {
+            const unsigned int checkpoint_d2 = m68k_get_reg(NULL, M68K_REG_D2);
             ESP_LOGW(TAG,
-                     "LC ROM entry micro-probe reached ROM diagnostic/serial monitor loop: pc=0x%08x opcode=0x%04x d0=0x%08x d7=0x%08x cycles=%u",
+                     "LC ROM entry micro-probe reached ROM diagnostic/serial monitor loop: pc=0x%08x opcode=0x%04x d0=0x%08x d2=0x%08x d7=0x%08x cycles=%u",
                      checkpoint_pc, checkpoint_opcode, m68k_get_reg(NULL, M68K_REG_D0),
-                     checkpoint_d7, total_cycles);
+                     checkpoint_d2, checkpoint_d7, total_cycles);
+            ESP_LOGW(TAG,
+                     "LC ROM monitor flags: d7_bits b24=%u b23=%u b22=%u b21=%u b20=%u b19=%u b18=%u b17=%u b16=%u b9=%u b8=%u b2=%u",
+                     (checkpoint_d7 >> 24u) & 1u, (checkpoint_d7 >> 23u) & 1u,
+                     (checkpoint_d7 >> 22u) & 1u, (checkpoint_d7 >> 21u) & 1u,
+                     (checkpoint_d7 >> 20u) & 1u, (checkpoint_d7 >> 19u) & 1u,
+                     (checkpoint_d7 >> 18u) & 1u, (checkpoint_d7 >> 17u) & 1u,
+                     (checkpoint_d7 >> 16u) & 1u, (checkpoint_d7 >> 9u) & 1u,
+                     (checkpoint_d7 >> 8u) & 1u, (checkpoint_d7 >> 2u) & 1u);
             stopped_on_rom_monitor_loop = true;
         }
 #endif

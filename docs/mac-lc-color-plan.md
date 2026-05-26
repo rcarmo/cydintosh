@@ -77,7 +77,8 @@ now modeled as non-present RAM-size probe locations so the ROM can discover the
 configured 4MB RAM boundary without unexpected-write panics. Newly named early
 VIA-like accesses include `0x00f01e00`, `0x00f00600`, `0x00f00400`, and
 `0x00f00000`; the `0x00f14800` range is separated as `early-f14000-device`, and
-`0x00f04000` is separated as an SCC-like `early-f04000-device` status/data block.
+`0x00f04000` is separated as an SCC-like `early-f04000-device` no-input
+status/data block.
 This establishes `0x0040008c` as the first guarded execution target, while the
 real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
 also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
@@ -92,10 +93,11 @@ monitor, not yet in a normal Mac boot path. Alternate ROM-header probes show
 same diagnostic monitor quickly and `0x00401240` falls into RAM-only trap/setup
 code. The current diagnostic default is `0x00402e00`, now seeded with the caller
 frame pointer/continuation used by the reset trampoline (`a6=0x004000b4`). Latest
-hardware capture (`serial-capture-20260526-203743.log`) shows this avoids the
+hardware capture (`serial-capture-20260526-204602.log`) shows this avoids the
 previous zero-filled RAM trap, sets `vbr=0x40846140`, runs RAM sizing/probe code,
-and stops on the known ROM diagnostic/serial-monitor dispatcher around
-`0x40849eae`/`0x40849fca`. The earlier direct `0x00402e00` probe without the
+uses no-input SCC-like status (`0x00f04000` offset `+0` returns `0x04`), and stops
+on the known ROM diagnostic/serial-monitor dispatcher around
+`0x40849eae`/`0x40849fca` with `d7=0x01000304` (bits 24, 9, 8, and 2 set). The earlier direct `0x00402e00` probe without the
 caller `a6` seed jumped through `a4=0x40400000`, executed ROM header/fingerprint
 bytes, raised an A-line exception with zero low vectors, and fell into zero RAM;
 that is now treated as an invalid entry precondition rather than boot progress.

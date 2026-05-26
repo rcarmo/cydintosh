@@ -173,7 +173,7 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 | `0x00403124`-`0x4080314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | provisional VIA IER set/clear/readback | explicit `early-rom-probe-1c00-stride` stub; offset `0x1c00` matches VIA register 14/IER under A[12:9] decode; this advances the previous constant-`0xff` loop |
 | `0x00403226` onward | `0x00f01e00`, `0x00f00600`, `0x00f00400`, `0x00f00000` plus mirrors | `early-lc-via-register` plus base-window harness | newly exposed VIA-like register accesses after the IER behavior; likely ORA/DDRB/DDRA/ORB style offsets, still not claimed as final LC VIA mapping |
 | `0x40845c0c` onward | around `0x00f14800` | `early-f14000-device` | newly exposed device range; code tests/writes offsets around `$800` from a `0x00f14000`-class base, exact device unknown |
-| `0x40849eaa` onward | around `0x00f04000`/`0x50f04000`, notably offsets `+2` and `+6` | `early-f04000-device` | SCC-like status/data block; offset `+2` currently returns transmit-ready/no-RX status `0x04`, offset `+6` returns `0x00` |
+| `0x40849eaa` onward | around `0x00f04000`/`0x50f04000`, notably offsets `+0`, `+2`, and `+6` | `early-f04000-device` | SCC-like status/data block; offsets `+0`/`+2`/`+4` currently return transmit-ready/no-RX status `0x04`, offset `+6` returns `0x00`; this does not fake serial input |
 | `0x4084a672` onward | `0x00effffc`, `0x00dffffc`, ... down toward configured RAM and `0x00fffffc` top-of-space probes | `ram-size-probe` | high-memory sizing probe; writes ignored and reads return absent-memory value above configured 4MB RAM |
 
 A comparison probe using `0x4080008c` showed that the 68EC020 path masks that
@@ -185,8 +185,9 @@ header/fingerprint bytes, raises an A-line exception while low vectors are still
 zero, and falls into zero-filled RAM. Seeding `a6=0x004000b4`, matching the reset
 trampoline continuation at `0x004000ac`, lets the same `0x00402e00` body return
 through `0x004000b4`, set `vbr=0x40846140`, and progress to the ROM
-monitor/diagnostic dispatcher around `0x40849eae`/`0x40849fca`. The earlier
-`0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
+monitor/diagnostic dispatcher around `0x40849eae`/`0x40849fca`; the latest stop
+records `d7=0x01000304` (bits 24, 9, 8, and 2 set) and first `0x00f04000`
+status read value `0x04`. The earlier `0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
 through zero RAM, not a normal reset-overlay write sequence.
 
 ## Recommended next steps

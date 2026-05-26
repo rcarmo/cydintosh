@@ -562,10 +562,13 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
         }
     } else if (decoded->io_stub == LC_IO_STUB_EARLY_F04000_DEVICE) {
         const uint32_t reg_offset = decoded->offset & (LC_EARLY_F04000_REGISTER_COUNT - 1u);
-        if (reg_offset == 2u) {
-            // Provisional SCC-like status: transmit buffer empty, no receive
-            // character available.  Do not let command writes make status look
-            // busy forever during early ROM diagnostics.
+        if (reg_offset == 0u || reg_offset == 2u || reg_offset == 4u) {
+            // Provisional SCC-like status aliases: transmit buffer empty, no
+            // receive character available (bit0 clear).  The seeded reset-body
+            // probe reaches the ROM diagnostic monitor through reads at +0 and
+            // then its no-input polling loop reads +2/+6.  Keep these as
+            // no-input status values; do not fake serial input to escape the
+            // monitor.
             value = 0x04u;
         } else if (reg_offset == 6u) {
             value = 0x00u;
