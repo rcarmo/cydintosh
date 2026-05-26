@@ -144,3 +144,8 @@ Display-memory diagnostics currently probe:
 
 The first renderer should prefer dirty rows/strips rather than a full RGB565
 shadow framebuffer.
+
+A small LC trace ring buffer (`LC_TRACE_RING_SIZE`, default 128 entries) records
+skeleton markers, CPU config, ROM vector candidates, decoded memory accesses, and
+unmapped accesses. The current skeleton dumps the most recent entries at the end
+of diagnostics; later CPU execution/panic paths can reuse the same dump routine.

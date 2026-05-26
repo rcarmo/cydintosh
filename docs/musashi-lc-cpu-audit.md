@@ -159,8 +159,10 @@ execution is still pending the LC memory-map and CPU setup boundary.
 
 `src/machine_lc/lc_cpu.c` now logs the selected initial CPU target
 (`M68K_CPU_TYPE_68EC020`), compile-time emulation switches, conservative quantum
-settings, and raw first/second ROM longwords as reset-vector candidates. It does
-not call `m68k_init()` or execute guest code yet.
+settings, and raw first/second ROM longwords as reset-vector candidates. These
+events are also recorded in the LC trace ring buffer (`src/machine_lc/lc_trace.c`)
+for later panic/hang dumps. It does not call `m68k_init()` or execute guest code
+yet.
 
 The next CPU-core step is to turn this scaffold into a runtime setup path that
 selects `M68K_CPU_TYPE_68EC020`, verifies the actual LC reset SP/PC mapping, and

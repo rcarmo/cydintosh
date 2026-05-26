@@ -1,6 +1,7 @@
 #include "lc_memory.h"
 
 #include "board_profiles.h"
+#include "lc_trace.h"
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -100,11 +101,14 @@ void lc_memory_log_unmapped_access(uint32_t pc, uint32_t address, unsigned size,
 
     lc_addr_decode_t decoded = lc_memory_decode_address(address);
     if (decoded.region != LC_ADDR_REGION_UNMAPPED) {
+        lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, decoded.offset, (uint16_t)size,
+                        write);
         ESP_LOGI(TAG, "LC access pc=0x%08" PRIx32 " %s%u addr=0x%08" PRIx32 " region=%s offset=0x%08" PRIx32,
                  pc, write ? "write" : "read", size, address, decoded.name, decoded.offset);
         return;
     }
 
+    lc_trace_record(LC_TRACE_EVENT_UNMAPPED_ACCESS, pc, address, 0, (uint16_t)size, write);
     if (logged < log_limit) {
         ESP_LOGW(TAG, "LC unmapped access pc=0x%08" PRIx32 " %s%u addr=0x%08" PRIx32,
                  pc, write ? "write" : "read", size, address);

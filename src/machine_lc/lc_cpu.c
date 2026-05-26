@@ -1,6 +1,7 @@
 #include "lc_cpu.h"
 
 #include "esp_log.h"
+#include "lc_trace.h"
 #include "m68k.h"
 
 #include <inttypes.h>
@@ -32,6 +33,7 @@ static const char *lc_cpu_type_name(unsigned int cpu_type) {
 
 void lc_cpu_log_config(void) {
     const unsigned int initial_cpu_type = M68K_CPU_TYPE_68EC020;
+    lc_trace_record(LC_TRACE_EVENT_CPU_CONFIG, 0, 0, initial_cpu_type, 0, false);
     ESP_LOGI(TAG, "LC CPU scaffold: initial_cpu=%s musashi_type=%u address_mode=24-bit-first",
              lc_cpu_type_name(initial_cpu_type), initial_cpu_type);
     ESP_LOGI(TAG, "LC CPU scaffold: emulate_010=%d emulate_ec020=%d emulate_020=%d emulate_030=%d emulate_040=%d",
@@ -54,6 +56,8 @@ void lc_cpu_log_reset_vector_candidates(const lc_rom_info_t *rom_info) {
 
     const uint32_t raw_first_long = lc_read_be32(&rom_info->first16[0]);
     const uint32_t raw_second_long = lc_read_be32(&rom_info->first16[4]);
+    lc_trace_record(LC_TRACE_EVENT_ROM_VECTOR_CANDIDATE, raw_second_long, 0, raw_first_long, 4,
+                    false);
     ESP_LOGI(TAG, "LC raw ROM vector candidates: long0=0x%08" PRIx32 " long1=0x%08" PRIx32,
              raw_first_long, raw_second_long);
     ESP_LOGW(TAG,
