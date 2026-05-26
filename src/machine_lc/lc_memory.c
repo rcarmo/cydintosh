@@ -94,6 +94,33 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
     return decoded;
 }
 
+bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded) {
+    if (decoded == NULL) {
+        return false;
+    }
+    switch (decoded->region) {
+    case LC_ADDR_REGION_RAM:
+    case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
+    case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
+        return decoded->writable;
+    case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+    case LC_ADDR_REGION_UNMAPPED:
+    default:
+        return false;
+    }
+}
+
+bool lc_memory_should_panic_on_write(uint32_t address) {
+#if LC_PANIC_ON_UNEXPECTED_WRITE
+    lc_addr_decode_t decoded = lc_memory_decode_address(address);
+    return !lc_memory_write_is_expected(&decoded);
+#else
+    (void)address;
+    return false;
+#endif
+}
+
 void lc_memory_log_unmapped_access(uint32_t pc, uint32_t address, unsigned size, bool write) {
     static unsigned logged = 0;
     static unsigned suppressed = 0;
@@ -110,8 +137,9 @@ void lc_memory_log_unmapped_access(uint32_t pc, uint32_t address, unsigned size,
 
     lc_trace_record(LC_TRACE_EVENT_UNMAPPED_ACCESS, pc, address, 0, (uint16_t)size, write);
     if (logged < log_limit) {
-        ESP_LOGW(TAG, "LC unmapped access pc=0x%08" PRIx32 " %s%u addr=0x%08" PRIx32,
-                 pc, write ? "write" : "read", size, address);
+        ESP_LOGW(TAG, "LC unmapped access pc=0x%08" PRIx32 " %s%u addr=0x%08" PRIx32 "%s",
+                 pc, write ? "write" : "read", size, address,
+                 (write && lc_memory_should_panic_on_write(address)) ? " panic_policy=would-panic" : "");
         logged++;
         if (logged == log_limit) {
             ESP_LOGW(TAG, "LC unmapped access logger reached %u entries; suppressing further unmapped logs", log_limit);
@@ -128,6 +156,24 @@ static void log_heap_caps(const char *label, uint32_t caps) {
     ESP_LOGI(TAG, "%s free=%u largest=%u", label,
              (unsigned)heap_caps_get_free_size(caps),
              (unsigned)heap_caps_get_largest_free_block(caps));
+}
+
+void lc_memory_log_write_policy(void) {
+    ESP_LOGI(TAG, "LC write policy: panic_on_unexpected_write=%d allowed=RAM,I/O-candidate denied=ROM,unmapped",
+             LC_PANIC_ON_UNEXPECTED_WRITE);
+    const uint32_t examples[] = {
+        0x00000000u,
+        LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
+        LC_IO_24BIT_BASE_CANDIDATE,
+        0x00E00000u,
+    };
+    for (size_t i = 0; i < sizeof(examples) / sizeof(examples[0]); i++) {
+        lc_addr_decode_t decoded = lc_memory_decode_address(examples[i]);
+        ESP_LOGI(TAG, "LC write policy example addr=0x%08" PRIx32 " region=%s expected=%s would_panic=%s",
+                 examples[i], decoded.name,
+                 lc_memory_write_is_expected(&decoded) ? "yes" : "no",
+                 lc_memory_should_panic_on_write(examples[i]) ? "yes" : "no");
+    }
 }
 
 void lc_memory_log_initial_map(void) {

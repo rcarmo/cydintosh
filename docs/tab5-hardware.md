@@ -149,3 +149,8 @@ A small LC trace ring buffer (`LC_TRACE_RING_SIZE`, default 128 entries) records
 skeleton markers, CPU config, ROM vector candidates, decoded memory accesses, and
 unmapped accesses. The current skeleton dumps the most recent entries at the end
 of diagnostics; later CPU execution/panic paths can reuse the same dump routine.
+
+The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
+(default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM
+and unmapped writes are tagged as `would-panic` so the first CPU execution pass
+can fail loudly before hardware stubs are relaxed.

@@ -34,6 +34,10 @@
 #define LC_DISPLAY_DMA_STRIP_LINES 16u
 #endif
 
+#ifndef LC_PANIC_ON_UNEXPECTED_WRITE
+#define LC_PANIC_ON_UNEXPECTED_WRITE 1
+#endif
+
 #define LC_IO_WINDOW_SIZE 0x00100000u
 #define LC_VRAM_SIZE ((size_t)DISP_WIDTH * (size_t)DISP_HEIGHT * (size_t)LC_GUEST_COLOR_DEPTH_BITS / 8u)
 #define LC_RGB565_FRAMEBUFFER_SIZE ((size_t)DISP_WIDTH * (size_t)DISP_HEIGHT * 2u)
@@ -59,8 +63,11 @@ typedef struct {
 
 const char *lc_memory_region_name(lc_addr_region_t region);
 lc_addr_decode_t lc_memory_decode_address(uint32_t address);
+bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded);
+bool lc_memory_should_panic_on_write(uint32_t address);
 void lc_memory_log_unmapped_access(uint32_t pc, uint32_t address, unsigned size, bool write);
 void lc_memory_log_initial_map(void);
+void lc_memory_log_write_policy(void);
 void lc_memory_log_decoder_examples(void);
 void lc_memory_probe_guest_ram_allocation(void);
 void lc_memory_probe_display_buffer_allocation(void);

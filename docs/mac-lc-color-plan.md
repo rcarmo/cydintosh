@@ -24,7 +24,10 @@ RGB565 strip buffer in internal RAM to guide the first color renderer. It includ
 a provisional LC address decoder for RAM, ROM-window
 candidates, I/O-window candidates, throttled unmapped-access logging, and a small
 trace ring buffer that can dump recent diagnostic events on panic/hang paths in
-future reset-vector execution. The branch now also has an LC-only Musashi config
+future reset-vector execution. The memory scaffold also has an early bring-up
+write policy: RAM and I/O-candidate writes are allowed, while ROM/unmapped writes
+are flagged by the panic-on-unexpected-write policy. The branch now also has an
+LC-only Musashi config
 scaffold for 68EC020/68020, selected only by the Tab5/P4 LC environment, plus LC
 CPU diagnostics that log the intended 68EC020 mode and raw ROM vector candidates
 without executing guest code.
