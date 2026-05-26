@@ -55,6 +55,13 @@ typedef enum {
     LC_ADDR_REGION_UNMAPPED,
 } lc_addr_region_t;
 
+typedef enum {
+    LC_IO_STUB_NONE,
+    LC_IO_STUB_WINDOW_BASE_HARNESS,
+    LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE,
+    LC_IO_STUB_GENERIC,
+} lc_io_stub_kind_t;
+
 typedef struct {
     lc_addr_region_t region;
     uint32_t base;
@@ -62,6 +69,8 @@ typedef struct {
     uint32_t offset;
     const char *name;
     bool writable;
+    lc_io_stub_kind_t io_stub;
+    const char *io_stub_name;
 } lc_addr_decode_t;
 
 typedef struct {
@@ -74,6 +83,7 @@ typedef struct {
 } lc_memory_bus_t;
 
 const char *lc_memory_region_name(lc_addr_region_t region);
+const char *lc_memory_io_stub_kind_name(lc_io_stub_kind_t kind);
 lc_addr_decode_t lc_memory_decode_address(uint32_t address);
 bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded);
 bool lc_memory_should_panic_on_write(uint32_t address);
@@ -81,6 +91,7 @@ void lc_memory_log_unmapped_access(uint32_t pc, uint32_t address, unsigned size,
 void lc_memory_log_initial_map(void);
 void lc_memory_log_write_policy(void);
 void lc_memory_log_decoder_examples(void);
+void lc_memory_log_io_stub_summary(void);
 void lc_memory_probe_guest_ram_allocation(void);
 void lc_memory_probe_display_buffer_allocation(void);
 esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map);

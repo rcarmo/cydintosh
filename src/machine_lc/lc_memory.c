@@ -13,6 +13,21 @@
 
 static const char *TAG = "lc_memory";
 
+#define LC_IO_STUB_KIND_COUNT 4u
+
+typedef struct {
+    uint32_t reads;
+    uint32_t writes;
+    uint32_t first_pc;
+    uint32_t first_address;
+    uint32_t last_pc;
+    uint32_t last_address;
+    uint8_t last_value;
+    bool seen;
+} lc_io_stub_stats_t;
+
+static lc_io_stub_stats_t io_stub_stats[LC_IO_STUB_KIND_COUNT];
+
 static bool address_in_window(uint32_t address, uint32_t base, uint32_t size) {
     return address >= base && address < (base + size);
 }
@@ -33,6 +48,30 @@ const char *lc_memory_region_name(lc_addr_region_t region) {
     default:
         return "unmapped";
     }
+}
+
+const char *lc_memory_io_stub_kind_name(lc_io_stub_kind_t kind) {
+    switch (kind) {
+    case LC_IO_STUB_NONE:
+        return "none";
+    case LC_IO_STUB_WINDOW_BASE_HARNESS:
+        return "io-window-base/harness";
+    case LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE:
+        return "early-rom-probe-1c00-stride";
+    case LC_IO_STUB_GENERIC:
+    default:
+        return "generic-io-stub";
+    }
+}
+
+static lc_io_stub_kind_t lc_memory_classify_io_stub(uint32_t offset) {
+    if ((offset & 0x0001ffffu) == 0x00001c00u) {
+        return LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE;
+    }
+    if (offset == 0) {
+        return LC_IO_STUB_WINDOW_BASE_HARNESS;
+    }
+    return LC_IO_STUB_GENERIC;
 }
 
 lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
@@ -80,6 +119,8 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
         decoded.offset = address - decoded.base;
         decoded.name = lc_memory_region_name(decoded.region);
         decoded.writable = true;
+        decoded.io_stub = lc_memory_classify_io_stub(decoded.offset);
+        decoded.io_stub_name = lc_memory_io_stub_kind_name(decoded.io_stub);
         return decoded;
     }
 
@@ -90,6 +131,8 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
         decoded.offset = address - decoded.base;
         decoded.name = lc_memory_region_name(decoded.region);
         decoded.writable = true;
+        decoded.io_stub = lc_memory_classify_io_stub(decoded.offset);
+        decoded.io_stub_name = lc_memory_io_stub_kind_name(decoded.io_stub);
         return decoded;
     }
 
@@ -214,15 +257,20 @@ void lc_memory_log_decoder_examples(void) {
         LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
         LC_ROM_WINDOW_32BIT_BASE_CANDIDATE,
         LC_IO_24BIT_BASE_CANDIDATE,
+        LC_IO_24BIT_BASE_CANDIDATE + 0x00001c00u,
+        LC_IO_24BIT_BASE_CANDIDATE + 0x00021c00u,
+        LC_IO_24BIT_BASE_CANDIDATE + 0x00041c00u,
         LC_IO_32BIT_BASE_CANDIDATE,
         0x00E00000u,
     };
 
     for (size_t i = 0; i < sizeof(examples) / sizeof(examples[0]); i++) {
         lc_addr_decode_t decoded = lc_memory_decode_address(examples[i]);
-        ESP_LOGI(TAG, "LC decode example addr=0x%08" PRIx32 " region=%s base=0x%08" PRIx32 " offset=0x%08" PRIx32 " writable=%s",
+        ESP_LOGI(TAG,
+                 "LC decode example addr=0x%08" PRIx32 " region=%s base=0x%08" PRIx32
+                 " offset=0x%08" PRIx32 " writable=%s io_stub=%s",
                  examples[i], decoded.name, decoded.base, decoded.offset,
-                 decoded.writable ? "yes" : "no");
+                 decoded.writable ? "yes" : "no", decoded.io_stub_name != NULL ? decoded.io_stub_name : "none");
     }
 }
 
@@ -289,18 +337,29 @@ void lc_memory_probe_display_buffer_allocation(void) {
     log_heap_caps("heap psram after display probe", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
-static const char *lc_memory_io_stub_name(uint32_t offset) {
-    if ((offset & 0x0001ffffu) == 0x00001c00u) {
-        return "early-rom-probe-1c00-stride";
+static void lc_memory_update_io_stub_stats(lc_io_stub_kind_t kind, uint32_t pc,
+                                           uint32_t address, uint8_t value, bool write) {
+    if ((unsigned)kind >= LC_IO_STUB_KIND_COUNT) {
+        kind = LC_IO_STUB_GENERIC;
     }
-    if (offset == 0) {
-        return "io-window-base/harness";
+    lc_io_stub_stats_t *stats = &io_stub_stats[kind];
+    if (!stats->seen) {
+        stats->first_pc = pc;
+        stats->first_address = address;
+        stats->seen = true;
     }
-    return "generic-io-stub";
+    stats->last_pc = pc;
+    stats->last_address = address;
+    stats->last_value = value;
+    if (write) {
+        stats->writes++;
+    } else {
+        stats->reads++;
+    }
 }
 
-static void lc_memory_log_io_stub_access(uint32_t pc, uint32_t address, uint32_t offset,
-                                         uint8_t value, bool write) {
+static void lc_memory_log_io_stub_access(const lc_addr_decode_t *decoded, uint32_t pc,
+                                         uint32_t address, uint8_t value, bool write) {
     static unsigned logged = 0;
     static unsigned suppressed = 0;
     const unsigned log_limit = 64;
@@ -309,8 +368,8 @@ static void lc_memory_log_io_stub_access(uint32_t pc, uint32_t address, uint32_t
         ESP_LOGI(TAG,
                  "LC I/O stub %s pc=0x%08" PRIx32 " addr=0x%08" PRIx32
                  " offset=0x%08" PRIx32 " value=0x%02x name=%s",
-                 write ? "write" : "read", pc, address, offset, value,
-                 lc_memory_io_stub_name(offset));
+                 write ? "write" : "read", pc, address, decoded->offset, value,
+                 decoded->io_stub_name);
         logged++;
         if (logged == log_limit) {
             ESP_LOGI(TAG, "LC I/O stub logger reached %u entries; suppressing further I/O logs",
@@ -324,17 +383,37 @@ static void lc_memory_log_io_stub_access(uint32_t pc, uint32_t address, uint32_t
     }
 }
 
-static uint8_t lc_memory_io_stub_read8(uint32_t address, uint32_t offset) {
-    const uint32_t pc = lc_musashi_bus_current_pc();
-    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, 0xffu, 1, false);
-    lc_memory_log_io_stub_access(pc, address, offset, 0xffu, false);
-    return 0xffu;
+void lc_memory_log_io_stub_summary(void) {
+    for (unsigned i = 0; i < LC_IO_STUB_KIND_COUNT; i++) {
+        const lc_io_stub_stats_t *stats = &io_stub_stats[i];
+        if (!stats->seen) {
+            continue;
+        }
+        ESP_LOGI(TAG,
+                 "LC I/O stub summary: name=%s reads=%" PRIu32 " writes=%" PRIu32
+                 " first_pc=0x%08" PRIx32 " first_addr=0x%08" PRIx32
+                 " last_pc=0x%08" PRIx32 " last_addr=0x%08" PRIx32 " last_value=0x%02x",
+                 lc_memory_io_stub_kind_name((lc_io_stub_kind_t)i), stats->reads, stats->writes,
+                 stats->first_pc, stats->first_address, stats->last_pc, stats->last_address,
+                 stats->last_value);
+    }
 }
 
-static esp_err_t lc_memory_io_stub_write8(uint32_t address, uint32_t offset, uint8_t value) {
+static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t address) {
+    const uint32_t pc = lc_musashi_bus_current_pc();
+    const uint8_t value = 0xffu;
+    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, false);
+    lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, false);
+    lc_memory_log_io_stub_access(decoded, pc, address, value, false);
+    return value;
+}
+
+static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint32_t address,
+                                          uint8_t value) {
     const uint32_t pc = lc_musashi_bus_current_pc();
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
-    lc_memory_log_io_stub_access(pc, address, offset, value, true);
+    lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, true);
+    lc_memory_log_io_stub_access(decoded, pc, address, value, true);
     return ESP_OK;
 }
 
@@ -344,6 +423,7 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
         return ESP_ERR_INVALID_ARG;
     }
     memset(bus, 0, sizeof(*bus));
+    memset(io_stub_stats, 0, sizeof(io_stub_stats));
 
     size_t requested = LC_GUEST_RAM_SIZE;
     bus->ram = (uint8_t *)heap_caps_calloc(1, requested, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -404,7 +484,7 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
         break;
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
-        return lc_memory_io_stub_read8(address, decoded.offset);
+        return lc_memory_io_stub_read8(&decoded, address);
     case LC_ADDR_REGION_UNMAPPED:
     default:
         break;
@@ -443,7 +523,7 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
         break;
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
-        return lc_memory_io_stub_write8(address, decoded.offset, value);
+        return lc_memory_io_stub_write8(&decoded, address, value);
     case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
     case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
         lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, lc_musashi_bus_current_pc(), address, value, 1, true);

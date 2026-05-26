@@ -174,7 +174,10 @@ the first `0x4000` bytes and selected current best vector-like candidate
 still considered noise compared with the ROM-header entry hints. The bounded
 entry micro-probe starts at `0x0040008c`, invokes the guest `RESET` callback once,
 continues to about `0x0040306c` with 20k requested cycles, and records first ROM
-I/O-stub probes at `0x00f01c00`, `0x00f21c00`, and `0x00f41c00`.
+I/O-stub probes at `0x00f01c00`, `0x00f21c00`, and `0x00f41c00`. The explicit
+`early-rom-probe-1c00-stride` summary from the latest capture was `reads=108`,
+`writes=144`, `first_pc=0x00403124`, `first_addr=0x00f21c00`,
+`last_pc=0x0040314a`, `last_addr=0x00f01c00`.
 
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM

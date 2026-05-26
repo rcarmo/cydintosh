@@ -170,7 +170,7 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 
 | PC range | Address pattern | Current stub behavior | Notes |
 |---:|---:|---|---|
-| `0x00403124`-`0x0040314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | read `0xff`, accept writes | tagged `early-rom-probe-1c00-stride`; likely ROM hardware/memory probe table, exact device still unknown |
+| `0x00403124`-`0x0040314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | read `0xff`, accept writes | explicit `early-rom-probe-1c00-stride` stub; latest summary `reads=108`, `writes=144`, first `0x00403124/0x00f21c00`, last `0x0040314a/0x00f01c00`; likely ROM hardware/memory probe table, exact device still unknown |
 
 A comparison probe using `0x4080008c` showed that the current 68EC020 path masks
 that address to `0x0080008c`, so first execution should stay with the 24-bit
@@ -179,8 +179,8 @@ that address to `0x0080008c`, so first execution should stay with the 24-bit
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. Turn the observed `0x00f?1c00` access pattern into an explicit LC I/O decoder
-   boundary before implementing device semantics.
+2. Infer safe behavior for the explicit `early-rom-probe-1c00-stride` boundary
+   before claiming any specific device semantics.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the

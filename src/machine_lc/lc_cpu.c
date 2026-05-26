@@ -546,6 +546,7 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
              cycles, pc_after, sp_after, sr_after, d0_after,
              lc_musashi_bus_reset_callback_count());
     lc_musashi_bus_log_stats();
+    lc_memory_log_io_stub_summary();
     lc_trace_dump_recent(48);
     lc_musashi_bus_detach();
     ESP_LOGW(TAG,

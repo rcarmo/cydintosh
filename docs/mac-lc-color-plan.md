@@ -60,11 +60,14 @@ to `0x01240`, `0x02310`, `0x02e00`, and a `reset` opcode at `0x000aa`.
 
 The bounded on-device ROM-entry micro-probe now starts at `0x0040008c` in the
 24-bit ROM window. It reaches the guest `RESET` instruction, advances into the
-next ROM dispatcher, and records first generic I/O stub accesses from ROM PCs
+next ROM dispatcher, and records first explicit I/O stub accesses from ROM PCs
 around `0x00403124`-`0x0040314a` to `0x00f01c00`, `0x00f21c00`, and
-`0x00f41c00` (all tagged `early-rom-probe-1c00-stride`). A one-off comparison
-showed the `0x4080008c` 32-bit candidate is not viable for the current 68EC020
-probe because the EC020 core masks it to `0x0080008c`, producing unmapped reads.
+`0x00f41c00` (classified as `early-rom-probe-1c00-stride`). The latest capture
+summarized that explicit stub boundary as 108 reads and 144 writes, first at
+`pc=0x00403124 addr=0x00f21c00`, last at `pc=0x0040314a addr=0x00f01c00`. A
+one-off comparison showed the `0x4080008c` 32-bit candidate is not viable for the
+current 68EC020 probe because the EC020 core masks it to `0x0080008c`, producing
+unmapped reads.
 This establishes `0x0040008c` as the first guarded execution target, while the
 real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
 also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
@@ -72,8 +75,8 @@ reads/writes, mapped ROM reads, generic I/O stub reads/writes, ROM write blockin
 unmapped-read logging, and a RAM-only synthetic 68EC020 reset/execute smoke test
 (`reset_pc=0x100`, `reset_sp=0x2000`, `cpu_type=3`). It also now shows the LC
 indexed diagnostic pattern on the Tab5 panel in the normal LC target; user
-confirmation reported the test pattern visible. The next boot milestone is to add
-an observed LC I/O decoder/stub boundary for the first `0x00f?1c00` accesses, then
+confirmation reported the test pattern visible. The next boot milestone is to
+infer safe behavior for the explicit `early-rom-probe-1c00-stride` stub, then
 continue bounded ROM execution until the next missing device behavior is clear.
 
 ## ROM metadata

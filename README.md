@@ -172,8 +172,9 @@ after reflashing `vendor/mac-lc.rom`: first long `0x350eacf0`, 13 heuristic
 vector-like pairs in the first `0x4000` bytes, and ROM-header trampolines that
 point to `0x0040008c` as the first guarded 24-bit execution target. The bounded
 ROM-entry micro-probe reaches the guest `RESET` instruction, advances into the ROM
-dispatcher, and records first generic I/O probes at `0x00f01c00`, `0x00f21c00`,
-and `0x00f41c00`. The memory-bus harness validates 4MB PSRAM RAM reads/writes,
+dispatcher, and records first explicit `early-rom-probe-1c00-stride` I/O probes at
+`0x00f01c00`, `0x00f21c00`, and `0x00f41c00` (latest summary: 108 reads, 144
+writes). The memory-bus harness validates 4MB PSRAM RAM reads/writes,
 ROM window reads, generic I/O stub reads/writes, ROM write blocking, and
 unmapped-read logging. A RAM-only synthetic 68EC020 smoke program validates
 `m68k_init()`/`m68k_set_cpu_type()`/`m68k_pulse_reset()` and bounded
