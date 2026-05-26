@@ -133,3 +133,14 @@ Current address-map diagnostics are deliberately provisional and log both
 
 The decoder includes a throttled unmapped-access logger for the later CPU
 execution milestone; no guest code is executed by the current skeleton.
+
+Display-memory diagnostics currently probe:
+
+| Buffer | Size formula | Allocation caps | Purpose |
+|---|---:|---|---|
+| indexed LC VRAM | `512×384×8bpp` (`196608` bytes) | PSRAM, 8-bit | guest color framebuffer candidate |
+| RGB565 DMA strip | `512×16×2` (`16384` bytes) | internal, DMA, 8-bit | preferred panel-transfer staging buffer |
+| full RGB565 frame | `512×384×2` (`393216` bytes) | logged only | intentionally avoided until needed |
+
+The first renderer should prefer dirty rows/strips rather than a full RGB565
+shadow framebuffer.

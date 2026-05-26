@@ -201,3 +201,38 @@ void lc_memory_probe_guest_ram_allocation(void) {
     heap_caps_free(ram);
     log_heap_caps("heap psram after LC RAM probe", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
+
+void lc_memory_probe_display_buffer_allocation(void) {
+    ESP_LOGI(TAG, "LC display buffer targets: indexed_vram=%zu rgb565_full=%zu rgb565_strip_lines=%u rgb565_strip=%zu",
+             LC_VRAM_SIZE, LC_RGB565_FRAMEBUFFER_SIZE, (unsigned)LC_DISPLAY_DMA_STRIP_LINES,
+             LC_RGB565_DMA_STRIP_SIZE);
+    log_heap_caps("heap dma/internal before display probe", MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    log_heap_caps("heap psram before display probe", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
+    uint8_t *vram = (uint8_t *)heap_caps_malloc(LC_VRAM_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (vram == NULL) {
+        ESP_LOGW(TAG, "LC indexed VRAM PSRAM allocation probe failed: size=%zu", LC_VRAM_SIZE);
+    } else {
+        vram[0] = 0;
+        vram[LC_VRAM_SIZE - 1u] = 0;
+        ESP_LOGI(TAG, "LC indexed VRAM PSRAM allocation probe succeeded: ptr=%p size=%zu",
+                 (void *)vram, LC_VRAM_SIZE);
+        heap_caps_free(vram);
+    }
+
+    uint8_t *strip = (uint8_t *)heap_caps_malloc(
+        LC_RGB565_DMA_STRIP_SIZE, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (strip == NULL) {
+        ESP_LOGW(TAG, "LC RGB565 DMA strip allocation probe failed: size=%zu", LC_RGB565_DMA_STRIP_SIZE);
+    } else {
+        strip[0] = 0;
+        strip[LC_RGB565_DMA_STRIP_SIZE - 1u] = 0;
+        ESP_LOGI(TAG, "LC RGB565 DMA strip allocation probe succeeded: ptr=%p size=%zu",
+                 (void *)strip, LC_RGB565_DMA_STRIP_SIZE);
+        heap_caps_free(strip);
+    }
+
+    ESP_LOGI(TAG, "LC full RGB565 framebuffer is diagnostic-only for now; dirty-row/strip rendering remains preferred");
+    log_heap_caps("heap dma/internal after display probe", MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    log_heap_caps("heap psram after display probe", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}

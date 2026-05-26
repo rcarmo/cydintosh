@@ -30,8 +30,14 @@
 #endif
 
 #define LC_ROM_WINDOW_SIZE 0x00080000u
+#ifndef LC_DISPLAY_DMA_STRIP_LINES
+#define LC_DISPLAY_DMA_STRIP_LINES 16u
+#endif
+
 #define LC_IO_WINDOW_SIZE 0x00100000u
 #define LC_VRAM_SIZE ((size_t)DISP_WIDTH * (size_t)DISP_HEIGHT * (size_t)LC_GUEST_COLOR_DEPTH_BITS / 8u)
+#define LC_RGB565_FRAMEBUFFER_SIZE ((size_t)DISP_WIDTH * (size_t)DISP_HEIGHT * 2u)
+#define LC_RGB565_DMA_STRIP_SIZE ((size_t)DISP_WIDTH * (size_t)LC_DISPLAY_DMA_STRIP_LINES * 2u)
 
 typedef enum {
     LC_ADDR_REGION_RAM,
@@ -57,5 +63,6 @@ void lc_memory_log_unmapped_access(uint32_t pc, uint32_t address, unsigned size,
 void lc_memory_log_initial_map(void);
 void lc_memory_log_decoder_examples(void);
 void lc_memory_probe_guest_ram_allocation(void);
+void lc_memory_probe_display_buffer_allocation(void);
 
 #endif

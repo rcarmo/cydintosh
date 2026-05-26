@@ -75,6 +75,7 @@ void app_main(void) {
     lc_memory_log_initial_map();
     lc_memory_log_decoder_examples();
     lc_memory_probe_guest_ram_allocation();
+    lc_memory_probe_display_buffer_allocation();
     log_lc_rom_partition();
     ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");
 }

@@ -19,7 +19,9 @@ ESP32-P4/heap/partition state and verifies whether an LC ROM partition exists,
 then maps the first 512KB of that partition read-only through ESP-IDF flash
 `mmap` for diagnostics. It also logs a provisional 24-bit-first RAM/ROM memory
 map and probes whether a 4MB guest RAM allocation fits in PSRAM, with a 2MB
-fallback probe. It includes a provisional LC address decoder for RAM, ROM-window
+fallback probe. It also probes indexed VRAM allocation in PSRAM and a DMA-capable
+RGB565 strip buffer in internal RAM to guide the first color renderer. It includes
+a provisional LC address decoder for RAM, ROM-window
 candidates, I/O-window candidates, and throttled unmapped-access logging for
 future reset-vector execution. The branch now also has an LC-only Musashi config
 scaffold for 68EC020/68020, selected only by the Tab5/P4 LC environment, plus LC
