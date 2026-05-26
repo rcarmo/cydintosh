@@ -8,6 +8,7 @@
 #include "machine_lc/lc_video.h"
 #include "machine_lc/tab5_backlight.h"
 #include "machine_lc/tab5_display_smoke.h"
+#include "machine_lc/tab5_touch.h"
 
 #include "esp_chip_info.h"
 #include "esp_err.h"
@@ -94,6 +95,14 @@ void app_main(void) {
     lc_memory_probe_display_buffer_allocation();
     lc_video_probe_test_pattern();
     tab5_display_smoke_probe_patterns();
+    tab5_touch_log_config();
+    tab5_touch_probe_result_t touch_probe = {0};
+    esp_err_t touch_err = tab5_touch_probe(&touch_probe);
+    if (touch_err != ESP_OK) {
+        ESP_LOGE(TAG, "Tab5 touch probe failed: %s", esp_err_to_name(touch_err));
+    } else {
+        tab5_touch_log_probe_result(&touch_probe);
+    }
     log_lc_rom_partition();
     lc_trace_record_marker(0x4c43304fu); // 'LC0O': skeleton diagnostics complete
     lc_perf_log_summary();

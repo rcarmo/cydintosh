@@ -156,6 +156,18 @@ TAB5_BACKLIGHT_BOOT_PERCENT = 20
 This intentionally does not initialize DSI or draw to the panel. It only provides
 safe brightness control for the later display smoke test.
 
+## Touch scaffold status
+
+The branch now has a Tab5-only I2C/touch probe scaffold in
+`src/machine_lc/tab5_touch.c`. It uses the ESP-IDF 5.5 I2C master API to:
+
+- initialize I2C0 on GPIO31/GPIO32;
+- probe GT911 at `0x14`;
+- read GT911 product ID at register `0x8140` if present;
+- probe ST7123 touch at `0x55`.
+
+It does not read touch coordinates or emit ADB mouse packets yet.
+
 ## Bring-up recommendation
 
 1. Do **not** vendor the full M5Tab5 demo app or LVGL stack into this branch.

@@ -81,7 +81,7 @@ Open items:
 - identify the ESP-IDF/M5Stack component stack needed for `ILI9881C / ST7123` MIPI-DSI (see `docs/tab5-display-component-audit.md`);
 - implement display init (backlight control for GPIO22 now has a Tab5-only LEDC scaffold);
 - implement a display smoke test before enabling any LC emulation;
-- implement touch probing for GT911/ST7123 on GPIO31/GPIO32;
+- validate touch probing for GT911/ST7123 on GPIO31/GPIO32 once hardware is visible;
 - map touch to ADB mouse packets after the LC input model exists.
 
 ## Initial LC flash layout
@@ -174,6 +174,11 @@ generates RGB565 strip checksums for the Tab5 DSI target mode (`720×1280`) befo
 any panel driver is linked. It covers solid color bands, corner/orientation
 markers, a 1-bit checker pattern, and an indexed palette ramp. These are build
 and allocation checks only until a real DSI panel is initialized on hardware.
+
+Touch probing (`src/machine_lc/tab5_touch.c`) initializes the Tab5 system I2C bus
+on GPIO31/GPIO32 and probes GT911 at `0x14` plus ST7123 at `0x55`. If GT911 ACKs,
+it attempts a metadata-only product-ID read from register `0x8140`. This is still
+a probe scaffold; no touch coordinates are consumed and nothing is mapped to ADB.
 
 Video scaffolding (`src/machine_lc/lc_video.c`) defines the first guest mode as
 `512×384×8bpp`, `rowBytes=512`, `60Hz` VBL target, and separate PSRAM-backed
