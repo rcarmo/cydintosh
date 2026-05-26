@@ -39,7 +39,7 @@ static const char *TAG = "lc_cpu";
 #endif
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE_CYCLES
-#define LC_CPU_ROM_ENTRY_PROBE_CYCLES 10000000u
+#define LC_CPU_ROM_ENTRY_PROBE_CYCLES 20000000u
 #endif
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE_BASE

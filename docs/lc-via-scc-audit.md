@@ -172,8 +172,8 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 |---:|---:|---|---|
 | `0x00403124`-`0x4080314a` | `0x00f01c00`, `0x00f21c00`, `0x00f41c00` | provisional VIA IER set/clear/readback | explicit `early-rom-probe-1c00-stride` stub; offset `0x1c00` matches VIA register 14/IER under A[12:9] decode; this advances the previous constant-`0xff` loop |
 | `0x00403226` onward | `0x00f01e00`, `0x00f00600`, `0x00f00400`, `0x00f00000` plus mirrors | `early-lc-via-register` plus base-window harness | newly exposed VIA-like register accesses after the IER behavior; likely ORA/DDRB/DDRA/ORB style offsets, still not claimed as final LC VIA mapping |
-| `0x40845c0c` onward | around `0x00f14800` | generic I/O stub | newly exposed device range after the 10M-cycle probe; code tests/writes offsets around `$800` from a `0x00f14000`-class base, exact device unknown |
-| `0x4084a672` onward | `0x00effffc`, `0x00dffffc`, ... down toward configured RAM | `ram-size-probe` | high-memory sizing probe; writes ignored and reads return absent-memory value above configured 4MB RAM |
+| `0x40845c0c` onward | around `0x00f14800` | `early-f14000-device` | newly exposed device range; code tests/writes offsets around `$800` from a `0x00f14000`-class base, exact device unknown |
+| `0x4084a672` onward | `0x00effffc`, `0x00dffffc`, ... down toward configured RAM and `0x00fffffc` top-of-space probes | `ram-size-probe` | high-memory sizing probe; writes ignored and reads return absent-memory value above configured 4MB RAM |
 
 A comparison probe using `0x4080008c` showed that the 68EC020 path masks that
 address to `0x0080008c`. The decoder now maps `0x00800000`-`0x0087ffff` as a
@@ -183,8 +183,8 @@ into the `0x408xxxxx` ROM window.
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. Identify the newly exposed `0x00f14800`-class generic device range before
-   claiming SCSI/SWIM/SCC/VIA semantics.
+2. Continue past the memory-fill/test loop at `0x408468d6` and record the next
+   true missing device range.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the

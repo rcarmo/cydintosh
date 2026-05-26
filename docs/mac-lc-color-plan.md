@@ -67,14 +67,16 @@ modeled as a provisional VIA-style IER alias: writes set/clear IER bits and
 reads return bit 7 plus the current enable mask, which advances the ROM past the
 previous repeated 2832-read/3776-write loop. A `0x00800000` masked ROM alias was
 added after the guest switched toward the `0x40800000` ROM window and the
-68EC020 callbacks fetched masked `0x008xxxxx` addresses. With a 10M-cycle bounded
-probe, execution advances through the checksum loop and the ROM's high-memory
-sizing probes, then reaches `pc_after=0x40846862`; high addresses from
-`0x00400000` up to the I/O window are now modeled as a non-present RAM-size
-probe region so the ROM can discover the configured 4MB RAM boundary without
-unexpected-write panics. Newly named early VIA-like accesses include
-`0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the next still-generic
-range is around `0x00f14800`.
+68EC020 callbacks fetched masked `0x008xxxxx` addresses. With a 20M-cycle bounded
+probe, execution advances through the checksum loop, high-memory sizing probes,
+and the newly named `0x00f14000`-class early device range, then reaches
+`pc_after=0x408468d6`; high addresses from `0x00400000` up to the I/O window,
+plus the top 16 bytes of the 24-bit space, are now modeled as non-present
+RAM-size probe locations so the ROM can discover the configured 4MB RAM boundary
+without unexpected-write panics. Newly named early VIA-like accesses include
+`0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the `0x00f14800`
+range is separated as `early-f14000-device` while exact hardware semantics remain
+unknown.
 This establishes `0x0040008c` as the first guarded execution target, while the
 real reset overlay/vector mechanism remains to be modeled. The latest diagnostic
 also validates the memory-bus harness and Musashi callback bridge: 4MB PSRAM RAM
@@ -83,9 +85,8 @@ reads/writes, ROM write blocking, RAM-size probe handling, unmapped-read logging
 and a RAM-only synthetic 68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
 `cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
 panel in the normal LC target; user confirmation reported the test pattern
-visible. The next boot milestone is to identify/stub the newly exposed generic
-`0x00f14800`-class device range, then continue bounded ROM execution until the
-next missing device behavior is clear.
+visible. The next boot milestone is to continue past the memory-fill/test loop at
+`0x408468d6` and identify the next true missing device behavior.
 
 ## ROM metadata
 

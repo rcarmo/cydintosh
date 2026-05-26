@@ -13,8 +13,9 @@
 
 static const char *TAG = "lc_memory";
 
-#define LC_IO_STUB_KIND_COUNT 5u
+#define LC_IO_STUB_KIND_COUNT 6u
 #define LC_EARLY_VIA_REGISTER_COUNT 16u
+#define LC_RAM_SIZE_TOP_PROBE_BYTES 0x10u
 #define LC_EARLY_VIA_IER_REGISTER 14u
 #define LC_EARLY_VIA_IFR_REGISTER 13u
 
@@ -69,6 +70,8 @@ const char *lc_memory_io_stub_kind_name(lc_io_stub_kind_t kind) {
         return "early-rom-probe-1c00-stride";
     case LC_IO_STUB_EARLY_LC_VIA_REGISTER:
         return "early-lc-via-register";
+    case LC_IO_STUB_EARLY_F14000_DEVICE:
+        return "early-f14000-device";
     case LC_IO_STUB_GENERIC:
     default:
         return "generic-io-stub";
@@ -88,6 +91,9 @@ static unsigned lc_memory_via_register_index(uint32_t offset) {
 }
 
 static lc_io_stub_kind_t lc_memory_classify_io_stub(uint32_t offset) {
+    if (offset >= 0x00014000u && offset < 0x00016000u) {
+        return LC_IO_STUB_EARLY_F14000_DEVICE;
+    }
     if ((offset & 0x0001ffffu) == 0x00001c00u) {
         return LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE;
     }
@@ -151,6 +157,17 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
         decoded.region = LC_ADDR_REGION_RAM_SIZE_PROBE;
         decoded.base = LC_GUEST_RAM_SIZE;
         decoded.size = LC_RAM_SIZE_PROBE_LIMIT - LC_GUEST_RAM_SIZE;
+        decoded.offset = address - decoded.base;
+        decoded.name = lc_memory_region_name(decoded.region);
+        decoded.writable = true;
+        return decoded;
+    }
+
+    if (address >= LC_IO_24BIT_BASE_CANDIDATE + LC_IO_WINDOW_SIZE - LC_RAM_SIZE_TOP_PROBE_BYTES &&
+        address < LC_IO_24BIT_BASE_CANDIDATE + LC_IO_WINDOW_SIZE) {
+        decoded.region = LC_ADDR_REGION_RAM_SIZE_PROBE;
+        decoded.base = LC_IO_24BIT_BASE_CANDIDATE + LC_IO_WINDOW_SIZE - LC_RAM_SIZE_TOP_PROBE_BYTES;
+        decoded.size = LC_RAM_SIZE_TOP_PROBE_BYTES;
         decoded.offset = address - decoded.base;
         decoded.name = lc_memory_region_name(decoded.region);
         decoded.writable = true;

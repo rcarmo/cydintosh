@@ -54,6 +54,7 @@ TAB5_LC_BAUD ?= 921600
 TAB5_LC_ROM_IMAGE ?= vendor/mac-lc.rom
 TAB5_LC_ROM_OFFSET ?= 0x410000
 TAB5_LC_DISK_IMAGE ?= vendor/lc-disk.img
+TAB5_LC_CAPTURE_DURATION ?= 30
 
 ifeq ($(PIO_ENV),esp32-8048s043c)
 ESP_CHIP ?= esp32s3
@@ -176,7 +177,7 @@ flash-tab5-lc-rom: lc-rom-info
 	$(ESPTOOL) --chip esp32p4 --port $(TAB5_LC_SERIAL_PORT) --baud $(TAB5_LC_BAUD) verify_flash $(TAB5_LC_ROM_OFFSET) $(TAB5_LC_ROM_IMAGE)
 
 capture-tab5-logs:
-	$(SERIAL_PYTHON) tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration 15 --dtr-during-reset false --no-clear-after-reset
+	$(SERIAL_PYTHON) tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration $(TAB5_LC_CAPTURE_DURATION) --dtr-during-reset false --no-clear-after-reset
 
 lc-rom-info:
 	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE)
