@@ -156,11 +156,11 @@ Current LC/P4 diagnostics include ROM partition mmap validation, on-device ROM
 vector candidate scanning, LC-only Musashi 68EC020/68020 configuration, Musashi
 callback wiring to the LC memory bus, trace/perf counters, provisional memory
 decoder, a bounded LC memory-bus harness with PSRAM RAM + mapped ROM + generic
-I/O stubs, read-only disk trace scaffolding,
-Tab5 backlight/touch probes, software-only
-display pattern checksums, and a visually confirmed M5Stack-BSP-based physical
-display smoke image that now renders the LC `512×384×8bpp` indexed debug pattern
-scaled into the Tab5 panel through reusable BSP `init`/`flush_indexed` and
+I/O stubs, read-only disk trace scaffolding, Tab5 backlight/touch probes,
+software-only display pattern checksums, and a visually confirmed M5Stack-BSP-based
+physical display path. The normal LC diagnostic now initializes the BSP panel and
+renders the LC `512×384×8bpp` indexed debug pattern scaled into the Tab5 panel
+through reusable BSP `init`/`flush_indexed` and
 dirty-row `flush_indexed_dirty` paths. The dirty-row self-test currently inverts a
 24-row LC band and updates only the corresponding centered-viewport physical rows
 before entering the brightness heartbeat. The display-smoke heartbeat also
@@ -175,8 +175,11 @@ reads/writes, 24-bit/32-bit ROM window reads, generic I/O stub reads/writes, ROM
 write blocking, and unmapped-read logging. A RAM-only synthetic 68EC020 smoke
 program now validates `m68k_init()`/`m68k_set_cpu_type()`/`m68k_pulse_reset()` and
 bounded `m68k_execute()` through the LC bus callbacks (`reset_pc=0x100`,
-`reset_sp=0x2000`, `cpu_type=3`); LC ROM execution remains disabled. The Tab5
-USB/JTAG device must be present before flashing or validating hardware output.
+`reset_sp=0x2000`, `cpu_type=3`); LC ROM execution remains disabled. Current
+hardware/user confirmation: the normal `esp32-p4-tab5-lc-color` diagnostic visibly
+shows the LC test pattern and uses the BSP display/backlight path, avoiding the
+raw GPIO22 LEDC fallback unless panel init fails. The Tab5 USB/JTAG device must be
+present before flashing or validating hardware output.
 
 ## Board profiles and PlatformIO environments
 

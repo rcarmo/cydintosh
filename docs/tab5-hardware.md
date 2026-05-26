@@ -236,7 +236,11 @@ after flashing showed the app alive, flushed the LC indexed framebuffer with
 checksum `0x3b4a1479`, validated a dirty-row partial update for LC rows `180-203`
 (`34` physical rows, `3` strips, checksum `0x33892af9`), and repeatedly set
 backlight to 35%/100%; camera/user confirmation verified the BSP pattern renders
-and flashes.
+and flashes. The normal LC diagnostic target now also initializes the same BSP
+panel path and draws the LC indexed test pattern before continuing ROM/RAM/CPU
+serial diagnostics. User confirmation on 2026-05-26: “I see the test pattern.”
+When the BSP panel initializes, the LC target uses the BSP brightness path and
+skips the raw GPIO22 backlight fallback to avoid LEDC ownership conflicts.
 
 Touch support (`src/machine_lc/tab5_touch.c`) now reuses the M5Stack BSP system
 I2C bus on GPIO31/GPIO32, probes GT911 at `0x14` plus ST7123 at `0x55`, and

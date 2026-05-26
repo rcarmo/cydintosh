@@ -23,6 +23,7 @@
 #include <inttypes.h>
 
 static const char *TAG = "tab5_lc";
+static bool lc_boot_display_ready;
 
 static void log_chip_info(void) {
     esp_chip_info_t chip = {0};
@@ -63,6 +64,28 @@ static void log_lc_disk_partition(void) {
         return;
     }
     lc_disk_log_info(&info);
+}
+
+static void draw_lc_boot_display_status(void) {
+    esp_err_t err = tab5_bsp_display_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "LC boot display status unavailable: init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = tab5_bsp_display_set_brightness(100);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "LC boot display status brightness failed: %s", esp_err_to_name(err));
+    }
+
+    err = tab5_bsp_display_draw_lc_test_pattern();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "LC boot display status draw failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    lc_boot_display_ready = true;
+    ESP_LOGI(TAG, "LC boot display status pattern drawn on Tab5 panel");
 }
 
 static void log_lc_rom_partition(void) {
@@ -111,9 +134,13 @@ void app_main(void) {
     lc_trace_reset();
     lc_perf_reset();
     lc_trace_record_marker(0x4c433030u); // 'LC00': skeleton start
-    esp_err_t bl_err = tab5_backlight_init(TAB5_BACKLIGHT_BOOT_PERCENT);
-    if (bl_err == ESP_OK) {
-        tab5_backlight_boot_pulse();
+    draw_lc_boot_display_status();
+    esp_err_t bl_err = ESP_ERR_INVALID_STATE;
+    if (!lc_boot_display_ready) {
+        bl_err = tab5_backlight_init(TAB5_BACKLIGHT_BOOT_PERCENT);
+        if (bl_err == ESP_OK) {
+            tab5_backlight_boot_pulse();
+        }
     }
     log_chip_info();
     ESP_LOGI(TAG, "boot diagnostics: machine=%s rom_expected_size=0x%x cpu_mode=68EC020-scaffold guest_ram=%d framebuffer=%dx%d@%dbpp",
@@ -121,9 +148,13 @@ void app_main(void) {
              LC_GUEST_COLOR_DEPTH_BITS);
     lc_cpu_log_config();
     lc_cpu_log_trace_hook_status();
-    tab5_backlight_log_config();
-    if (bl_err != ESP_OK) {
-        ESP_LOGE(TAG, "Tab5 backlight init failed: %s", esp_err_to_name(bl_err));
+    if (lc_boot_display_ready) {
+        ESP_LOGI(TAG, "Tab5 display/backlight path: M5Stack BSP panel initialized");
+    } else {
+        tab5_backlight_log_config();
+        if (bl_err != ESP_OK) {
+            ESP_LOGE(TAG, "Tab5 backlight init failed: %s", esp_err_to_name(bl_err));
+        }
     }
     lc_memory_log_initial_map();
     lc_memory_log_write_policy();
@@ -147,7 +178,10 @@ void app_main(void) {
     lc_trace_record_marker(0x4c43304fu); // 'LC0O': skeleton diagnostics complete
     lc_perf_log_summary();
     lc_trace_dump_recent(16);
-    ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");
+    ESP_LOGI(TAG, "Milestone 0 skeleton is alive; LC ROM emulation is not enabled yet");
+    if (lc_boot_display_ready) {
+        tab5_bsp_display_brightness_heartbeat_loop();
+    }
     if (bl_err == ESP_OK) {
         tab5_backlight_heartbeat_loop();
     }

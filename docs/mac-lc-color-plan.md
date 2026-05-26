@@ -43,6 +43,7 @@ not a Macintosh LC emulator loop. It currently provides:
 - Tab5 GPIO22/LEDC backlight scaffold;
 - temporary `esp32-p4-tab5-bootdiag` no-PSRAM GPIO22/PI4IOE isolation image;
 - vendored M5Tab5 BSP display-smoke image for real 720×1280 MIPI-DSI panel fills, visually confirmed on hardware, now exposing reusable full and dirty-row LC indexed framebuffer flush paths;
+- normal `esp32-p4-tab5-lc-color` diagnostic now initializes the BSP panel and visibly draws the LC indexed test pattern before continuing serial diagnostics;
 - software-only 720×1280 physical-panel smoke pattern checksums;
 - Tab5 touch reader scaffold: ST7123/GT911 probing, driver init, no-touch polling, and raw-panel to LC-viewport coordinate mapping.
 
@@ -56,7 +57,9 @@ harness and Musashi callback bridge without executing the LC ROM: 4MB PSRAM RAM
 reads/writes, mapped ROM reads from both candidate windows, generic I/O stub
 reads/writes, ROM write blocking, unmapped-read logging, and a RAM-only synthetic
 68EC020 reset/execute smoke test (`reset_pc=0x100`, `reset_sp=0x2000`,
-`cpu_type=3`). The next boot milestone remains verifying the real ROM overlay
+`cpu_type=3`). It also now shows the LC indexed diagnostic pattern on the Tab5
+panel in the normal LC target; user confirmation reported the test pattern visible.
+The next boot milestone remains verifying the real ROM overlay
 mapping, then using the same bus path to record first LC ROM hardware accesses
 through the trace ring.
 

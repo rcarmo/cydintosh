@@ -199,8 +199,10 @@ LC-on-Tab5 test pattern: indexed_checksum=0x7c329dc5 status=ESP_OK
 ```
 
 Camera/user confirmation verified that the panel visibly renders the pattern and
-flashes. If the panel appears asleep after future flashes, press the Tab5 power
-button once, as required by the patched official demo during testing.
+flashes. The normal LC diagnostic target now reuses the same BSP init/full-flush
+path and has also been hardware/user confirmed to show the LC test pattern. If the
+panel appears asleep after future flashes, press the Tab5 power button once, as
+required by the patched official demo during testing.
 
 ## Touch scaffold status
 
