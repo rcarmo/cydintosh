@@ -180,8 +180,9 @@ Apache/MIT upstream files and avoiding the full demo app/LVGL layer. The separat
 - pulses backlight between 35% and 100%.
 
 Serial capture from the flashed smoke image shows the app alive in the brightness
-heartbeat loop. Visual confirmation remains manual; if the panel appears asleep,
-press the Tab5 power button once, as required by the patched official demo during
+heartbeat loop. Camera/user confirmation verified that the panel visibly renders
+the pattern and flashes. If the panel appears asleep after future flashes, press
+the Tab5 power button once, as required by the patched official demo during
 testing.
 
 ## Touch scaffold status
@@ -200,10 +201,9 @@ It does not read touch coordinates or emit ADB mouse packets yet.
 
 1. Keep the vendored BSP isolated under `components_tab5/` so Mac Plus builds do
    not pull Tab5/P4-only managed dependencies.
-2. Confirm the physical display-smoke pattern on hardware.
-3. Replace the stripe fill with LC `512x384` indexed test-pattern scaling and
-   centering once the physical panel path is visually confirmed.
-4. Only after that, route the LC guest framebuffer through the BSP panel handle.
+2. Replace the stripe fill with LC `512x384` indexed test-pattern scaling and
+   centering now that the physical panel path is visually confirmed.
+3. Route the LC guest framebuffer through the BSP panel handle.
 
 ## Open risks
 
