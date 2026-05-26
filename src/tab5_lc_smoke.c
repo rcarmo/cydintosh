@@ -73,6 +73,7 @@ void app_main(void) {
              LC_GUEST_COLOR_DEPTH_BITS);
     lc_cpu_log_config();
     lc_memory_log_initial_map();
+    lc_memory_log_decoder_examples();
     lc_memory_probe_guest_ram_allocation();
     log_lc_rom_partition();
     ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");

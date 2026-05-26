@@ -119,3 +119,17 @@ The firmware maps the first `0x80000` bytes of that partition read-only with
 `esp_partition_mmap()` and logs the mapped base, size, and first two big-endian
 longwords. It also probes LC guest RAM allocation in PSRAM with a 4MB primary
 request and a 2MB fallback request.
+
+Current address-map diagnostics are deliberately provisional and log both
+24-bit-first and 32-bit candidate windows:
+
+| Guest range | Purpose | Status |
+|---:|---|---|
+| `0x00000000`–`0x003fffff` | 4MB RAM target | allocation probe only |
+| `0x00400000`–`0x0047ffff` | 24-bit ROM candidate | reset-vector mapping unverified |
+| `0x40800000`–`0x4087ffff` | 32-bit ROM candidate | reset-vector mapping unverified |
+| `0x00f00000`–`0x00ffffff` | 24-bit I/O candidate | placeholder decoder only |
+| `0x50000000`–`0x500fffff` | 32-bit I/O candidate | placeholder decoder only |
+
+The decoder includes a throttled unmapped-access logger for the later CPU
+execution milestone; no guest code is executed by the current skeleton.
