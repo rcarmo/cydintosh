@@ -27,6 +27,7 @@ WORKTREE_ORIGINAL := /workspace/tmp/cydintosh-upstream
 UPSTREAM_BASE_COMMIT := cd5a6b2
 PIO ?= pio
 ESPTOOL ?= /workspace/.venvs/pio/bin/python -m esptool
+SERIAL_PYTHON ?= /workspace/.venvs/pio/bin/python
 RETRO68_IMAGE := ghcr.io/autc04/retro68
 UMAC_PATCHES := patches/umac-suppress-sony-eject.patch \
 	patches/umac-esp32-hotpath-tuning.patch
@@ -158,7 +159,7 @@ flash-tab5-lc-rom: lc-rom-info
 	$(ESPTOOL) --chip esp32p4 --port $(TAB5_LC_SERIAL_PORT) --baud $(TAB5_LC_BAUD) verify_flash $(TAB5_LC_ROM_OFFSET) $(TAB5_LC_ROM_IMAGE)
 
 capture-tab5-logs:
-	python3 tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration 15
+	$(SERIAL_PYTHON) tools/capture_serial_logs.py --port $(TAB5_LC_SERIAL_PORT) --baud 115200 --duration 15
 
 lc-rom-info:
 	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE)
