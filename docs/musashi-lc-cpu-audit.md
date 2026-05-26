@@ -173,6 +173,9 @@ bounded `m68k_execute(64)` without executing LC ROM bytes. The latest serial log
 shows `reset_pc=0x00000100`, `reset_sp=0x00002000`, `pc_after=0x00000104`,
 `sr=0x2704`, and `cpu_type=3`.
 
-The next CPU-core step is to verify the actual LC reset SP/PC overlay mapping,
-then use this same bus path to report the first exception/unmapped-access
-failures from real ROM execution.
+The current CPU-core diagnostic seeds the `0x00402e00` reset-body probe with the
+caller continuation used by the reset trampoline (`a6=0x004000b4`). That avoids
+the invalid zero-RAM path from a bare entry, sets `vbr=0x40846140`, and reaches
+the ROM monitor/diagnostic dispatcher. The next CPU-core step is to determine why
+that seeded path selects diagnostics rather than normal boot, using status/flag
+tracing before adding any fake serial input.

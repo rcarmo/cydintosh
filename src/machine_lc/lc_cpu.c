@@ -43,7 +43,7 @@ static const char *TAG = "lc_cpu";
 #endif
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
-#define LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES 64u
+#define LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES 512u
 #endif
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE_BASE
@@ -58,6 +58,10 @@ static const char *TAG = "lc_cpu";
 #define LC_CPU_ROM_ENTRY_PROBE_STACK (LC_GUEST_RAM_SIZE - 0x1000u)
 #endif
 
+#ifndef LC_CPU_ROM_ENTRY_PROBE_A6
+#define LC_CPU_ROM_ENTRY_PROBE_A6 (LC_ROM_WINDOW_24BIT_BASE_CANDIDATE + 0x000000b4u)
+#endif
+
 #ifndef LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE
 #define LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE M68K_CPU_TYPE_68EC020
 #endif
@@ -65,6 +69,17 @@ static const char *TAG = "lc_cpu";
 #ifndef LC_CPU_STOP_ON_ZERO_RAM_EXECUTION
 #define LC_CPU_STOP_ON_ZERO_RAM_EXECUTION 1
 #endif
+
+#ifndef LC_CPU_STOP_ON_ROM_MONITOR_LOOP
+#define LC_CPU_STOP_ON_ROM_MONITOR_LOOP 1
+#endif
+
+static bool lc_cpu_pc_is_rom_monitor_loop(uint32_t pc) {
+    const uint32_t rom_offset = pc & 0x000fffffu;
+    return (rom_offset >= 0x000499b0u && rom_offset < 0x0004a018u) ||
+           rom_offset == 0x00049fcau || rom_offset == 0x00049ff8u ||
+           rom_offset == 0x000499eau;
+}
 
 static uint16_t lc_cpu_peek16_no_trace(const lc_memory_bus_t *bus, uint32_t address) {
     if (bus == NULL || !bus->initialized) {
@@ -557,11 +572,12 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
 
     const uint32_t entry_pc = LC_CPU_ROM_ENTRY_PROBE_BASE + LC_CPU_ROM_ENTRY_PROBE_OFFSET;
     ESP_LOGW(TAG,
-             "LC ROM entry micro-probe enabled: bounded diagnostic only, not a boot claim; base=0x%08x entry_offset=0x%05x cycles=%u stack=0x%08x cpu=%s(%u)",
+             "LC ROM entry micro-probe enabled: bounded diagnostic only, not a boot claim; base=0x%08x entry_offset=0x%05x cycles=%u stack=0x%08x a6_seed=0x%08x cpu=%s(%u)",
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_BASE,
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_OFFSET,
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_CYCLES,
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK,
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_A6,
              lc_cpu_type_name(LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE),
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE);
 
@@ -573,14 +589,16 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     m68k_pulse_reset();
     m68k_set_reg(M68K_REG_SP, LC_CPU_ROM_ENTRY_PROBE_STACK);
     m68k_set_reg(M68K_REG_SR, 0x2700u);
+    m68k_set_reg(M68K_REG_A6, LC_CPU_ROM_ENTRY_PROBE_A6);
     m68k_set_reg(M68K_REG_PC, entry_pc);
 
     const uint16_t first_opcode = lc_memory_bus_read16(bus, entry_pc);
     ESP_LOGI(TAG,
              "LC ROM entry micro-probe: entry_pc=0x%08" PRIx32
-             " first_opcode=0x%04x hint=%s sp=0x%08x cpu_type_reg=%u",
+             " first_opcode=0x%04x hint=%s sp=0x%08x a6=0x%08x cpu_type_reg=%u",
              entry_pc, first_opcode, opcode_hint(first_opcode),
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK,
+             (unsigned)LC_CPU_ROM_ENTRY_PROBE_A6,
              m68k_get_reg(NULL, M68K_REG_CPU_TYPE));
     unsigned int total_cycles = 0;
     unsigned int remaining_cycles = LC_CPU_ROM_ENTRY_PROBE_CYCLES;
@@ -588,6 +606,8 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     unsigned int last_d7_checkpoint = m68k_get_reg(NULL, M68K_REG_D7);
     bool zero_ram_execution_logged = false;
     bool stopped_on_zero_ram_execution = false;
+    bool stopped_on_rom_monitor_loop = false;
+    unsigned int last_transition_log_cycles = 0;
     unsigned int chunk_index = 0;
     while (remaining_cycles > 0) {
         const unsigned int requested_chunk = remaining_cycles > LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
@@ -616,20 +636,39 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
 #endif
             }
         }
-        if (checkpoint_d6 != last_d6_checkpoint || checkpoint_d7 != last_d7_checkpoint ||
-            (chunk_index % 5000u) == 0) {
-            ESP_LOGI(TAG,
-                     "LC ROM entry micro-probe checkpoint: requested=%u executed_total=%u pc=0x%08x opcode=0x%04x d6=0x%08x d7=0x%08x a2=0x%08x a3=0x%08x a7=0x%08x vbr=0x%08x",
-                     (unsigned)LC_CPU_ROM_ENTRY_PROBE_CYCLES, total_cycles, checkpoint_pc,
-                     checkpoint_opcode, checkpoint_d6, checkpoint_d7,
-                     m68k_get_reg(NULL, M68K_REG_A2), m68k_get_reg(NULL, M68K_REG_A3),
-                     m68k_get_reg(NULL, M68K_REG_A7), m68k_get_reg(NULL, M68K_REG_VBR));
-            last_d6_checkpoint = checkpoint_d6;
-            last_d7_checkpoint = checkpoint_d7;
+        const bool register_transition = checkpoint_d6 != last_d6_checkpoint ||
+                                         checkpoint_d7 != last_d7_checkpoint;
+#if LC_CPU_STOP_ON_ROM_MONITOR_LOOP
+        if (lc_cpu_pc_is_rom_monitor_loop(checkpoint_pc)) {
+            ESP_LOGW(TAG,
+                     "LC ROM entry micro-probe reached ROM diagnostic/serial monitor loop: pc=0x%08x opcode=0x%04x d0=0x%08x d7=0x%08x cycles=%u",
+                     checkpoint_pc, checkpoint_opcode, m68k_get_reg(NULL, M68K_REG_D0),
+                     checkpoint_d7, total_cycles);
+            stopped_on_rom_monitor_loop = true;
+        }
+#endif
+        if ((register_transition &&
+             (total_cycles - last_transition_log_cycles) >= 250000u) ||
+            (chunk_index % 5000u) == 0 || stopped_on_rom_monitor_loop) {
+             ESP_LOGI(TAG,
+                      "LC ROM entry micro-probe checkpoint: requested=%u executed_total=%u pc=0x%08x opcode=0x%04x d6=0x%08x d7=0x%08x a2=0x%08x a3=0x%08x a7=0x%08x vbr=0x%08x",
+                      (unsigned)LC_CPU_ROM_ENTRY_PROBE_CYCLES, total_cycles, checkpoint_pc,
+                      checkpoint_opcode, checkpoint_d6, checkpoint_d7,
+                      m68k_get_reg(NULL, M68K_REG_A2), m68k_get_reg(NULL, M68K_REG_A3),
+                      m68k_get_reg(NULL, M68K_REG_A7), m68k_get_reg(NULL, M68K_REG_VBR));
+             last_d6_checkpoint = checkpoint_d6;
+             last_d7_checkpoint = checkpoint_d7;
+             last_transition_log_cycles = total_cycles;
         }
         if (stopped_on_zero_ram_execution) {
             ESP_LOGW(TAG,
                      "LC ROM entry micro-probe stopped on zero-filled RAM execution guard at cycles=%u",
+                     total_cycles);
+            break;
+        }
+        if (stopped_on_rom_monitor_loop) {
+            ESP_LOGW(TAG,
+                     "LC ROM entry micro-probe stopped on ROM diagnostic/serial monitor guard at cycles=%u",
                      total_cycles);
             break;
         }
@@ -668,9 +707,10 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     lc_trace_record(LC_TRACE_EVENT_CPU_CONFIG, pc_after, entry_pc, d0_after,
                     (uint16_t)cycles, false);
     ESP_LOGI(TAG,
-             "LC ROM entry micro-probe result: cycles=%d pc_after=0x%08x ppc_after=0x%08x opcode_after=0x%04x ir=0x%04x sp_after=0x%08x sr=0x%04x d0=0x%08x reset_callbacks=%" PRIu32 " stopped_on_zero_ram=%d",
+             "LC ROM entry micro-probe result: cycles=%d pc_after=0x%08x ppc_after=0x%08x opcode_after=0x%04x ir=0x%04x sp_after=0x%08x sr=0x%04x d0=0x%08x reset_callbacks=%" PRIu32 " stopped_on_zero_ram=%d stopped_on_monitor=%d",
              cycles, pc_after, ppc_after, opcode_after, ir_after, sp_after, sr_after, d0_after,
-             lc_musashi_bus_reset_callback_count(), stopped_on_zero_ram_execution);
+             lc_musashi_bus_reset_callback_count(), stopped_on_zero_ram_execution,
+             stopped_on_rom_monitor_loop);
     ESP_LOGI(TAG,
              "LC ROM entry micro-probe regs: d1=0x%08x d2=0x%08x d3=0x%08x d4=0x%08x d5=0x%08x d6=0x%08x d7=0x%08x",
              d1_after, d2_after, d3_after, d4_after, d5_after, d6_after, d7_after);

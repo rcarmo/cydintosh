@@ -177,11 +177,13 @@ the first `0x4000` bytes and selected current best vector-like candidate
 still considered noise compared with the ROM-header entry hints. The bounded
 entry micro-probe originally started at `0x0040008c`, invoked the guest `RESET`
 callback once, and recorded first ROM I/O-stub probes at `0x00f01c00`,
-`0x00f21c00`, and `0x00f41c00`. Alternate ROM-header probes now show
-`0x00402e00`/`0x00402f18` avoid the later diagnostic monitor, but the current
-`0x00402e00` diagnostic is guarded because it reaches `jmp (a4)` at `0x40802e7a`
-with `a4=0x40400000`, executes the ROM header/fingerprint bytes, trips an A-line
-exception while low vectors are still zero, and falls into zero-filled RAM. The explicit `early-rom-probe-1c00-stride` stub now behaves as a
+`0x00f21c00`, and `0x00f41c00`. Alternate ROM-header probes showed that a bare
+`0x00402e00` entry is invalid because it reaches `jmp (a4)` at `0x40802e7a` with
+`a4=0x40400000`, executes the ROM header/fingerprint bytes, trips an A-line
+exception while low vectors are still zero, and falls into zero-filled RAM. The
+current `0x00402e00` diagnostic seeds the reset trampoline continuation
+(`a6=0x004000b4`), which avoids the zero-RAM trap, sets `vbr=0x40846140`, and
+runs until the ROM diagnostic/serial-monitor dispatcher. The explicit `early-rom-probe-1c00-stride` stub now behaves as a
 provisional VIA IER alias instead of constant `0xff`: the former repeated
 2832-read/3776-write loop advances after IER-style set/clear/readback behavior.
 The masked ROM alias then lets the guest continue with `0x408xxxxx` PCs while
@@ -196,8 +198,8 @@ summarized at `0x00f01e00`, `0x00f00600`, `0x00f00400`, and `0x00f00000`; the
 `0x00f14000`-class range remains named but not identified, and the
 `0x00f04000`-class range is modeled as SCC-like status/data (`early-f04000-device`).
 The previous `0x0080xxxx` masked-ROM write stream was reclassified as an artifact
-of continuing through zero-filled RAM after that invalid A-line exception path,
-not as evidence of normal reset-body progress.
+of continuing through zero-filled RAM after the invalid unseeded `0x00402e00`
+entry path, not as evidence of normal reset-body progress.
 
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM

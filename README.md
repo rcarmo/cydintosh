@@ -182,13 +182,14 @@ set/clear/readback behavior, which advances past the previous repeated
 monitor loop around `0x408498ec`/`0x40849fca` after the checksum loop,
 high-memory sizing probes, a named-but-not-identified `0x00f14000`-class I/O
 range, and an SCC-like `0x00f04000` status/data block. Alternate ROM-header
-probes show `0x00402e00`/`0x00402f18` avoid that monitor, but the current
-`0x00402e00` diagnostic is guarded because it reaches `jmp (a4)` at `0x40802e7a`
-with `a4=0x40400000`, executes the ROM header/fingerprint bytes, trips an A-line
-exception with low vectors still zero, and falls into zero-filled RAM. Addresses
-above the configured 4MB RAM and below the I/O window, plus the top 16 bytes of
-the 24-bit address space, are modeled as non-present RAM-size probes. The
-memory-bus harness validates 4MB PSRAM RAM
+probes show `0x00402e00`/`0x00402f18` avoid that monitor only when the
+`0x00402e00` probe is seeded with the reset trampoline's caller continuation
+(`a6=0x004000b4`); without that seed it falls into zero-filled RAM through the ROM
+header. With the seed, the probe sets `vbr=0x40846140`, advances through RAM/probe
+code, then stops on the known ROM diagnostic/serial-monitor dispatcher around
+`0x40849eae`/`0x40849fca`. Addresses above the configured 4MB RAM and below the
+I/O window, plus the top 16 bytes of the 24-bit address space, are modeled as
+non-present RAM-size probes. The memory-bus harness validates 4MB PSRAM RAM
 reads/writes, ROM window reads, generic I/O stub reads/writes, ROM write blocking,
 RAM-size probe handling, and unmapped-read logging. A RAM-only synthetic 68EC020 smoke program validates
 `m68k_init()`/`m68k_set_cpu_type()`/`m68k_pulse_reset()` and bounded

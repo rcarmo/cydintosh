@@ -90,16 +90,18 @@ visible. The `0x0040008c` guarded entry appears to end in a ROM diagnostic
 monitor, not yet in a normal Mac boot path. Alternate ROM-header probes show
 `0x00402e00` and `0x00402f18` avoid that monitor, while `0x00402310` reaches the
 same diagnostic monitor quickly and `0x00401240` falls into RAM-only trap/setup
-code. The current diagnostic default is `0x00402e00`, guarded by a zero-filled
-RAM execution stop. Latest hardware capture (`serial-capture-20260526-202108.log`)
-shows this candidate reaches `jmp (a4)` at `0x40802e7a`, with `a4=0x40400000`,
-then executes the ROM header/fingerprint bytes at `0x40400000`/masked
-`0x00400000`. The second header word (`0xacf0`) raises an A-line exception while
-low exception vectors are still zero, so execution vectors to zero-filled RAM and
-is stopped at `pc=0x0000000c`. The earlier masked-ROM-shadow writes were artifacts
-of continuing through that zero RAM, not a normal boot path. The next boot
-milestone is to identify the real reset/overlay/vector preconditions for this
-entry path or choose an entry that does not require unknown register state.
+code. The current diagnostic default is `0x00402e00`, now seeded with the caller
+frame pointer/continuation used by the reset trampoline (`a6=0x004000b4`). Latest
+hardware capture (`serial-capture-20260526-203743.log`) shows this avoids the
+previous zero-filled RAM trap, sets `vbr=0x40846140`, runs RAM sizing/probe code,
+and stops on the known ROM diagnostic/serial-monitor dispatcher around
+`0x40849eae`/`0x40849fca`. The earlier direct `0x00402e00` probe without the
+caller `a6` seed jumped through `a4=0x40400000`, executed ROM header/fingerprint
+bytes, raised an A-line exception with zero low vectors, and fell into zero RAM;
+that is now treated as an invalid entry precondition rather than boot progress.
+The next boot milestone is to understand why the reset path still selects the ROM
+monitor/diagnostic path and whether specific hardware status bits or reset flags
+can steer it toward normal boot without faking serial input.
 
 ## ROM metadata
 

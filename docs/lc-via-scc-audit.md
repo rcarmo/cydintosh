@@ -179,20 +179,22 @@ With 20k requested cycles, the first repeated I/O-candidate accesses are:
 A comparison probe using `0x4080008c` showed that the 68EC020 path masks that
 address to `0x0080008c`. The decoder now maps `0x00800000`-`0x0087ffff` as a
 masked alias of the same 512KB ROM so the guest can continue after it moves PCs
-into the `0x408xxxxx` ROM window. Alternate ROM-header probes show that
-`0x00402e00`/`0x00402f18` avoid the diagnostic monitor reached from `0x0040008c`,
-but the guarded `0x00402e00` capture now shows a jump through `a4=0x40400000` to
-the ROM header/fingerprint bytes, an A-line exception while low vectors are still
-zero, and a fall into zero-filled RAM. The earlier `0x008039xx`/`0x00803428`/
-`0x00807428` write stream was an artifact of continuing through zero RAM, not a
-normal reset-overlay write sequence.
+into the `0x408xxxxx` ROM window. Alternate ROM-header probes showed that a bare
+`0x00402e00` entry is invalid because it jumps through `a4=0x40400000` to the ROM
+header/fingerprint bytes, raises an A-line exception while low vectors are still
+zero, and falls into zero-filled RAM. Seeding `a6=0x004000b4`, matching the reset
+trampoline continuation at `0x004000ac`, lets the same `0x00402e00` body return
+through `0x004000b4`, set `vbr=0x40846140`, and progress to the ROM
+monitor/diagnostic dispatcher around `0x40849eae`/`0x40849fca`. The earlier
+`0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
+through zero RAM, not a normal reset-overlay write sequence.
 
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. Identify the real reset/overlay/vector preconditions for the `0x00402e00`
-   path, especially why `a4` points at the ROM header and how low A-line/vector
-   dispatch should be initialized before executing header/trap bytes.
+2. Identify why the seeded reset-body path still selects the ROM
+   monitor/diagnostic dispatcher instead of normal boot; focus on status bits and
+   reset flags before considering fake serial input.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
    record the next accesses into I/O candidate windows.
 4. Stub only the first missing device range needed to advance boot, preserving the
