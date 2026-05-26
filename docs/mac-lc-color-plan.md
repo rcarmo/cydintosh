@@ -56,12 +56,16 @@ Inspect locally and flash explicitly with:
 ```bash
 python3 tools/inspect_lc_rom.py vendor/mac-lc.rom
 make lc-rom-info
+make lc-rom-vectors
 make flash-tab5-lc-rom
 ```
 
-The firmware validates the flashed partition by checking that the `rom` data
-partition is at least `0x80000` bytes and that the mapped first long is
-`0x350EACF0`.
+`make lc-rom-vectors` scans metadata-only SP/PC pairs against the provisional
+24-bit and 32-bit ROM window candidates. It is a heuristic aid only; the current
+offset-0 words are not a plausible reset SP/PC pair, so actual reset-vector
+mapping still needs runtime verification. The firmware validates the flashed
+partition by checking that the `rom` data partition is at least `0x80000` bytes
+and that the mapped first long is `0x350EACF0`.
 
 ## Scope
 

@@ -104,10 +104,11 @@ pio run -e esp32-p4-tab5-lc-color
 ```
 
 The LC ROM itself is not committed. Use local `vendor/mac-lc.rom` only.
-Validate and flash it explicitly with:
+Validate, inspect vector/window candidates, and flash it explicitly with:
 
 ```bash
 make lc-rom-info
+make lc-rom-vectors
 make flash-tab5-lc-rom
 ```
 
