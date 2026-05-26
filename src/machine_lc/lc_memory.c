@@ -3,6 +3,7 @@
 #include "board_profiles.h"
 #include "lc_trace.h"
 
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 
@@ -285,4 +286,198 @@ void lc_memory_probe_display_buffer_allocation(void) {
     ESP_LOGI(TAG, "LC full RGB565 framebuffer is diagnostic-only for now; dirty-row/strip rendering remains preferred");
     log_heap_caps("heap dma/internal after display probe", MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     log_heap_caps("heap psram after display probe", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+static uint8_t lc_memory_io_stub_read8(uint32_t address, uint32_t offset) {
+    (void)offset;
+    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, 0xffu, 1, false);
+    return 0xffu;
+}
+
+static esp_err_t lc_memory_io_stub_write8(uint32_t address, uint32_t offset, uint8_t value) {
+    (void)offset;
+    lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, value, 1, true);
+    return ESP_OK;
+}
+
+esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) {
+    if (bus == NULL || rom_map == NULL || !rom_map->mapped || rom_map->bytes == NULL ||
+        rom_map->size < LC_ROM_SIZE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(bus, 0, sizeof(*bus));
+
+    size_t requested = LC_GUEST_RAM_SIZE;
+    bus->ram = (uint8_t *)heap_caps_calloc(1, requested, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (bus->ram == NULL) {
+        ESP_LOGW(TAG, "LC memory bus RAM allocation failed for %zu bytes; trying fallback %u bytes",
+                 requested, (unsigned)LC_GUEST_RAM_FALLBACK_SIZE);
+        requested = LC_GUEST_RAM_FALLBACK_SIZE;
+        bus->ram = (uint8_t *)heap_caps_calloc(1, requested, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        bus->using_fallback_ram = true;
+    }
+    if (bus->ram == NULL) {
+        ESP_LOGE(TAG, "LC memory bus RAM allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
+
+    bus->ram_size = requested;
+    bus->rom = rom_map->bytes;
+    bus->rom_size = rom_map->size;
+    bus->initialized = true;
+    ESP_LOGI(TAG, "LC memory bus initialized: ram=%p size=0x%zx%s rom=%p size=0x%zx",
+             (void *)bus->ram, bus->ram_size, bus->using_fallback_ram ? " fallback" : "",
+             (const void *)bus->rom, bus->rom_size);
+    return ESP_OK;
+}
+
+void lc_memory_bus_free(lc_memory_bus_t *bus) {
+    if (bus == NULL) {
+        return;
+    }
+    if (bus->ram != NULL) {
+        heap_caps_free(bus->ram);
+    }
+    memset(bus, 0, sizeof(*bus));
+}
+
+uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
+    if (bus == NULL || !bus->initialized) {
+        lc_memory_log_unmapped_access(0, address, 1, false);
+        return 0xffu;
+    }
+
+    lc_addr_decode_t decoded = lc_memory_decode_address(address);
+    switch (decoded.region) {
+    case LC_ADDR_REGION_RAM:
+        if (decoded.offset < bus->ram_size) {
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, bus->ram[decoded.offset], 1,
+                            false);
+            return bus->ram[decoded.offset];
+        }
+        break;
+    case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+        if (decoded.offset < bus->rom_size) {
+            const uint8_t value = bus->rom[decoded.offset];
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, value, 1, false);
+            return value;
+        }
+        break;
+    case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
+    case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
+        return lc_memory_io_stub_read8(address, decoded.offset);
+    case LC_ADDR_REGION_UNMAPPED:
+    default:
+        break;
+    }
+
+    lc_memory_log_unmapped_access(0, address, 1, false);
+    return 0xffu;
+}
+
+uint16_t lc_memory_bus_read16(lc_memory_bus_t *bus, uint32_t address) {
+    const uint16_t hi = lc_memory_bus_read8(bus, address);
+    const uint16_t lo = lc_memory_bus_read8(bus, address + 1u);
+    return (uint16_t)((hi << 8) | lo);
+}
+
+uint32_t lc_memory_bus_read32(lc_memory_bus_t *bus, uint32_t address) {
+    const uint32_t hi = lc_memory_bus_read16(bus, address);
+    const uint32_t lo = lc_memory_bus_read16(bus, address + 2u);
+    return (hi << 16) | lo;
+}
+
+esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t value) {
+    if (bus == NULL || !bus->initialized) {
+        lc_memory_log_unmapped_access(0, address, 1, true);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    lc_addr_decode_t decoded = lc_memory_decode_address(address);
+    switch (decoded.region) {
+    case LC_ADDR_REGION_RAM:
+        if (decoded.offset < bus->ram_size) {
+            bus->ram[decoded.offset] = value;
+            lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, 0, address, value, 1, true);
+            return ESP_OK;
+        }
+        break;
+    case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
+    case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
+        return lc_memory_io_stub_write8(address, decoded.offset, value);
+    case LC_ADDR_REGION_ROM_24BIT_CANDIDATE:
+    case LC_ADDR_REGION_ROM_32BIT_CANDIDATE:
+        lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, 0, address, value, 1, true);
+        ESP_LOGW(TAG, "LC blocked ROM write addr=0x%08" PRIx32 " offset=0x%08" PRIx32
+                      " value=0x%02x",
+                 address, decoded.offset, value);
+        return ESP_ERR_INVALID_STATE;
+    case LC_ADDR_REGION_UNMAPPED:
+    default:
+        break;
+    }
+
+    lc_memory_log_unmapped_access(0, address, 1, true);
+    return ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t lc_memory_bus_write16(lc_memory_bus_t *bus, uint32_t address, uint16_t value) {
+    esp_err_t err = lc_memory_bus_write8(bus, address, (uint8_t)(value >> 8));
+    if (err != ESP_OK) {
+        return err;
+    }
+    return lc_memory_bus_write8(bus, address + 1u, (uint8_t)value);
+}
+
+esp_err_t lc_memory_bus_write32(lc_memory_bus_t *bus, uint32_t address, uint32_t value) {
+    esp_err_t err = lc_memory_bus_write16(bus, address, (uint16_t)(value >> 16));
+    if (err != ESP_OK) {
+        return err;
+    }
+    return lc_memory_bus_write16(bus, address + 2u, (uint16_t)value);
+}
+
+void lc_memory_probe_bus_harness(const lc_rom_map_t *rom_map) {
+    lc_memory_bus_t bus = {0};
+    esp_err_t err = lc_memory_bus_init(&bus, rom_map);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LC memory bus harness init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    const uint32_t ram_addr = 0x00000000u;
+    const uint32_t ram_tail_addr = (uint32_t)bus.ram_size - 4u;
+    const uint32_t rom24_addr = LC_ROM_WINDOW_24BIT_BASE_CANDIDATE;
+    const uint32_t rom32_addr = LC_ROM_WINDOW_32BIT_BASE_CANDIDATE;
+    const uint32_t io_addr = LC_IO_24BIT_BASE_CANDIDATE;
+    const uint32_t unmapped_addr = 0x00e00000u;
+
+    const esp_err_t ram_write = lc_memory_bus_write32(&bus, ram_addr, 0x12345678u);
+    const uint32_t ram_read = lc_memory_bus_read32(&bus, ram_addr);
+    const esp_err_t ram_tail_write = lc_memory_bus_write32(&bus, ram_tail_addr, 0xa5a55a5au);
+    const uint32_t ram_tail_read = lc_memory_bus_read32(&bus, ram_tail_addr);
+    const uint32_t rom24_first = lc_memory_bus_read32(&bus, rom24_addr);
+    const uint32_t rom24_second = lc_memory_bus_read32(&bus, rom24_addr + 4u);
+    const uint32_t rom32_first = lc_memory_bus_read32(&bus, rom32_addr);
+    const uint8_t io_read = lc_memory_bus_read8(&bus, io_addr);
+    const esp_err_t io_write = lc_memory_bus_write8(&bus, io_addr, 0x5au);
+    const esp_err_t rom_write = lc_memory_bus_write8(&bus, rom24_addr, 0x00u);
+    const uint8_t unmapped_read = lc_memory_bus_read8(&bus, unmapped_addr);
+
+    ESP_LOGI(TAG,
+             "LC memory bus harness: ram_write=%s ram_read=0x%08" PRIx32
+             " tail_write=%s tail_read=0x%08" PRIx32,
+             esp_err_to_name(ram_write), ram_read, esp_err_to_name(ram_tail_write),
+             ram_tail_read);
+    ESP_LOGI(TAG,
+             "LC memory bus harness: rom24[0]=0x%08" PRIx32 " rom24[4]=0x%08" PRIx32
+             " rom32[0]=0x%08" PRIx32,
+             rom24_first, rom24_second, rom32_first);
+    ESP_LOGI(TAG,
+             "LC memory bus harness: io_read=0x%02x io_write=%s rom_write_blocked=%s unmapped_read=0x%02x",
+             io_read, esp_err_to_name(io_write), esp_err_to_name(rom_write), unmapped_read);
+
+    lc_memory_bus_free(&bus);
+    ESP_LOGI(TAG, "LC memory bus harness complete");
 }

@@ -173,7 +173,17 @@ the first `0x4000` bytes and selected the current best non-executed candidate
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM
 and unmapped writes are tagged as `would-panic` so the first CPU execution pass
-can fail loudly before hardware stubs are relaxed.
+can fail loudly before hardware stubs are relaxed. The current non-executing
+memory-bus harness allocates 4MB PSRAM guest RAM, attaches the mapped 512KB ROM,
+returns `0xff` for generic I/O stub reads, accepts/logs generic I/O writes, blocks
+ROM writes, and logs unmapped reads. Hardware capture validates:
+
+```text
+LC memory bus initialized: ram=... size=0x400000 rom=... size=0x80000
+LC memory bus harness: ram_write=ESP_OK ram_read=0x12345678 tail_write=ESP_OK tail_read=0xa5a55a5a
+LC memory bus harness: rom24[0]=0x350eacf0 rom24[4]=0x0000002a rom32[0]=0x350eacf0
+LC memory bus harness: io_read=0xff io_write=ESP_OK rom_write_blocked=ESP_ERR_INVALID_STATE unmapped_read=0xff
+```
 
 CPU trace helper hooks are available for exception-vector hits,
 illegal/unimplemented instructions, bus errors, address errors, and interrupt

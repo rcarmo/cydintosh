@@ -29,6 +29,8 @@ not a Macintosh LC emulator loop. It currently provides:
 - a trace ring and lightweight performance counters for later panic/hang dumps;
 - provisional 24-bit-first RAM/ROM/I/O address decoding, with 32-bit candidates
   logged only;
+- bounded LC memory-bus harness with PSRAM guest RAM, mapped ROM reads, generic
+  I/O stub reads/writes, ROM write blocking, and unmapped access logging;
 - 4MB guest RAM PSRAM allocation probe, 2MB fallback probe, separate indexed VRAM
   probe, and DMA-capable RGB565 strip-buffer probe;
 - panic-on-unexpected-write policy for ROM/unmapped writes while early ranges are
@@ -47,8 +49,11 @@ and verified the LC ROM partition, then ran the firmware-side vector scanner. It
 confirmed offset 0 is not a plausible SP/PC reset vector, found 13 heuristic
 vector-like pairs in the first `0x4000` bytes, and logged best current candidate
 `file_offset=0x01528 sp=0x0010e088 pc=0x13400012 rom_base=0x00400000`. This is
-only a heuristic; the next boot milestone remains verifying the real ROM overlay
-mapping, selecting `M68K_CPU_TYPE_68EC020` at runtime, and recording first
+only a heuristic. The latest hardware diagnostic also validates the non-executing
+memory-bus harness: 4MB PSRAM RAM reads/writes, mapped ROM reads from both
+candidate windows, generic I/O stub reads/writes, ROM write blocking, and
+unmapped-read logging. The next boot milestone remains verifying the real ROM
+overlay mapping, selecting `M68K_CPU_TYPE_68EC020` at runtime, and recording first
 hardware accesses through the LC trace ring.
 
 ## ROM metadata

@@ -1,6 +1,9 @@
 #ifndef MACHINE_LC_MEMORY_H
 #define MACHINE_LC_MEMORY_H
 
+#include "esp_err.h"
+#include "lc_rom.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -61,6 +64,15 @@ typedef struct {
     bool writable;
 } lc_addr_decode_t;
 
+typedef struct {
+    uint8_t *ram;
+    size_t ram_size;
+    bool using_fallback_ram;
+    const uint8_t *rom;
+    size_t rom_size;
+    bool initialized;
+} lc_memory_bus_t;
+
 const char *lc_memory_region_name(lc_addr_region_t region);
 lc_addr_decode_t lc_memory_decode_address(uint32_t address);
 bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded);
@@ -71,5 +83,14 @@ void lc_memory_log_write_policy(void);
 void lc_memory_log_decoder_examples(void);
 void lc_memory_probe_guest_ram_allocation(void);
 void lc_memory_probe_display_buffer_allocation(void);
+esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map);
+void lc_memory_bus_free(lc_memory_bus_t *bus);
+uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address);
+uint16_t lc_memory_bus_read16(lc_memory_bus_t *bus, uint32_t address);
+uint32_t lc_memory_bus_read32(lc_memory_bus_t *bus, uint32_t address);
+esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t value);
+esp_err_t lc_memory_bus_write16(lc_memory_bus_t *bus, uint32_t address, uint16_t value);
+esp_err_t lc_memory_bus_write32(lc_memory_bus_t *bus, uint32_t address, uint32_t value);
+void lc_memory_probe_bus_harness(const lc_rom_map_t *rom_map);
 
 #endif
