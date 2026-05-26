@@ -154,3 +154,8 @@ The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM
 and unmapped writes are tagged as `would-panic` so the first CPU execution pass
 can fail loudly before hardware stubs are relaxed.
+
+CPU trace helper hooks are available for exception-vector hits,
+illegal/unimplemented instructions, bus errors, address errors, and interrupt
+levels. They currently only provide a structured logging/trace-ring API; the
+actual Musashi callback/runtime wiring waits for reset-vector execution.

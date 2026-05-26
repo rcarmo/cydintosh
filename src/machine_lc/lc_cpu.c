@@ -63,3 +63,38 @@ void lc_cpu_log_reset_vector_candidates(const lc_rom_info_t *rom_info) {
     ESP_LOGW(TAG,
              "LC reset SP/PC mapping is not verified yet; first long currently doubles as ROM fingerprint, not a trusted stack pointer");
 }
+
+void lc_cpu_log_trace_hook_status(void) {
+    ESP_LOGI(TAG,
+             "LC trace hooks available: exception vectors, illegal instructions, bus/address errors, interrupt levels");
+    ESP_LOGI(TAG, "LC trace hooks are scaffold-only until reset-vector execution is enabled");
+}
+
+void lc_cpu_trace_exception(uint8_t vector, uint32_t pc, uint16_t sr) {
+    lc_trace_record(LC_TRACE_EVENT_EXCEPTION, pc, vector, sr, 0, false);
+    ESP_LOGW(TAG, "LC exception vector=%u pc=0x%08" PRIx32 " sr=0x%04x", vector, pc,
+             sr);
+}
+
+void lc_cpu_trace_illegal_instruction(uint32_t pc, uint16_t opcode) {
+    lc_trace_record(LC_TRACE_EVENT_ILLEGAL_INSTRUCTION, pc, 0, opcode, 2, false);
+    ESP_LOGW(TAG, "LC illegal/unimplemented instruction pc=0x%08" PRIx32 " opcode=0x%04x",
+             pc, opcode);
+}
+
+void lc_cpu_trace_bus_error(uint32_t pc, uint32_t address, unsigned size, bool write) {
+    lc_trace_record(LC_TRACE_EVENT_BUS_ERROR, pc, address, 0, (uint16_t)size, write);
+    ESP_LOGW(TAG, "LC bus error pc=0x%08" PRIx32 " %s%u addr=0x%08" PRIx32, pc,
+             write ? "write" : "read", size, address);
+}
+
+void lc_cpu_trace_address_error(uint32_t pc, uint32_t address, unsigned size, bool write) {
+    lc_trace_record(LC_TRACE_EVENT_ADDRESS_ERROR, pc, address, 0, (uint16_t)size, write);
+    ESP_LOGW(TAG, "LC address error pc=0x%08" PRIx32 " %s%u addr=0x%08" PRIx32, pc,
+             write ? "write" : "read", size, address);
+}
+
+void lc_cpu_trace_interrupt_level(uint32_t pc, unsigned level) {
+    lc_trace_record(LC_TRACE_EVENT_INTERRUPT, pc, level, 0, 0, false);
+    ESP_LOGI(TAG, "LC interrupt level=%u pc=0x%08" PRIx32, level, pc);
+}

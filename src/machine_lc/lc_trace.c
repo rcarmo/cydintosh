@@ -37,6 +37,12 @@ static const char *trace_type_name(lc_trace_event_type_t type) {
         return "unmapped-access";
     case LC_TRACE_EVENT_EXCEPTION:
         return "exception";
+    case LC_TRACE_EVENT_ILLEGAL_INSTRUCTION:
+        return "illegal-instruction";
+    case LC_TRACE_EVENT_BUS_ERROR:
+        return "bus-error";
+    case LC_TRACE_EVENT_ADDRESS_ERROR:
+        return "address-error";
     case LC_TRACE_EVENT_INTERRUPT:
         return "interrupt";
     default:

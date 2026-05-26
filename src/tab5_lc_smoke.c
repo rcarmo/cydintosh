@@ -75,6 +75,7 @@ void app_main(void) {
              CYD_MACHINE_NAME, CYD_ROM_EXPECTED_SIZE, LC_GUEST_RAM_SIZE, DISP_WIDTH, DISP_HEIGHT,
              LC_GUEST_COLOR_DEPTH_BITS);
     lc_cpu_log_config();
+    lc_cpu_log_trace_hook_status();
     lc_memory_log_initial_map();
     lc_memory_log_write_policy();
     lc_memory_log_decoder_examples();

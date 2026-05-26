@@ -3,6 +3,7 @@
 
 #include "lc_rom.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifndef LC_CPU_EXEC_QUANTUM
@@ -15,5 +16,11 @@
 
 void lc_cpu_log_config(void);
 void lc_cpu_log_reset_vector_candidates(const lc_rom_info_t *rom_info);
+void lc_cpu_log_trace_hook_status(void);
+void lc_cpu_trace_exception(uint8_t vector, uint32_t pc, uint16_t sr);
+void lc_cpu_trace_illegal_instruction(uint32_t pc, uint16_t opcode);
+void lc_cpu_trace_bus_error(uint32_t pc, uint32_t address, unsigned size, bool write);
+void lc_cpu_trace_address_error(uint32_t pc, uint32_t address, unsigned size, bool write);
+void lc_cpu_trace_interrupt_level(uint32_t pc, unsigned level);
 
 #endif
