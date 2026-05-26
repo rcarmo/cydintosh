@@ -92,6 +92,10 @@ void app_main(void) {
     lc_trace_reset();
     lc_perf_reset();
     lc_trace_record_marker(0x4c433030u); // 'LC00': skeleton start
+    esp_err_t bl_err = tab5_backlight_init(TAB5_BACKLIGHT_BOOT_PERCENT);
+    if (bl_err == ESP_OK) {
+        tab5_backlight_boot_pulse();
+    }
     log_chip_info();
     ESP_LOGI(TAG, "boot diagnostics: machine=%s rom_expected_size=0x%x cpu_mode=68EC020-scaffold guest_ram=%d framebuffer=%dx%d@%dbpp",
              CYD_MACHINE_NAME, CYD_ROM_EXPECTED_SIZE, LC_GUEST_RAM_SIZE, DISP_WIDTH, DISP_HEIGHT,
@@ -99,11 +103,8 @@ void app_main(void) {
     lc_cpu_log_config();
     lc_cpu_log_trace_hook_status();
     tab5_backlight_log_config();
-    esp_err_t bl_err = tab5_backlight_init(TAB5_BACKLIGHT_BOOT_PERCENT);
     if (bl_err != ESP_OK) {
         ESP_LOGE(TAG, "Tab5 backlight init failed: %s", esp_err_to_name(bl_err));
-    } else {
-        tab5_backlight_boot_pulse();
     }
     lc_memory_log_initial_map();
     lc_memory_log_write_policy();
@@ -128,4 +129,7 @@ void app_main(void) {
     lc_perf_log_summary();
     lc_trace_dump_recent(16);
     ESP_LOGI(TAG, "Milestone 0 skeleton is alive; display/touch and LC emulation are not enabled yet");
+    if (bl_err == ESP_OK) {
+        tab5_backlight_heartbeat_loop();
+    }
 }

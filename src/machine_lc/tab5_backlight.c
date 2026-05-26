@@ -14,9 +14,10 @@ static const char *TAG = "tab5_bl";
 
 #define TAB5_BACKLIGHT_LEDC_MODE LEDC_LOW_SPEED_MODE
 #define TAB5_BACKLIGHT_LEDC_TIMER LEDC_TIMER_0
-#define TAB5_BACKLIGHT_LEDC_CHANNEL LEDC_CHANNEL_0
-#define TAB5_BACKLIGHT_LEDC_DUTY_RES LEDC_TIMER_10_BIT
-#define TAB5_BACKLIGHT_LEDC_MAX_DUTY ((1u << 10u) - 1u)
+// Match the M5Stack Tab5 demo BSP: low-speed LEDC timer0/channel1, 12-bit duty.
+#define TAB5_BACKLIGHT_LEDC_CHANNEL LEDC_CHANNEL_1
+#define TAB5_BACKLIGHT_LEDC_DUTY_RES LEDC_TIMER_12_BIT
+#define TAB5_BACKLIGHT_LEDC_MAX_DUTY ((1u << 12u) - 1u)
 #define TAB5_BACKLIGHT_LEDC_FREQ_HZ 5000u
 
 static uint8_t current_percent;
@@ -31,7 +32,7 @@ static uint32_t duty_from_percent(uint8_t percent) {
 
 void tab5_backlight_log_config(void) {
     ESP_LOGI(TAG,
-             "Tab5 backlight scaffold: gpio=%d ledc_mode=%d timer=%d channel=%d freq=%uHz duty_res=10 boot_percent=%u initialized=%s current=%u",
+             "Tab5 backlight scaffold: gpio=%d ledc_mode=%d timer=%d channel=%d freq=%uHz duty_res=12 boot_percent=%u initialized=%s current=%u",
              TAB5_LCD_BACKLIGHT_GPIO, TAB5_BACKLIGHT_LEDC_MODE, TAB5_BACKLIGHT_LEDC_TIMER,
              TAB5_BACKLIGHT_LEDC_CHANNEL, TAB5_BACKLIGHT_LEDC_FREQ_HZ,
              (unsigned)TAB5_BACKLIGHT_BOOT_PERCENT, initialized ? "yes" : "no",
@@ -67,13 +68,27 @@ void tab5_backlight_boot_pulse(void) {
         return;
     }
     const uint8_t final_percent = current_percent;
-    const uint8_t sequence[] = {5, 60, 15, 45, final_percent};
+    const uint8_t sequence[] = {0, 100, 0, 100, 10, 70, final_percent};
     ESP_LOGI(TAG, "Tab5 backlight boot pulse start; final=%u%%", (unsigned)final_percent);
     for (unsigned i = 0; i < sizeof(sequence) / sizeof(sequence[0]); i++) {
         tab5_backlight_set_percent(sequence[i]);
-        vTaskDelay(pdMS_TO_TICKS(120));
+        vTaskDelay(pdMS_TO_TICKS(180));
     }
     ESP_LOGI(TAG, "Tab5 backlight boot pulse complete");
+}
+
+_Noreturn void tab5_backlight_heartbeat_loop(void) {
+    ESP_LOGI(TAG, "Tab5 backlight heartbeat loop active");
+    while (true) {
+        tab5_backlight_set_percent(12);
+        vTaskDelay(pdMS_TO_TICKS(900));
+        tab5_backlight_set_percent(65);
+        vTaskDelay(pdMS_TO_TICKS(120));
+        tab5_backlight_set_percent(20);
+        vTaskDelay(pdMS_TO_TICKS(900));
+        tab5_backlight_set_percent(45);
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
 }
 
 esp_err_t tab5_backlight_init(uint8_t percent) {
