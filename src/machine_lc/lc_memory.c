@@ -13,7 +13,10 @@
 
 static const char *TAG = "lc_memory";
 
-#define LC_IO_STUB_KIND_COUNT 4u
+#define LC_IO_STUB_KIND_COUNT 5u
+#define LC_EARLY_VIA_REGISTER_COUNT 16u
+#define LC_EARLY_VIA_IER_REGISTER 14u
+#define LC_EARLY_VIA_IFR_REGISTER 13u
 
 typedef struct {
     uint32_t reads;
@@ -28,6 +31,7 @@ typedef struct {
 
 static lc_io_stub_stats_t io_stub_stats[LC_IO_STUB_KIND_COUNT];
 static uint8_t early_probe_via_ier;
+static uint8_t early_lc_via_registers[LC_EARLY_VIA_REGISTER_COUNT];
 
 static bool address_in_window(uint32_t address, uint32_t base, uint32_t size) {
     return address >= base && address < (base + size);
@@ -43,6 +47,8 @@ const char *lc_memory_region_name(lc_addr_region_t region) {
         return "rom-32bit-candidate";
     case LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE:
         return "rom-32bit-masked-candidate";
+    case LC_ADDR_REGION_RAM_SIZE_PROBE:
+        return "ram-size-probe";
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
         return "io-24bit-candidate";
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
@@ -61,10 +67,24 @@ const char *lc_memory_io_stub_kind_name(lc_io_stub_kind_t kind) {
         return "io-window-base/harness";
     case LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE:
         return "early-rom-probe-1c00-stride";
+    case LC_IO_STUB_EARLY_LC_VIA_REGISTER:
+        return "early-lc-via-register";
     case LC_IO_STUB_GENERIC:
     default:
         return "generic-io-stub";
     }
+}
+
+static bool lc_memory_is_early_via_register_offset(uint32_t offset) {
+    if ((offset & 0x000001ffu) != 0) {
+        return false;
+    }
+    const uint32_t slot_base = offset & ~0x00001fffu;
+    return slot_base == 0 || slot_base == 0x00002000u || (slot_base & 0x0001ffffu) == 0;
+}
+
+static unsigned lc_memory_via_register_index(uint32_t offset) {
+    return (unsigned)((offset >> 9u) & 0x0fu);
 }
 
 static lc_io_stub_kind_t lc_memory_classify_io_stub(uint32_t offset) {
@@ -73,6 +93,9 @@ static lc_io_stub_kind_t lc_memory_classify_io_stub(uint32_t offset) {
     }
     if (offset == 0) {
         return LC_IO_STUB_WINDOW_BASE_HARNESS;
+    }
+    if (lc_memory_is_early_via_register_offset(offset)) {
+        return LC_IO_STUB_EARLY_LC_VIA_REGISTER;
     }
     return LC_IO_STUB_GENERIC;
 }
@@ -124,6 +147,16 @@ lc_addr_decode_t lc_memory_decode_address(uint32_t address) {
         return decoded;
     }
 
+    if (address >= LC_GUEST_RAM_SIZE && address < LC_RAM_SIZE_PROBE_LIMIT) {
+        decoded.region = LC_ADDR_REGION_RAM_SIZE_PROBE;
+        decoded.base = LC_GUEST_RAM_SIZE;
+        decoded.size = LC_RAM_SIZE_PROBE_LIMIT - LC_GUEST_RAM_SIZE;
+        decoded.offset = address - decoded.base;
+        decoded.name = lc_memory_region_name(decoded.region);
+        decoded.writable = true;
+        return decoded;
+    }
+
     if (address_in_window(address, LC_IO_24BIT_BASE_CANDIDATE, LC_IO_WINDOW_SIZE)) {
         decoded.region = LC_ADDR_REGION_IO_24BIT_CANDIDATE;
         decoded.base = LC_IO_24BIT_BASE_CANDIDATE;
@@ -157,6 +190,7 @@ bool lc_memory_write_is_expected(const lc_addr_decode_t *decoded) {
     }
     switch (decoded->region) {
     case LC_ADDR_REGION_RAM:
+    case LC_ADDR_REGION_RAM_SIZE_PROBE:
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
         return decoded->writable;
@@ -270,6 +304,8 @@ void lc_memory_log_decoder_examples(void) {
         LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
         LC_ROM_WINDOW_32BIT_BASE_CANDIDATE,
         LC_ROM_WINDOW_32BIT_MASKED_BASE_CANDIDATE,
+        LC_GUEST_RAM_SIZE,
+        LC_RAM_SIZE_PROBE_LIMIT - 4u,
         LC_IO_24BIT_BASE_CANDIDATE,
         LC_IO_24BIT_BASE_CANDIDATE + 0x00001c00u,
         LC_IO_24BIT_BASE_CANDIDATE + 0x00021c00u,
@@ -424,6 +460,15 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
         // one provisional VIA-style IER alias until the real LC VIA windows are
         // fully decoded.
         value = (uint8_t)(0x80u | early_probe_via_ier);
+    } else if (decoded->io_stub == LC_IO_STUB_EARLY_LC_VIA_REGISTER) {
+        const unsigned reg = lc_memory_via_register_index(decoded->offset);
+        if (reg == LC_EARLY_VIA_IER_REGISTER) {
+            value = (uint8_t)(0x80u | early_probe_via_ier);
+        } else if (reg == LC_EARLY_VIA_IFR_REGISTER) {
+            value = 0;
+        } else {
+            value = early_lc_via_registers[reg];
+        }
     }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, false);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, false);
@@ -431,16 +476,31 @@ static uint8_t lc_memory_io_stub_read8(const lc_addr_decode_t *decoded, uint32_t
     return value;
 }
 
-static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint32_t address,
-                                          uint8_t value) {
-    const uint32_t pc = lc_musashi_bus_current_pc();
-    if (decoded->io_stub == LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE) {
+static void lc_memory_write_early_via_register(uint32_t offset, uint8_t value) {
+    const unsigned reg = lc_memory_via_register_index(offset);
+    if (reg == LC_EARLY_VIA_IER_REGISTER) {
         const uint8_t mask = (uint8_t)(value & 0x7fu);
         if ((value & 0x80u) != 0) {
             early_probe_via_ier = (uint8_t)(early_probe_via_ier | mask);
         } else {
             early_probe_via_ier = (uint8_t)(early_probe_via_ier & (uint8_t)~mask);
         }
+        early_lc_via_registers[LC_EARLY_VIA_IER_REGISTER] = early_probe_via_ier;
+        return;
+    }
+    if (reg == LC_EARLY_VIA_IFR_REGISTER) {
+        early_lc_via_registers[LC_EARLY_VIA_IFR_REGISTER] &= (uint8_t)~value;
+        return;
+    }
+    early_lc_via_registers[reg] = value;
+}
+
+static esp_err_t lc_memory_io_stub_write8(const lc_addr_decode_t *decoded, uint32_t address,
+                                          uint8_t value) {
+    const uint32_t pc = lc_musashi_bus_current_pc();
+    if (decoded->io_stub == LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE ||
+        decoded->io_stub == LC_IO_STUB_EARLY_LC_VIA_REGISTER) {
+        lc_memory_write_early_via_register(decoded->offset, value);
     }
     lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, pc, address, value, 1, true);
     lc_memory_update_io_stub_stats(decoded->io_stub, pc, address, value, true);
@@ -455,6 +515,9 @@ esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map) 
     }
     memset(bus, 0, sizeof(*bus));
     memset(io_stub_stats, 0, sizeof(io_stub_stats));
+    memset(early_lc_via_registers, 0xff, sizeof(early_lc_via_registers));
+    early_lc_via_registers[LC_EARLY_VIA_IFR_REGISTER] = 0;
+    early_lc_via_registers[LC_EARLY_VIA_IER_REGISTER] = 0;
     early_probe_via_ier = 0;
 
     size_t requested = LC_GUEST_RAM_SIZE;
@@ -515,6 +578,9 @@ uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address) {
             return value;
         }
         break;
+    case LC_ADDR_REGION_RAM_SIZE_PROBE:
+        lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, 0xffu, 1, false);
+        return 0xffu;
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
         return lc_memory_io_stub_read8(&decoded, address);
@@ -554,6 +620,9 @@ esp_err_t lc_memory_bus_write8(lc_memory_bus_t *bus, uint32_t address, uint8_t v
             return ESP_OK;
         }
         break;
+    case LC_ADDR_REGION_RAM_SIZE_PROBE:
+        lc_trace_record(LC_TRACE_EVENT_MEM_ACCESS, lc_musashi_bus_current_pc(), address, value, 1, true);
+        return ESP_OK;
     case LC_ADDR_REGION_IO_24BIT_CANDIDATE:
     case LC_ADDR_REGION_IO_32BIT_CANDIDATE:
         return lc_memory_io_stub_write8(&decoded, address, value);

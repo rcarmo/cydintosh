@@ -145,7 +145,8 @@ Current address-map diagnostics are deliberately provisional and log both
 | `0x00400000`–`0x0047ffff` | 24-bit ROM candidate | guarded entry probe reaches ROM dispatcher from `0x0040008c` |
 | `0x40800000`–`0x4087ffff` | 32-bit ROM candidate | guest PC can move here after early ROM setup |
 | `0x00800000`–`0x0087ffff` | masked ROM alias | maps the same 512KB ROM for 68EC020 callback fetches from masked `0x408xxxxx` PCs |
-| `0x00f00000`–`0x00ffffff` | 24-bit I/O candidate | named stubs; first ROM accesses at VIA-like `0x00f?1c00`, then `0x00f01e00/0600/0400/0000` |
+| `0x00400000`–`0x00efffff` excluding ROM | non-present RAM-size probe | ignored writes/read `0xff` above configured 4MB so ROM can size RAM safely |
+| `0x00f00000`–`0x00ffffff` | 24-bit I/O candidate | named stubs; first ROM accesses at VIA-like `0x00f?1c00`, then `0x00f01e00/0600/0400/0000`; next generic range around `0x00f14800` |
 | `0x50000000`–`0x500fffff` | 32-bit I/O candidate | placeholder decoder only |
 
 The decoder includes throttled unmapped and I/O-stub access loggers for bounded
@@ -179,10 +180,12 @@ and records first ROM I/O-stub probes at `0x00f01c00`, `0x00f21c00`, and
 provisional VIA IER alias instead of constant `0xff`: the former repeated
 2832-read/3776-write loop advances after IER-style set/clear/readback behavior.
 The masked ROM alias then lets the guest continue with `0x408xxxxx` PCs while
-Musashi fetch callbacks request `0x008xxxxx` addresses. The latest 2M-cycle
-capture ends at `pc_after=0x40846af6`, `sr=0x2700`, with no new unmapped blocker
-and generic early VIA-like accesses summarized at `0x00f01e00`, `0x00f00600`,
-`0x00f00400`, and `0x00f00000`.
+Musashi fetch callbacks request `0x008xxxxx` addresses. The latest 10M-cycle
+capture advances through the checksum loop and high-RAM sizing probes, ending at
+`pc_after=0x40846862`, `sr=0x2709`. Addresses above the configured 4MB RAM and
+below `0x00f00000` are treated as non-present RAM-size probes. Early VIA-like
+accesses are summarized at `0x00f01e00`, `0x00f00600`, `0x00f00400`, and
+`0x00f00000`; the next still-generic I/O range begins around `0x00f14800`.
 
 The early memory-write policy is controlled by `LC_PANIC_ON_UNEXPECTED_WRITE`
 (default `1`). In this scaffold, RAM and I/O-candidate writes are expected; ROM
