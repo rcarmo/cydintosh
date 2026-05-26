@@ -78,7 +78,7 @@ MIPI-DSI panel path.
 
 Open items:
 
-- identify the ESP-IDF/M5Stack component stack needed for `ILI9881C / ST7123` MIPI-DSI;
+- identify the ESP-IDF/M5Stack component stack needed for `ILI9881C / ST7123` MIPI-DSI (see `docs/tab5-display-component-audit.md`);
 - implement display init and backlight control for GPIO22;
 - implement a display smoke test before enabling any LC emulation;
 - implement touch probing for GT911/ST7123 on GPIO31/GPIO32;
