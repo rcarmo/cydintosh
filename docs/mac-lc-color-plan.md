@@ -75,7 +75,9 @@ mapping still needs runtime verification. The firmware validates the flashed
 partition by checking that the `rom` data partition is at least `0x80000` bytes
 and that the mapped first long is `0x350EACF0`. See `docs/lc-boot-media.md` for
 the local-only read-only disk image workflow around `vendor/lc-disk.img` and the
-firmware-side disk I/O trace/write-blocking scaffold.
+firmware-side disk I/O trace/write-blocking scaffold. See
+`docs/lc-via-scc-audit.md` for the current Mac Plus VIA/SCC reuse audit before LC
+hardware stubs are implemented.
 
 ## Scope
 
