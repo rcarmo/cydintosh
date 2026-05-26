@@ -171,4 +171,9 @@ indexed VRAM. It initializes a deterministic debug RGB565 CLUT, generates a
 border/ramp/stripe test pattern into the indexed framebuffer, marks rows dirty,
 and converts dirty strips to RGB565 using a 16-line DMA-capable staging buffer.
 The skeleton logs indexed and RGB565 checksums plus timing samples, validating
-color-framebuffer logic without a Tab5 display driver.
+color-framebuffer logic without a Tab5 display driver. The same test pattern can
+be rendered off-device as a PPM image with:
+
+```bash
+make lc-video-test-pattern
+```

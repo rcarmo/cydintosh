@@ -70,7 +70,7 @@ DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors stable-artifacts flash-stable \
+	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-video-test-pattern stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
@@ -94,6 +94,7 @@ help:
 	@echo "  make capture-tab5-logs   - capture ESP32-P4 Tab5 serial logs"
 	@echo "  make lc-rom-info         - inspect local vendor/mac-lc.rom metadata only"
 	@echo "  make lc-rom-vectors      - scan local ROM metadata for plausible reset-vector/window candidates"
+	@echo "  make lc-video-test-pattern - render LC indexed debug pattern to artifacts/lc-video-test-pattern.ppm"
 	@echo "  make firmware            - alias for make build"
 	@echo "  make fs                  - generate LittleFS image ($(BUILD_DIR)/littlefs.bin)"
 	@echo "  make stable-artifacts    - refresh fork artifacts in web/ for PIO_ENV=$(PIO_ENV)"
@@ -162,6 +163,9 @@ lc-rom-info:
 
 lc-rom-vectors:
 	python3 tools/inspect_lc_rom.py $(TAB5_LC_ROM_IMAGE) --vector-scan
+
+lc-video-test-pattern:
+	python3 tools/render_lc_video_pattern.py artifacts/lc-video-test-pattern.ppm
 
 fs:
 	$(PIO) run -e $(PIO_ENV) -t buildfs
