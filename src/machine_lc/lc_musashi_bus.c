@@ -5251,7 +5251,13 @@ void cpu_instr_callback(int pc) {
                     // Pascal: GetIndResource(theType:l, index:w)
                     // Stack after exception: [frame:8] [index:2] [theType:4] [result:4]
                     uint16_t gi_index = lc_musashi_bus_peek_ram16(sp + 8u); // 1-based
-                    uint32_t gi_type = lc_musashi_bus_peek_ram32(sp + 10u);
+                    uint32_t gi_raw_type = lc_musashi_bus_peek_ram32(sp + 10u);
+                    uint32_t gi_type;
+                    if (gi_raw_type > 0x00008000u && gi_raw_type < active_bus->ram_size - 4u) {
+                        gi_type = lc_musashi_bus_peek_ram32(gi_raw_type); // dereference pointer
+                    } else {
+                        gi_type = gi_raw_type;
+                    }
                     result_value = 0; // NULL by default
                     // Look up the Nth resource of this type in System.rsrc
                     if (gi_index > 0 && active_bus && active_bus->ram) {
@@ -5420,7 +5426,16 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 2;
                     // Read the resource type from the param on the stack
                     // Stack: [exception_frame:8] [theType:4] [result_space:2]
-                    uint32_t count_type = lc_musashi_bus_peek_ram32(sp + 8u);
+                    // The type parameter may be passed by value OR by reference (PEA).
+                    // If the value looks like a valid RAM pointer, dereference it.
+                    uint32_t raw_type = lc_musashi_bus_peek_ram32(sp + 8u);
+                    uint32_t count_type;
+                    if (raw_type > 0x00008000u && raw_type < active_bus->ram_size - 4u) {
+                        // Likely a pointer — dereference to get actual type
+                        count_type = lc_musashi_bus_peek_ram32(raw_type);
+                    } else {
+                        count_type = raw_type; // Use directly as type value
+                    }
                     // Debug: dump stack around params
                     {
                         static unsigned crd = 0;
@@ -5463,8 +5478,9 @@ void cpu_instr_callback(int pc) {
                         t[1] = (char)(count_type >> 16);
                         t[2] = (char)(count_type >> 8);
                         t[3] = (char)(count_type);
-                        ESP_LOGI(TAG, "LC CountResources('%s' $%08" PRIx32 ") = %u sp=$%08" PRIx32,
-                                 t, count_type, (unsigned)count_val, sp);
+                        ESP_LOGI(TAG, "LC CountResources('%s' $%08" PRIx32 ") = %u sp=$%08" PRIx32 " A5=$%08x",
+                                 t, count_type, (unsigned)count_val, sp,
+                                 m68k_get_reg(NULL, M68K_REG_A5));
                     }
                     handled = true;
                     break;
@@ -5494,7 +5510,15 @@ void cpu_instr_callback(int pc) {
                             lc_musashi_bus_ram_write32(0x02A6u, active_bus->ram_size - 0x8000u);
                         }
                         ESP_LOGI(TAG, "LC boot_3 stack relocated: old_sp=$%08" PRIx32
-                                 " new_sp=$%08" PRIx32, sp, new_frame_sp);
+                                 " new_sp=$%08" PRIx32 " A5=$%08x",
+                                 sp, new_frame_sp, m68k_get_reg(NULL, M68K_REG_A5));
+                        // Set A5 = boot_3 globals base.
+                        // boot_3 code starts at $8372. Globals/constants are embedded
+                        // within boot_3 at offset $10BE from code start ($8372+$10BE=$9430).
+                        // PEA $02BA(A5) should yield 'PTCH' at $9430+$02BA=$96EA.
+                        m68k_set_reg(M68K_REG_A5, 0x00009430u);
+                        // Also set CurrentA5 ($904) for ROM code that reads it
+                        lc_musashi_bus_ram_write32(0x0904u, 0x00009430u);
                         // Re-read sp for the epilogue
                         // Note: we need to update our local sp variable
                         // Actually, the epilogue uses the 'sp' variable for new_sp computation.
