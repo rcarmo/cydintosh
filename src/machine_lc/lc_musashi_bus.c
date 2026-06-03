@@ -5130,13 +5130,17 @@ void cpu_instr_callback(int pc) {
                 m68k_set_reg(M68K_REG_A0, 0);
                 handled = true;
                 break;
-            case 0xa01cu: { // _GetHandleSize: A0=handle, returns size in D0
+            case 0xa01cu: // _GetHandleSize: A0=handle, returns size in D0
+            case 0xa025u: // _GetHandleSize (alternate trap $25)
+            {
                 uint32_t h = m68k_get_reg(NULL, M68K_REG_A0);
                 uint32_t sz = 0x10000u; // default: 64KB
                 if (h == 0x0004ff00u) sz = 648u;
                 else if (h == 0x0004ff08u) sz = 31420u;
                 else if (h == 0u) sz = 0x10000u; // NULL → large to break loops
                 m68k_set_reg(M68K_REG_D0, sz);
+                ESP_LOGW(TAG, "LC GetHandleSize: h=0x%08" PRIx32 " sz=%u trap=0x%04x",
+                         h, (unsigned)sz, trap_word);
                 handled = true;
                 break;
             }
