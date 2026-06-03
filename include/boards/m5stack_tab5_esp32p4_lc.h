@@ -23,7 +23,9 @@
 #define DISP_WIDTH 512
 #define DISP_HEIGHT 384
 #define LC_GUEST_COLOR_DEPTH_BITS 8
+#ifndef LC_GUEST_RAM_SIZE
 #define LC_GUEST_RAM_SIZE (4 * 1024 * 1024)
+#endif
 #ifndef LC_ROM_EXPECTED_SIZE
 #define LC_ROM_EXPECTED_SIZE 0x80000
 #endif

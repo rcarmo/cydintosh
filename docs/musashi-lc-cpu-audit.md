@@ -199,10 +199,89 @@ RAM (`0x043fffe4` masked to `0x003fffe4`) and was overwritten by the destructive
 RAM fill, so the next descriptor became `0x6db6db6d` and the CPU took an illegal
 instruction exception at odd `ppc=0x40846905` (`opcode=0xcbff`). A diagnostic-only
 synthetic top-of-RAM descriptor-list read now preserves the intended
-`[0x00000000, 0x00400000, 0xffffffff]` list for the reset-region loop. That
-advances past the bogus illegal into the next RAM lane/copy test, but the ROM
-still branches to monitor from `0x408465c0` with `d6=0x00007fff` and reaches the
-monitor guard at `0x40849ff8` (`serial-capture-20260526-225329.log`). The next
-CPU-core step is to understand why the `0x40846c5c` byte/word/long RAM lane test
-reports `d6=0x00007fff` under the current memory-bus/Musashi model before adding
-any fake serial input or bypass.
+`[0x00000000, 0x00400000, 0xffffffff]` list for the reset-region loop and the
+later reset copy/vector-relocation reads. Captures through
+`serial-capture-20260527-074655.log` show the `0x40846c5c` byte/word/long RAM
+lane test returning `d6=0`, followed by successful diagnostic SCC
+selected-register (`d7=0x84`), timer-IRQ (`d7=0x86`), loopback (`d7=0x85`), VIA
+IRQ (`d7=0x87`), `0x50f10000` register (`d7=0x88`), `0x50f14000` register/RAM
+(`d7=0x89`), and `0x50f16000` shift/loopback (`d7=0x8c`) reset subtests. The
+FPU/no-FPU (`d7=0x8d`) reset diagnostic after applying BasiliskII's no-FPU
+capability behavior as a reference. Later captures show the normal BootGlobs
+walk at `0x40800a90`, post-reset memory-layout entry/header at
+`0x4084168e`/`0x4084172c`, second-pass dispatch at
+`0x408418e4`/`0x40841922`, and record finalizer entry at `0x40841b8e`. The
+current CPU/memory frontier is no longer an FPU exception or the record-copy ROM
+write loop: a one-bank synthetic record table stops the writes to `0x00400000+`,
+and a provisional `0x00600000` descriptor table avoids the first `0x40841cbe`
+misdispatch. Follow-up hardware captures now take the BasiliskII-style no-MMU
+path instead: a synthetic no-MMU flag at `0x4084169a` reaches the early return at
+`0x408416a2`, a seeded direct-probe return frame lands at `0x4080130a`, the
+immediate `A001` reset-continuation trap is skipped, and low-memory `$0DBC` is
+supplied as a ROM `RTS` callback. That advances into the ROM A-trap dispatcher.
+A narrow `A05D` / `0x40809a04` SwapMMUMode bypass plus an EC020-frame return-slot
+repair moves beyond the RAM-fill trap-table jump, and splitting 24-bit ROM-window
+shadow writes from masked ROM instruction-shadow writes prevents the diagnostic
+copy path from corrupting executing ROM bytes. A minimal synthetic Resource
+Manager `TopMapHndl`/`SysMap` chain also moves past the `0x01000000` resource-map
+walk. A bounded cap on the `0x4081beb4` resource-copy loop exposed a later bad
+Resource Manager map/ref-list path, but `serial-capture-20260527-145248.log`
+now clears that `pc=0xffffffff` / read `addr=0x01000000` failure by aligning the
+synthetic `CURS`/`FONT`/`KMAP` reference IDs with the observed reset lookup ID
+(`d2=8`). The current CPU/memory frontier is the later diagnostic-monitor path:
+the bounded probe reaches `0x40849ff8` with `d7=0x010a7a6e` after the provisional
+post-reset finalizer/pack/compress state. A reverted dispatcher-narrowing probe
+(`serial-capture-20260527-150848.log`) showed that the broad `0x40809a04` NOP was
+hiding invalid low-memory trap-table entries: after only the `A05D` case was
+NOPed, the next trap jumped through low address `0x00000002` and fell into
+repeated illegal-instruction callbacks. The follow-up
+`serial-capture-20260527-152004.log` replaces the broad NOP with a bounded
+synthetic low-memory A-trap table for dispatcher reads, logs observed traps
+`0x047`, `0x03f`, `0x051`, and `0x019`, and keeps only the `A05D` dispatcher on
+the EC020-frame NOP path. Captures through `serial-capture-20260527-154729.log` add a bounded
+`A02E`/BlockMove side effect for plausible RAM destinations/counts and a
+plausibility-gated `A047`/SetTrapAddress side effect, allowing the early ROM
+copy `0x408006f0 -> 0x001fdfb2`, skipping later bogus negative-size Resource
+Manager copies, and rejecting a fill-pattern `SetTrapAddress(A05D,
+0xb6db6db6)`. RAM execution tracing showed the later illegal callback executed
+that copied table/data around `0x001fdfb0`/`0x001fdfec`. The
+`serial-capture-20260527-155855.log` tranche adds a tiny synthetic Memory
+Manager surface for observed `NewPtr`/`NewHandle`/`HLock`/`SetHandleSize`/
+`GetHandleSize`/`StripAddress` traps; this eliminates the `0x001fdfec` illegal
+callback. `serial-capture-20260527-180650.log` adds more coherent synthetic
+Resource Manager map header fields plus post-RAM-fill low-memory reads for
+unaligned `$02AE`/`ROMBase` and `$031A`/resource-offset mask. That turns the
+first Resource Manager map-growth copy from an obviously invalid negative count
+(`0x00ffffb6`) into a bounded in-map copy (`0x000002d6`) without regressing to
+`pc=0xffffffff` or `addr=0x01000000`. `serial-capture-20260527-181413.log`
+seeds the synthetic Resource Manager map into RAM, corrects the synthetic
+name-list offset so it no longer overlaps the type/ref records, and makes
+synthetic `SetHandleSize` preserve handle contents. The Resource Manager growth
+copies now run against RAM-backed map addresses with bounded counts
+(`0x000002b8`, `0x00000018`, `0x0000000c`) instead of negative sizes. The probe
+still reaches the diagnostic monitor at `0x40849fca` with `d7=0x010a7a6e`.
+`serial-capture-20260527-185030.log` confirms the next malformed high A-trap
+return and narrow repair: `0x408099d6` was going to `RTS` through low-memory
+vector-table data at `0x0000003e`, which branched to `0xffffffd8` and raised an
+F-line diagnostic frame (`format_vector=0x002c`). The repair clears that
+`0xffffffd8` path and exposes a later illegal-instruction callback at
+`pc=0x00007fba` (`opcode=0x7562`, `format_vector=0x0010`). The expanded stack
+log also reveals a plausible exception-frame continuation candidate
+`0x40800218`; a rejected `serial-capture-20260527-184743.log` experiment that
+resumed directly there regressed to `pc=0xffffffff`/`addr=0x01000000`, so it was
+reverted. `serial-capture-20260527-191451.log` expands the synthetic high A-trap
+read window to cover the full `$0E00..$2DFF` ROM dispatch table window (including
+observed `0x408099c6` reads such as `$1054` for `A895`/ShutDown). Later captures
+through `serial-capture-20260527-201224.log` prove that the `0x00007fba` path is
+not a continuation to bypass: `0x40800584` (`RTS` after `A895`/ShutDown) pops a
+low-RAM fill-pattern address and starts executing RAM-fill words. The
+`serial-capture-20260527-215107.log` tranche eliminates that path without a direct
+branch by letting plausible ROM high-trap table entries win, keeping
+Resource/GDevice scaffolds away from the popped low-memory address, seeding the
+post-reset `$0DB8`/`$0DD8` probe tables, and moving the tiny synthetic heap down
+from the top-of-RAM stack. The current frontier is no longer a diagnostic monitor
+or illegal callback: the 100M-cycle probe expires at `pc_after=0x4081abec` in the
+Resource Manager/INIT-loading path, with no `0x00007fba`, `pc=0xffffffff`,
+`addr=0x01000000`, `0xffffffd8`, `0x001fdfec`, or diagnostic exception stack.
+The next fix should be real low-memory/VBR/A-trap/Memory Manager/resource-map/
+address-map ownership, not more CritError video or FPU stubs.

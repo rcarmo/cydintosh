@@ -216,27 +216,58 @@ slot/video and RAM-fill checks. That is a more plausible VIA model, but it expos
 a seeded-entry RAM descriptor artifact: the descriptor list at top of RAM was
 itself overwritten by the destructive RAM fill, causing a bogus illegal exception
 at `ppc=0x40846905` (`opcode=0xcbff`). A diagnostic-only synthetic descriptor-list
-read for the `0x40846580` reset-region loop now avoids that artifact and reaches
-the next RAM lane/copy test. The current frontier is `serial-capture-20260526-225329.log`:
-`0x40846c5c` returns `d6=0x00007fff`, `0x408465c0` branches to diagnostic
-preflight, and the ROM reaches the monitor guard at `0x40849ff8`. The frontier is
-therefore now the RAM lane/copy test plus the still-provisional low-memory/VIA/slot
-descriptor state that leads to the monitor. The earlier
+read for the `0x40846580` reset-region loop now avoids that artifact, and the
+captures through `serial-capture-20260527-074655.log` extend the synthetic read
+through the reset copy/vector-relocation path. The RAM lane/copy test at
+`0x40846c5c` now returns `d6=0`; the SCC selected-register (`d7=0x84`), timer IRQ
+(`d7=0x86`), loopback (`d7=0x85`), VIA IRQ (`d7=0x87`), `0x50f10000` register
+(`d7=0x88`), `0x50f14000` register/RAM (`d7=0x89`), and `0x50f16000`
+shift/loopback (`d7=0x8c`) reset subtests advance, and the BasiliskII-informed
+no-FPU behavior carries the path beyond `d7=0x8d`. The current frontier is no
+longer VIA/SCC/FPU; it is the post-reset memory-layout/address-map path. Captures
+through `serial-capture-20260527-105247.log` reach `0x408418e4`/`0x40841922`,
+use a one-bank synthetic record table to avoid the prior `0x40841b1e`-
+`0x40841b3e` writes into `0x00400000+`, and use a provisional `0x00600000`
+finalizer descriptor table to avoid the first `0x40841cbe` misdispatch. Later
+captures moved to the cleaner BasiliskII-style no-MMU path: the ROM reaches
+`0x408416a2`, returns to `0x4080130a`, passes a local `A001` stub and `$0DBC`
+callback, then exposes the next non-VIA/SCC frontier in the A-trap dispatcher for
+`A05D` at `0x40809a04`. A narrow SwapMMUMode dispatcher bypass, separate 24-bit
+and masked ROM diagnostic shadows, and a minimal synthetic Resource Manager map
+chain now move beyond that trap-table jump and the subsequent `0x01000000`
+resource-map walk. Capping the `0x4081beb4` resource-copy loop exposed a later
+bad Resource Manager map/ref-list path; `serial-capture-20260527-145248.log`
+clears that `pc=0xffffffff` / read `addr=0x01000000` failure by matching the
+synthetic resource reference IDs to the observed reset lookup ID (`d2=8`). The
+current frontier is the later diagnostic/serial monitor path. A reverted
+`serial-capture-20260527-150848.log` experiment showed that narrowing the
+temporary `0x40809a04` dispatcher NOP to only `A05D` immediately exposed an
+invalid low-memory trap-table vector at `0x00000002`. The follow-up
+`serial-capture-20260527-152004.log` replaces the broad dispatcher NOP with a
+bounded synthetic low-memory A-trap table for observed dispatcher reads (`0x047`,
+`0x03f`, `0x051`, `0x019`) and keeps only `A05D` on the EC020-frame NOP path.
+captures through `serial-capture-20260527-154729.log` add a bounded
+`A02E`/BlockMove side effect for plausible RAM destinations/counts plus a
+gated `A047`/SetTrapAddress side effect. RAM-execution tracing showed the later
+illegal callback executing copied table/data around `0x001fdfb0`/`0x001fdfec`.
+The current `serial-capture-20260527-155855.log` tranche adds a tiny synthetic
+Memory Manager surface for the observed post-reset allocation/handle traps,
+eliminates that RAM-table illegal callback, and still reaches the monitor at
+`0x40849fca` with `d7=0x010a7a6e`. The next work should fix the low-memory/VBR/
+trap/Memory-Manager/resource-map/address-map tables before adding more I/O
+stubs. The earlier
 `0x008039xx`/`0x00803428`/`0x00807428` write stream was an artifact of continuing
 through zero RAM, not a normal reset-overlay write sequence.
 
 ## Recommended next steps
 
 1. Keep LC hardware stubs under `src/machine_lc/`.
-2. Identify why the seeded reset-body path selects the ROM monitor/diagnostic
-   dispatcher after reset dispatch, the NuBus/slot-video probe, RAM fill, and
-   RAM lane/copy test; focus on memory-bus accuracy, reset flags,
-   VIA ORA/PRAM/ADB pin state, and slot descriptor state before considering fake
-   serial input or bypasses.
+2. Use BasiliskII as the primary reference for the current low-memory/address-map
+   frontier, especially BootGlobs and RAM-bank descriptor ownership.
 3. Continue bounded ROM execution and use the LC address decoder/trace ring to
-   record the next accesses into I/O candidate windows.
-4. Stub only the first missing device range needed to advance boot, preserving the
-   panic-on-unexpected-write policy until ranges are understood.
+   record the next accesses into I/O candidate windows or invalid RAM/ROM ranges.
+4. Stub only the first missing device/address-map behavior needed to advance boot,
+   preserving the panic-on-unexpected-write policy until ranges are understood.
 5. Add RTC/PRAM responses before ADB if traces show time/PRAM probes happen first;
    otherwise start with ADB command logging.
 

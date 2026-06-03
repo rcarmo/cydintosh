@@ -55,6 +55,22 @@ TAB5_LC_ROM_IMAGE ?= vendor/mac-lc.rom
 TAB5_LC_ROM_OFFSET ?= 0x410000
 TAB5_LC_DISK_IMAGE ?= vendor/lc-disk.img
 TAB5_LC_CAPTURE_DURATION ?= 120
+HOST_CC ?= cc
+HOST_LC_BUILD_DIR ?= build/host-lc
+HOST_LC_HARNESS ?= $(HOST_LC_BUILD_DIR)/host_lc_harness
+HOST_LC_ROM_IMAGE ?= vendor/mac-lc.rom
+HOST_LC_DISK_IMAGE ?= vendor/lc-disk.img
+HOST_LC_PPM ?= artifacts/host-lc-video-test-pattern.ppm
+HOST_LC_PNG ?= artifacts/host-lc-video-test-pattern.png
+HOST_LC_LOG ?= logs/host-lc-rom-probe-$(shell date +%Y%m%d-%H%M%S).log
+HOST_LC_CYCLES ?= 200000u
+HOST_LC_ENTRY_BASE ?= 0x00400000u
+HOST_LC_ENTRY_OFFSET ?= 0x00002e00u
+HOST_LC_RAM_SIZE ?= (4 * 1024 * 1024)
+HOST_LC_GATE_CYCLES ?= 500000000u
+HOST_LC_TRACE ?= 0
+HOST_LC_PRODUCTINFO_DEFAULT_RSRCS ?= 0
+HOST_LC_EXTRA_ARGS ?=
 
 ifeq ($(PIO_ENV),esp32-8048s043c)
 ESP_CHIP ?= esp32s3
@@ -73,7 +89,7 @@ DISK_OFFSET ?= 0x230000
 endif
 
 .PHONY: help prepare build firmware fs \
-	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc build-tab5-display-smoke flash-tab5-display-smoke build-tab5-bootdiag flash-tab5-bootdiag flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-rom-io-hints lc-disk-info lc-video-test-pattern stable-artifacts flash-stable \
+	build-cyd2usb build-8048s043c build-tab5-lc flash-tab5-lc build-tab5-display-smoke flash-tab5-display-smoke build-tab5-bootdiag flash-tab5-bootdiag flash-tab5-lc-rom capture-tab5-logs lc-rom-info lc-rom-vectors lc-rom-io-hints lc-disk-info lc-video-test-pattern host-lc-harness host-lc-smoke host-lc-rom-probe host-lc-default-gate host-lc-combo1-gate clean-host-lc stable-artifacts flash-stable \
 	original-worktree original-build original-artifacts flash-original \
 	build-office-lights disk-update capture-logs prepare-rom prepare-disk clean
 
@@ -104,6 +120,11 @@ help:
 	@echo "  make lc-rom-io-hints     - scan local ROM metadata for 0x50fxxxxx / 24-bit I/O constants"
 	@echo "  make lc-disk-info        - inspect local vendor/lc-disk.img metadata if present"
 	@echo "  make lc-video-test-pattern - render LC indexed debug pattern to artifacts/lc-video-test-pattern.ppm"
+	@echo "  make host-lc-harness    - build native Linux Macintosh LC harness"
+	@echo "  make host-lc-smoke      - run native ROM/memory/synthetic/video smoke and PNG"
+	@echo "  make host-lc-rom-probe  - run native bounded ROM-entry probe (HOST_LC_CYCLES=$(HOST_LC_CYCLES))"
+	@echo "  make host-lc-default-gate - run/check default-zero host ROM gate (HOST_LC_GATE_CYCLES=$(HOST_LC_GATE_CYCLES))"
+	@echo "  make host-lc-combo1-gate - run/check ProductInfo default-rsrcs host ROM gate"
 	@echo "  make firmware            - alias for make build"
 	@echo "  make fs                  - generate LittleFS image ($(BUILD_DIR)/littlefs.bin)"
 	@echo "  make stable-artifacts    - refresh fork artifacts in web/ for PIO_ENV=$(PIO_ENV)"
@@ -193,6 +214,74 @@ lc-disk-info:
 
 lc-video-test-pattern:
 	python3 tools/render_lc_video_pattern.py artifacts/lc-video-test-pattern.ppm
+
+HOST_LC_COMMON_FLAGS := \
+	-std=gnu11 -O2 -g \
+	-Itools/host_lc_harness/esp_stubs \
+	-Iinclude \
+	-Isrc \
+	-Iexternal/umac/include \
+	-Iexternal/umac/external/Musashi \
+	-Iexternal/umac/external/Musashi/softfloat \
+	-DMUSASHI_CNF=\"m68kconf_lc.h\" \
+	-DCYD_MACHINE_MAC_LC=1 \
+	-DCYD_BOARD_M5STACK_TAB5_ESP32P4_LC=1 \
+	-DLC_ROM_EXPECTED_SIZE=0x80000 \
+	-DLC_ROM_EXPECTED_FIRST_LONG=0x350EACF0 \
+	-DENABLE_DASM=0 \
+	-DLC_TRACE_ENABLED=$(HOST_LC_TRACE) \
+	-DLC_CPU_ROM_ENTRY_PROBE_CYCLES=$(HOST_LC_CYCLES) \
+	-DLC_CPU_ROM_ENTRY_PROBE_BASE=$(HOST_LC_ENTRY_BASE) \
+	-DLC_CPU_ROM_ENTRY_PROBE_OFFSET=$(HOST_LC_ENTRY_OFFSET) \
+	-DLC_GUEST_RAM_SIZE='$(HOST_LC_RAM_SIZE)' \
+	-DLC_ENABLE_RAM_OWNED_LOW_MEMORY=1 \
+	-DLC_PRODUCTINFO_DEFAULT_RSRCS=$(HOST_LC_PRODUCTINFO_DEFAULT_RSRCS) \
+	-Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-missing-field-initializers -Wno-expansion-to-defined -Wno-implicit-fallthrough
+
+HOST_LC_SOURCES := \
+	tools/host_lc_harness/host_lc_harness.c \
+	tools/host_lc_harness/host_esp_stubs.c \
+	src/machine_lc/lc_rom.c \
+	src/machine_lc/lc_basilisk_compat.c \
+	src/machine_lc/lc_disk.c \
+	src/machine_lc/lc_memory.c \
+	src/machine_lc/lc_musashi_bus.c \
+	src/machine_lc/lc_cpu.c \
+	src/machine_lc/lc_video.c \
+	src/machine_lc/lc_perf.c \
+	src/machine_lc/lc_trace.c \
+	external/umac/external/Musashi/m68kcpu.c \
+	external/umac/external/Musashi/m68kdasm.c \
+	external/umac/external/Musashi/m68kops.c \
+	external/umac/external/Musashi/softfloat/softfloat.c
+
+host-lc-harness:
+	@mkdir -p $(HOST_LC_BUILD_DIR) artifacts
+	$(HOST_CC) $(HOST_LC_COMMON_FLAGS) $(HOST_LC_SOURCES) -lm -o $(HOST_LC_HARNESS)
+	@echo "Host LC harness: $(HOST_LC_HARNESS)"
+
+host-lc-smoke: host-lc-harness
+	$(HOST_LC_HARNESS) --rom $(HOST_LC_ROM_IMAGE) --disk $(HOST_LC_DISK_IMAGE) --ppm $(HOST_LC_PPM)
+	@if command -v magick >/dev/null 2>&1; then magick $(HOST_LC_PPM) $(HOST_LC_PNG) && echo "Host LC PNG: $(HOST_LC_PNG)"; fi
+
+host-lc-rom-probe: host-lc-harness
+	$(HOST_LC_HARNESS) --rom $(HOST_LC_ROM_IMAGE) --disk $(HOST_LC_DISK_IMAGE) --ppm $(HOST_LC_PPM) --rom-probe $(HOST_LC_EXTRA_ARGS)
+	@if command -v magick >/dev/null 2>&1; then magick $(HOST_LC_PPM) $(HOST_LC_PNG) && echo "Host LC PNG: $(HOST_LC_PNG)"; fi
+
+host-lc-default-gate:
+	@mkdir -p logs artifacts
+	$(MAKE) host-lc-rom-probe HOST_LC_CYCLES=$(HOST_LC_GATE_CYCLES) HOST_LC_PRODUCTINFO_DEFAULT_RSRCS=0 HOST_LC_LOG=$(HOST_LC_LOG) > $(HOST_LC_LOG) 2>&1
+	bun tools/check_host_lc_gate.mjs $(HOST_LC_LOG) --min-cycles $$(printf '%s' '$(HOST_LC_GATE_CYCLES)' | sed 's/u$$//') --expect-productinfo 0
+	@echo "Host LC default gate log: $(HOST_LC_LOG)"
+
+host-lc-combo1-gate:
+	@mkdir -p logs artifacts
+	$(MAKE) host-lc-rom-probe HOST_LC_CYCLES=$(HOST_LC_GATE_CYCLES) HOST_LC_PRODUCTINFO_DEFAULT_RSRCS=1 HOST_LC_LOG=$(HOST_LC_LOG) > $(HOST_LC_LOG) 2>&1
+	bun tools/check_host_lc_gate.mjs $(HOST_LC_LOG) --min-cycles $$(printf '%s' '$(HOST_LC_GATE_CYCLES)' | sed 's/u$$//') --expect-productinfo 1
+	@echo "Host LC combo1 gate log: $(HOST_LC_LOG)"
+
+clean-host-lc:
+	rm -rf $(HOST_LC_BUILD_DIR)
 
 fs:
 	$(PIO) run -e $(PIO_ENV) -t buildfs

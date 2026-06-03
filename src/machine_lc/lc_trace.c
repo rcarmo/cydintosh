@@ -18,6 +18,10 @@ typedef struct {
     bool write;
 } lc_trace_event_t;
 
+#ifndef LC_TRACE_ENABLED
+#define LC_TRACE_ENABLED 1
+#endif
+
 static lc_trace_event_t trace_ring[LC_TRACE_RING_SIZE];
 static uint32_t trace_seq;
 static uint32_t trace_count;
@@ -63,6 +67,15 @@ void lc_trace_reset(void) {
 
 void lc_trace_record(lc_trace_event_type_t type, uint32_t pc, uint32_t address,
                      uint32_t value, uint16_t size, bool write) {
+#if !LC_TRACE_ENABLED
+    (void)type;
+    (void)pc;
+    (void)address;
+    (void)value;
+    (void)size;
+    (void)write;
+    return;
+#else
     lc_trace_event_t *event = &trace_ring[trace_next];
     event->seq = ++trace_seq;
     event->timestamp_ms = esp_log_timestamp();
@@ -77,6 +90,7 @@ void lc_trace_record(lc_trace_event_type_t type, uint32_t pc, uint32_t address,
     if (trace_count < LC_TRACE_RING_SIZE) {
         trace_count++;
     }
+#endif
 }
 
 void lc_trace_record_marker(uint32_t marker) {

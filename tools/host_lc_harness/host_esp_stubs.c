@@ -1,0 +1,262 @@
+#include "esp_err.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_partition.h"
+#include "esp_timer.h"
+
+#include <errno.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static bool host_time_initialized;
+static struct timespec host_time_zero;
+static char host_rom_path[1024] = "vendor/mac-lc.rom";
+static char host_disk_path[1024] = "vendor/lc-disk.img";
+static esp_partition_t host_rom_partition;
+static esp_partition_t host_disk_partition;
+
+typedef struct {
+    void *ptr;
+    size_t size;
+} host_mmap_entry_t;
+
+#define HOST_MMAP_ENTRY_COUNT 16
+static host_mmap_entry_t host_mmap_entries[HOST_MMAP_ENTRY_COUNT];
+
+static int64_t host_now_us(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (!host_time_initialized) {
+        host_time_zero = now;
+        host_time_initialized = true;
+    }
+    const int64_t sec = (int64_t)(now.tv_sec - host_time_zero.tv_sec);
+    const int64_t nsec = (int64_t)(now.tv_nsec - host_time_zero.tv_nsec);
+    return sec * 1000000ll + nsec / 1000ll;
+}
+
+const char *esp_err_to_name(esp_err_t err) {
+    switch (err) {
+    case ESP_OK:
+        return "ESP_OK";
+    case ESP_FAIL:
+        return "ESP_FAIL";
+    case ESP_ERR_NO_MEM:
+        return "ESP_ERR_NO_MEM";
+    case ESP_ERR_INVALID_ARG:
+        return "ESP_ERR_INVALID_ARG";
+    case ESP_ERR_INVALID_STATE:
+        return "ESP_ERR_INVALID_STATE";
+    case ESP_ERR_INVALID_SIZE:
+        return "ESP_ERR_INVALID_SIZE";
+    case ESP_ERR_NOT_FOUND:
+        return "ESP_ERR_NOT_FOUND";
+    case ESP_ERR_NOT_ALLOWED:
+        return "ESP_ERR_NOT_ALLOWED";
+    default:
+        return "ESP_ERR_UNKNOWN";
+    }
+}
+
+uint32_t esp_log_timestamp(void) {
+    return (uint32_t)(host_now_us() / 1000ll);
+}
+
+int64_t esp_timer_get_time(void) {
+    return host_now_us();
+}
+
+void host_esp_log_write(const char *level, const char *tag, const char *fmt, ...) {
+    fprintf(stdout, "%s (%u) %s: ", level, esp_log_timestamp(), tag != NULL ? tag : "host");
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stdout, fmt, ap);
+    va_end(ap);
+    fputc('\n', stdout);
+}
+
+void *heap_caps_malloc(size_t size, uint32_t caps) {
+    (void)caps;
+    return malloc(size);
+}
+
+void *heap_caps_calloc(size_t n, size_t size, uint32_t caps) {
+    (void)caps;
+    return calloc(n, size);
+}
+
+void heap_caps_free(void *ptr) {
+    free(ptr);
+}
+
+size_t heap_caps_get_free_size(uint32_t caps) {
+    (void)caps;
+    return (size_t)512u * 1024u * 1024u;
+}
+
+size_t heap_caps_get_largest_free_block(uint32_t caps) {
+    (void)caps;
+    return (size_t)256u * 1024u * 1024u;
+}
+
+void host_esp_partition_set_rom_path(const char *path) {
+    if (path != NULL && path[0] != '\0') {
+        snprintf(host_rom_path, sizeof(host_rom_path), "%s", path);
+    }
+}
+
+void host_esp_partition_set_disk_path(const char *path) {
+    if (path != NULL && path[0] != '\0') {
+        snprintf(host_disk_path, sizeof(host_disk_path), "%s", path);
+    }
+}
+
+static bool host_file_size(const char *path, uint32_t *size_out) {
+    struct stat st;
+    if (stat(path, &st) != 0 || st.st_size < 0) {
+        return false;
+    }
+    if (size_out != NULL) {
+        *size_out = (uint32_t)st.st_size;
+    }
+    return true;
+}
+
+static void host_fill_partition(esp_partition_t *partition, esp_partition_type_t type,
+                                esp_partition_subtype_t subtype, const char *label,
+                                uint32_t address, uint32_t size) {
+    memset(partition, 0, sizeof(*partition));
+    partition->type = type;
+    partition->subtype = subtype;
+    partition->address = address;
+    partition->size = size;
+    snprintf(partition->label, sizeof(partition->label), "%s", label);
+}
+
+const esp_partition_t *esp_partition_find_first(esp_partition_type_t type,
+                                                esp_partition_subtype_t subtype,
+                                                const char *label) {
+    if (type != ESP_PARTITION_TYPE_DATA || label == NULL) {
+        return NULL;
+    }
+
+    uint32_t size = 0;
+    if (strcmp(label, "rom") == 0 && host_file_size(host_rom_path, &size)) {
+        host_fill_partition(&host_rom_partition, type, subtype, label, 0x00410000u, size);
+        return &host_rom_partition;
+    }
+    if (strcmp(label, "disk") == 0 && host_file_size(host_disk_path, &size)) {
+        host_fill_partition(&host_disk_partition, type, subtype, label, 0x00430000u, size);
+        return &host_disk_partition;
+    }
+    return NULL;
+}
+
+static const char *host_partition_path(const esp_partition_t *partition) {
+    if (partition == &host_rom_partition || strcmp(partition->label, "rom") == 0) {
+        return host_rom_path;
+    }
+    if (partition == &host_disk_partition || strcmp(partition->label, "disk") == 0) {
+        return host_disk_path;
+    }
+    return NULL;
+}
+
+esp_err_t esp_partition_read(const esp_partition_t *partition, size_t src_offset,
+                             void *dst, size_t size) {
+    if (partition == NULL || dst == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *path = host_partition_path(partition);
+    if (path == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    FILE *fp = fopen(path, "rb");
+    if (fp == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (fseek(fp, (long)src_offset, SEEK_SET) != 0) {
+        fclose(fp);
+        return ESP_FAIL;
+    }
+    const size_t got = fread(dst, 1, size, fp);
+    fclose(fp);
+    return got == size ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t esp_partition_mmap(const esp_partition_t *partition, size_t offset, size_t size,
+                             int memory, const void **out_ptr,
+                             esp_partition_mmap_handle_t *out_handle) {
+    (void)memory;
+    if (partition == NULL || out_ptr == NULL || out_handle == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    void *buf = malloc(size);
+    if (buf == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = esp_partition_read(partition, offset, buf, size);
+    if (err != ESP_OK) {
+        free(buf);
+        return err;
+    }
+    for (size_t i = 0; i < HOST_MMAP_ENTRY_COUNT; i++) {
+        if (host_mmap_entries[i].ptr == NULL) {
+            host_mmap_entries[i].ptr = buf;
+            host_mmap_entries[i].size = size;
+            *out_ptr = buf;
+            *out_handle = (esp_partition_mmap_handle_t)(i + 1u);
+            return ESP_OK;
+        }
+    }
+    free(buf);
+    return ESP_ERR_NO_MEM;
+}
+
+void esp_partition_munmap(esp_partition_mmap_handle_t handle) {
+    if (handle == 0 || handle > HOST_MMAP_ENTRY_COUNT) {
+        return;
+    }
+    host_mmap_entry_t *entry = &host_mmap_entries[handle - 1u];
+    free(entry->ptr);
+    entry->ptr = NULL;
+    entry->size = 0;
+}
+
+// Load boot 2 and boot 3 resources from fixture files into guest RAM.
+void host_load_boot_resources(uint8_t *ram, size_t ram_size) {
+    if (ram == NULL || ram_size < 0x390000u) return;
+    const char *paths[] = {"fixtures/boot_2.bin", "fixtures/boot_3.bin"};
+    const uint32_t addrs[] = {0x380000u, 0x382000u};
+    const uint32_t handles[] = {0x4ff00u, 0x4ff08u};
+    const uint32_t sizes[] = {648, 31420};
+    for (int i = 0; i < 2; i++) {
+        FILE *f = fopen(paths[i], "rb");
+        if (!f) { fprintf(stderr, "WARN: cannot open %s\n", paths[i]); continue; }
+        size_t n = fread(&ram[addrs[i]], 1, sizes[i], f);
+        fclose(f);
+        // Set up Mac handle: handle_addr points to master_ptr, master_ptr points to data
+        // handle[0] = pointer to master pointer
+        // master_ptr = address of data
+        uint32_t master_ptr_addr = handles[i] + 4u;
+        uint32_t data_addr = addrs[i];
+        // Write master pointer (big-endian)
+        ram[master_ptr_addr + 0] = (data_addr >> 24) & 0xff;
+        ram[master_ptr_addr + 1] = (data_addr >> 16) & 0xff;
+        ram[master_ptr_addr + 2] = (data_addr >> 8) & 0xff;
+        ram[master_ptr_addr + 3] = data_addr & 0xff;
+        // Write handle (pointer to master pointer)
+        ram[handles[i] + 0] = (data_addr >> 24) & 0xff;
+        ram[handles[i] + 1] = (data_addr >> 16) & 0xff;
+        ram[handles[i] + 2] = (data_addr >> 8) & 0xff;
+        ram[handles[i] + 3] = data_addr & 0xff;
+        fprintf(stderr, "HOST: loaded %s (%zu bytes) to RAM $%05x handle=$%05x\n",
+                paths[i], n, addrs[i], handles[i]);
+    }
+}

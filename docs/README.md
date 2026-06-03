@@ -20,6 +20,11 @@ LC boot is claimed yet.
 | [`musashi-lc-cpu-audit.md`](musashi-lc-cpu-audit.md) | Musashi 68EC020/68020 configuration and CPU trace scaffold notes. |
 | [`lc-boot-media.md`](lc-boot-media.md) | Local-only LC disk workflow and read-only disk trace policy. |
 | [`lc-via-scc-audit.md`](lc-via-scc-audit.md) | Why Mac Plus VIA/SCC code cannot be reused directly and what LC hardware gaps remain. |
+| [`lc-temporary-hooks-inventory.md`](lc-temporary-hooks-inventory.md) | Inventory of diagnostic hooks in `lc_memory.c` / `lc_musashi_bus.c`, classified as keep/replace/delete. |
+| [`lc-rom-range-annotations.md`](lc-rom-range-annotations.md) | Annotated disassembly for the current `0x00007fba` / monitor-frontier ROM ranges. |
+| [`lc-lowmem-vbr-atrap-design.md`](lc-lowmem-vbr-atrap-design.md) | RAM-owned low-memory, VBR, and A-trap table design for retiring PC-gated synthetic reads. |
+| [`lc-reference-bringup-design.md`](lc-reference-bringup-design.md) | Reference-backed BasiliskII/MAME LC bring-up map and retirement order for synthetic hooks. |
+| [`host-lc-harness.md`](host-lc-harness.md) | Native Linux LC core harness for tight ROM/memory/Musashi/video regression loops before Tab5 flashing. |
 
 ## Local-only assets
 
@@ -39,6 +44,8 @@ make lc-rom-info
 make lc-rom-vectors
 make lc-disk-info
 make lc-video-test-pattern
+make host-lc-smoke
+make host-lc-rom-probe
 ```
 
 Relevant Tab5 build/flash commands:

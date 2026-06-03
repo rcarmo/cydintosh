@@ -15,6 +15,26 @@
 
 static const char *TAG = "lc_cpu";
 
+typedef struct {
+    bool rom_overlay_active;
+    bool cpu_held_for_egret;
+    bool direct_entry_fallback;
+    uint32_t rom_base_32;
+    uint32_t rom_base_24;
+    uint32_t header_entry_offset;
+    uint32_t header_trampoline_offset;
+    uint32_t reset_opcode_offset;
+    uint32_t boot_stack;
+    uint32_t diagnostic_entry_base;
+    uint32_t diagnostic_entry_offset;
+    uint32_t diagnostic_stack;
+    uint32_t diagnostic_a6_seed;
+    uint32_t ram_base;
+    uint32_t ram_size;
+    uint32_t ram_bank0_base;
+    uint32_t ram_bank0_size;
+} lc_reset_state_t;
+
 #if M68K_EMULATE_EC020 != OPT_ON
 #error "Macintosh LC CPU scaffold requires M68K_EMULATE_EC020=OPT_ON"
 #endif
@@ -33,6 +53,10 @@ static const char *TAG = "lc_cpu";
 #define LC_CPU_VECTOR_PREVIEW_WORDS 6u
 #define LC_CPU_ENTRY_SCAN_LIMIT 0x0100u
 #define LC_CPU_ENTRY_LOG_LIMIT 12u
+#define LC_CPU_ROM_HEADER_ENTRY_OFFSET 0x0000002au
+#define LC_CPU_ROM_HEADER_TRAMPOLINE_TARGET_OFFSET 0x0000008cu
+#define LC_CPU_ROM_RESET_OPCODE_OFFSET 0x000000aau
+#define LC_CPU_BASILISK_BOOT_STACK 0x00010000u
 
 #ifndef LC_CPU_ROM_ENTRY_PROBE
 #define LC_CPU_ROM_ENTRY_PROBE 1
@@ -73,6 +97,56 @@ static const char *TAG = "lc_cpu";
 #ifndef LC_CPU_STOP_ON_ROM_MONITOR_LOOP
 #define LC_CPU_STOP_ON_ROM_MONITOR_LOOP 1
 #endif
+
+#ifndef LC_CPU_STOP_ON_ZERO_ROM_EXECUTION
+#define LC_CPU_STOP_ON_ZERO_ROM_EXECUTION 0
+#endif
+
+static lc_reset_state_t lc_cpu_make_reset_state(const lc_memory_bus_t *bus) {
+    lc_reset_state_t state = {
+        .rom_overlay_active = true,
+        .cpu_held_for_egret = true,
+        .direct_entry_fallback = LC_CPU_ROM_ENTRY_PROBE != 0,
+        .rom_base_32 = LC_ROM_WINDOW_32BIT_BASE_CANDIDATE,
+        .rom_base_24 = LC_ROM_WINDOW_24BIT_BASE_CANDIDATE,
+        .header_entry_offset = LC_CPU_ROM_HEADER_ENTRY_OFFSET,
+        .header_trampoline_offset = LC_CPU_ROM_HEADER_TRAMPOLINE_TARGET_OFFSET,
+        .reset_opcode_offset = LC_CPU_ROM_RESET_OPCODE_OFFSET,
+        .boot_stack = LC_CPU_BASILISK_BOOT_STACK,
+        .diagnostic_entry_base = LC_CPU_ROM_ENTRY_PROBE_BASE,
+        .diagnostic_entry_offset = LC_CPU_ROM_ENTRY_PROBE_OFFSET,
+        .diagnostic_stack = LC_CPU_ROM_ENTRY_PROBE_STACK,
+        .diagnostic_a6_seed = LC_CPU_ROM_ENTRY_PROBE_A6,
+        .ram_base = LC_RAM_BASE_CANDIDATE,
+        .ram_size = bus != NULL && bus->ram_size != 0 ? (uint32_t)bus->ram_size : LC_GUEST_RAM_SIZE,
+        .ram_bank0_base = LC_RAM_BASE_CANDIDATE,
+        .ram_bank0_size = bus != NULL && bus->ram_size != 0 ? (uint32_t)bus->ram_size : LC_GUEST_RAM_SIZE,
+    };
+    return state;
+}
+
+static void lc_cpu_log_reset_state(const lc_reset_state_t *state) {
+    if (state == NULL) {
+        return;
+    }
+    ESP_LOGI(TAG,
+             "LC reset state object: overlay_active=%d cpu_held_for_egret=%d rom_base=0x%08" PRIx32
+             " rom24_alias=0x%08" PRIx32 " header_entry=+0x%05" PRIx32
+             " trampoline_target=+0x%05" PRIx32 " reset_opcode=+0x%05" PRIx32,
+             state->rom_overlay_active, state->cpu_held_for_egret, state->rom_base_32,
+             state->rom_base_24, state->header_entry_offset, state->header_trampoline_offset,
+             state->reset_opcode_offset);
+    ESP_LOGI(TAG,
+             "LC reset state object: boot_stack=0x%08" PRIx32
+             " ram_bank0=[0x%08" PRIx32 "..0x%08" PRIx32 "] size=0x%08" PRIx32,
+             state->boot_stack, state->ram_bank0_base,
+             state->ram_bank0_base + state->ram_bank0_size - 1u, state->ram_bank0_size);
+    ESP_LOGW(TAG,
+             "LC reset state object: direct_entry_fallback=%d diagnostic_only=yes entry=0x%08" PRIx32
+             "+0x%05" PRIx32 " stack=0x%08" PRIx32 " a6_seed=0x%08" PRIx32,
+             state->direct_entry_fallback, state->diagnostic_entry_base,
+             state->diagnostic_entry_offset, state->diagnostic_stack, state->diagnostic_a6_seed);
+}
 
 static bool lc_cpu_pc_is_rom_monitor_loop(uint32_t pc) {
     const uint32_t rom_offset = pc & 0x000fffffu;
@@ -115,6 +189,44 @@ static uint16_t lc_cpu_peek16_no_trace(const lc_memory_bus_t *bus, uint32_t addr
         return 0xffffu;
     }
     return (uint16_t)(((uint16_t)base[decoded.offset] << 8) | base[decoded.offset + 1u]);
+}
+
+static uint32_t lc_cpu_peek_ram32_no_trace(const lc_memory_bus_t *bus, uint32_t address) {
+    if (bus == NULL || bus->ram == NULL || address + 3u >= bus->ram_size) {
+        return 0xffffffffu;
+    }
+    return ((uint32_t)bus->ram[address + 0u] << 24u) |
+           ((uint32_t)bus->ram[address + 1u] << 16u) |
+           ((uint32_t)bus->ram[address + 2u] << 8u) |
+           (uint32_t)bus->ram[address + 3u];
+}
+
+static bool lc_cpu_pc_is_zero_filled_rom_code(const lc_memory_bus_t *bus,
+                                              uint32_t pc,
+                                              uint32_t *rom_offset_out) {
+    if (bus == NULL || bus->rom == NULL) {
+        return false;
+    }
+    const lc_addr_decode_t decoded = lc_memory_decode_address(pc);
+    if (decoded.region != LC_ADDR_REGION_ROM_24BIT_CANDIDATE &&
+        decoded.region != LC_ADDR_REGION_ROM_32BIT_CANDIDATE &&
+        decoded.region != LC_ADDR_REGION_ROM_32BIT_MASKED_CANDIDATE) {
+        return false;
+    }
+    if (decoded.offset + 7u >= bus->rom_size) {
+        return false;
+    }
+    if (rom_offset_out != NULL) {
+        *rom_offset_out = decoded.offset;
+    }
+    return bus->rom[decoded.offset + 0u] == 0u &&
+           bus->rom[decoded.offset + 1u] == 0u &&
+           bus->rom[decoded.offset + 2u] == 0u &&
+           bus->rom[decoded.offset + 3u] == 0u &&
+           bus->rom[decoded.offset + 4u] == 0u &&
+           bus->rom[decoded.offset + 5u] == 0u &&
+           bus->rom[decoded.offset + 6u] == 0u &&
+           bus->rom[decoded.offset + 7u] == 0u;
 }
 
 static const char *lc_cpu_type_name(unsigned int cpu_type) {
@@ -250,6 +362,16 @@ static bool opcode_hint_is_code(const char *hint) {
 
 static uint32_t pc_relative_target(uint32_t instruction_address, uint16_t displacement) {
     return instruction_address + 2u + (uint32_t)(int32_t)(int16_t)displacement;
+}
+
+static void lc_cpu_write_ram_be32(lc_memory_bus_t *bus, uint32_t address, uint32_t value) {
+    if (bus == NULL || bus->ram == NULL || address + 3u >= bus->ram_size) {
+        return;
+    }
+    bus->ram[address + 0u] = (uint8_t)(value >> 24u);
+    bus->ram[address + 1u] = (uint8_t)(value >> 16u);
+    bus->ram[address + 2u] = (uint8_t)(value >> 8u);
+    bus->ram[address + 3u] = (uint8_t)value;
 }
 
 static const char *entry_transfer_hint(uint16_t opcode) {
@@ -573,21 +695,36 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
         return;
     }
 
-    const uint32_t entry_pc = LC_CPU_ROM_ENTRY_PROBE_BASE + LC_CPU_ROM_ENTRY_PROBE_OFFSET;
+    const lc_reset_state_t reset_state = lc_cpu_make_reset_state(bus);
+    lc_cpu_log_reset_state(&reset_state);
+    const uint32_t entry_pc = reset_state.diagnostic_entry_base + reset_state.diagnostic_entry_offset;
     ESP_LOGW(TAG,
              "LC ROM entry micro-probe enabled: bounded diagnostic only, not a boot claim; base=0x%08x entry_offset=0x%05x cycles=%u stack=0x%08x a6_seed=0x%08x cpu=%s(%u)",
-             (unsigned)LC_CPU_ROM_ENTRY_PROBE_BASE,
-             (unsigned)LC_CPU_ROM_ENTRY_PROBE_OFFSET,
+             (unsigned)reset_state.diagnostic_entry_base,
+             (unsigned)reset_state.diagnostic_entry_offset,
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_CYCLES,
-             (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK,
-             (unsigned)LC_CPU_ROM_ENTRY_PROBE_A6,
+             (unsigned)reset_state.diagnostic_stack,
+             (unsigned)reset_state.diagnostic_a6_seed,
              lc_cpu_type_name(LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE),
              (unsigned)LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE);
 
     memset(bus->ram, 0, bus->ram_size);
+    // BasiliskII installs M68K_EMUL_OP_FIX_DISPATCH_MAGIC because some ROM
+    // paths otherwise reach the dispatch magic check with $0DB0 unset.  Seed
+    // the same low-memory cookie for this bounded probe, and also provide the
+    // ROMBase global BasiliskII writes at $02AE.
+    lc_cpu_write_ram_be32(bus, 0x00000db0u, 0x5a932bc7u);
+    lc_cpu_write_ram_be32(bus, 0x000002aeu, LC_ROM_WINDOW_32BIT_BASE_CANDIDATE);
+    lc_cpu_write_ram_be32(bus, 0x000008a8u, 0x00001080u);
+    lc_cpu_write_ram_be32(bus, 0x00001080u, 0x00001090u);
+    lc_cpu_write_ram_be32(bus, 0x00001090u, 0x00000000u);
+    ESP_LOGW(TAG,
+             "LC ROM entry micro-probe low-memory Basilisk seeds: dispatch_magic[0x0db0]=0x5a932bc7 rombase[0x02ae]=0x%08x gdevice_head[0x08a8]=0x00001080",
+             (unsigned)LC_ROM_WINDOW_32BIT_BASE_CANDIDATE);
 #if LC_ENABLE_SYNTHETIC_RAM_TEST_LIST
     ESP_LOGW(TAG,
-             "LC ROM entry micro-probe synthetic RAM-test list enabled: list=0x%08x diagnostic_only=yes",
+             "LC ROM entry micro-probe synthetic BootGlobs/RAM-test list enabled: boot_globs=0x%08x list=0x%08x diagnostic_only=yes",
+             (unsigned)LC_SYNTHETIC_BOOT_GLOBS_BASE,
              (unsigned)LC_SYNTHETIC_RAM_TEST_LIST_BASE);
 #endif
     lc_musashi_bus_reset_stats();
@@ -595,9 +732,9 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     m68k_init();
     m68k_set_cpu_type(LC_CPU_ROM_ENTRY_PROBE_CPU_TYPE);
     m68k_pulse_reset();
-    m68k_set_reg(M68K_REG_SP, LC_CPU_ROM_ENTRY_PROBE_STACK);
+    m68k_set_reg(M68K_REG_SP, reset_state.diagnostic_stack);
     m68k_set_reg(M68K_REG_SR, 0x2700u);
-    m68k_set_reg(M68K_REG_A6, LC_CPU_ROM_ENTRY_PROBE_A6);
+    m68k_set_reg(M68K_REG_A6, reset_state.diagnostic_a6_seed);
     m68k_set_reg(M68K_REG_PC, entry_pc);
 
     const uint16_t first_opcode = lc_memory_bus_read16(bus, entry_pc);
@@ -605,11 +742,11 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
              "LC ROM entry micro-probe: entry_pc=0x%08" PRIx32
              " first_opcode=0x%04x hint=%s sp=0x%08x a6=0x%08x cpu_type_reg=%u",
              entry_pc, first_opcode, opcode_hint(first_opcode),
-             (unsigned)LC_CPU_ROM_ENTRY_PROBE_STACK,
-             (unsigned)LC_CPU_ROM_ENTRY_PROBE_A6,
+             (unsigned)reset_state.diagnostic_stack,
+             (unsigned)reset_state.diagnostic_a6_seed,
              m68k_get_reg(NULL, M68K_REG_CPU_TYPE));
-    unsigned int total_cycles = 0;
-    unsigned int remaining_cycles = LC_CPU_ROM_ENTRY_PROBE_CYCLES;
+    uint64_t total_cycles = 0;
+    uint64_t remaining_cycles = (uint64_t)LC_CPU_ROM_ENTRY_PROBE_CYCLES;
     unsigned int last_d6_checkpoint = m68k_get_reg(NULL, M68K_REG_D6);
     unsigned int last_d7_checkpoint = m68k_get_reg(NULL, M68K_REG_D7);
     unsigned int last_d6_transition = last_d6_checkpoint;
@@ -617,14 +754,16 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     unsigned int d6_transition_logs = 0;
     unsigned int d7_transition_logs = 0;
     bool zero_ram_execution_logged = false;
+    bool zero_rom_execution_logged = false;
     bool stopped_on_zero_ram_execution = false;
+    bool stopped_on_zero_rom_execution = false;
     bool stopped_on_rom_monitor_loop = false;
-    unsigned int last_transition_log_cycles = 0;
+    uint64_t last_transition_log_cycles = 0;
     unsigned int chunk_index = 0;
     while (remaining_cycles > 0) {
         const unsigned int requested_chunk = remaining_cycles > LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
                                                  ? LC_CPU_ROM_ENTRY_PROBE_CHUNK_CYCLES
-                                                 : remaining_cycles;
+                                                 : (unsigned int)remaining_cycles;
         const int executed = m68k_execute((int)requested_chunk);
         total_cycles += (unsigned int)(executed > 0 ? executed : 0);
         remaining_cycles -= requested_chunk;
@@ -638,15 +777,38 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
             const uint16_t next_opcode = lc_cpu_peek16_no_trace(bus, checkpoint_pc + 2u);
             if (next_opcode == 0) {
                 ESP_LOGW(TAG,
-                         "LC ROM entry micro-probe entered zero-filled RAM code: pc=0x%08x ppc=0x%08x sp=0x%08x vbr=0x%08x opcode=0x%04x next=0x%04x cycles=%u",
+                         "LC ROM entry micro-probe entered zero-filled RAM code: pc=0x%08x ppc=0x%08x sp=0x%08x vbr=0x%08x opcode=0x%04x next=0x%04x cycles=%u stack=%08x %08x %08x %08x",
                          checkpoint_pc, m68k_get_reg(NULL, M68K_REG_PPC),
                          m68k_get_reg(NULL, M68K_REG_SP), m68k_get_reg(NULL, M68K_REG_VBR),
-                         checkpoint_opcode, next_opcode, total_cycles);
+                         checkpoint_opcode, next_opcode, total_cycles,
+                         lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 0u),
+                         lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 4u),
+                         lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 8u),
+                         lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 12u));
                 zero_ram_execution_logged = true;
 #if LC_CPU_STOP_ON_ZERO_RAM_EXECUTION
                 stopped_on_zero_ram_execution = true;
 #endif
             }
+        }
+        uint32_t zero_rom_offset = 0;
+        if (!zero_rom_execution_logged &&
+            lc_cpu_pc_is_zero_filled_rom_code(bus, checkpoint_pc, &zero_rom_offset)) {
+            ESP_LOGW(TAG,
+                     "LC ROM entry micro-probe entered zero-filled ROM padding: pc=0x%08x rom_offset=0x%05x ppc=0x%08x sp=0x%08x vbr=0x%08x opcode=0x%04x cycles=%u d0=0x%08x d1=0x%08x d2=0x%08x a2=0x%08x stack=%08x %08x %08x %08x",
+                     checkpoint_pc, zero_rom_offset, m68k_get_reg(NULL, M68K_REG_PPC),
+                     m68k_get_reg(NULL, M68K_REG_SP), m68k_get_reg(NULL, M68K_REG_VBR),
+                     checkpoint_opcode, total_cycles, m68k_get_reg(NULL, M68K_REG_D0),
+                     m68k_get_reg(NULL, M68K_REG_D1), m68k_get_reg(NULL, M68K_REG_D2),
+                     m68k_get_reg(NULL, M68K_REG_A2),
+                     lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 0u),
+                     lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 4u),
+                     lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 8u),
+                     lc_cpu_peek_ram32_no_trace(bus, m68k_get_reg(NULL, M68K_REG_SP) + 12u));
+            zero_rom_execution_logged = true;
+#if LC_CPU_STOP_ON_ZERO_ROM_EXECUTION
+            stopped_on_zero_rom_execution = true;
+#endif
         }
         if (checkpoint_d6 != last_d6_transition && d6_transition_logs < 32u) {
             ESP_LOGI(TAG,
@@ -707,6 +869,12 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
                      total_cycles);
             break;
         }
+        if (stopped_on_zero_rom_execution) {
+            ESP_LOGW(TAG,
+                     "LC ROM entry micro-probe stopped on zero-filled ROM padding guard at cycles=%u",
+                     total_cycles);
+            break;
+        }
         if (stopped_on_rom_monitor_loop) {
             ESP_LOGW(TAG,
                      "LC ROM entry micro-probe stopped on ROM diagnostic/serial monitor guard at cycles=%u",
@@ -718,7 +886,7 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
             break;
         }
     }
-    const int cycles = (int)total_cycles;
+    const uint64_t cycles = total_cycles;
     const unsigned int pc_after = m68k_get_reg(NULL, M68K_REG_PC);
     const unsigned int sp_after = m68k_get_reg(NULL, M68K_REG_SP);
     const unsigned int sr_after = m68k_get_reg(NULL, M68K_REG_SR);
@@ -748,10 +916,10 @@ void lc_cpu_probe_rom_entry_execution(lc_memory_bus_t *bus) {
     lc_trace_record(LC_TRACE_EVENT_CPU_CONFIG, pc_after, entry_pc, d0_after,
                     (uint16_t)cycles, false);
     ESP_LOGI(TAG,
-             "LC ROM entry micro-probe result: cycles=%d pc_after=0x%08x ppc_after=0x%08x opcode_after=0x%04x ir=0x%04x sp_after=0x%08x sr=0x%04x d0=0x%08x reset_callbacks=%" PRIu32 " stopped_on_zero_ram=%d stopped_on_monitor=%d",
+             "LC ROM entry micro-probe result: cycles=%" PRIu64 " pc_after=0x%08x ppc_after=0x%08x opcode_after=0x%04x ir=0x%04x sp_after=0x%08x sr=0x%04x d0=0x%08x reset_callbacks=%" PRIu32 " stopped_on_zero_ram=%d stopped_on_monitor=%d stopped_on_zero_rom=%d",
              cycles, pc_after, ppc_after, opcode_after, ir_after, sp_after, sr_after, d0_after,
              lc_musashi_bus_reset_callback_count(), stopped_on_zero_ram_execution,
-             stopped_on_rom_monitor_loop);
+             stopped_on_rom_monitor_loop, stopped_on_zero_rom_execution);
     ESP_LOGI(TAG,
              "LC ROM entry micro-probe regs: d1=0x%08x d2=0x%08x d3=0x%08x d4=0x%08x d5=0x%08x d6=0x%08x d7=0x%08x",
              d1_after, d2_after, d3_after, d4_after, d5_after, d6_after, d7_after);

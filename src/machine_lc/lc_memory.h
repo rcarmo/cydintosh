@@ -20,6 +20,10 @@
 #define LC_ROM_WINDOW_24BIT_BASE_CANDIDATE 0x00400000u
 #endif
 
+#ifndef LC_RAM_WINDOW_26BIT_ALIAS_BASE_CANDIDATE
+#define LC_RAM_WINDOW_26BIT_ALIAS_BASE_CANDIDATE 0x04000000u
+#endif
+
 #ifndef LC_ROM_WINDOW_32BIT_BASE_CANDIDATE
 #define LC_ROM_WINDOW_32BIT_BASE_CANDIDATE 0x40800000u
 #endif
@@ -38,6 +42,10 @@
 
 #ifndef LC_IO_32BIT_BASE_CANDIDATE
 #define LC_IO_32BIT_BASE_CANDIDATE 0x50000000u
+#endif
+
+#ifndef LC_BASILISK_FRAME_BASE_CANDIDATE
+#define LC_BASILISK_FRAME_BASE_CANDIDATE 0xa0000000u
 #endif
 
 #define LC_ROM_WINDOW_SIZE 0x00080000u
@@ -60,6 +68,12 @@
 #endif
 #ifndef LC_SYNTHETIC_RAM_TEST_LIST_BASE
 #define LC_SYNTHETIC_RAM_TEST_LIST_BASE (LC_GUEST_RAM_SIZE - 0x1cu)
+#endif
+#ifndef LC_SYNTHETIC_BOOT_GLOBS_BASE
+#define LC_SYNTHETIC_BOOT_GLOBS_BASE (LC_GUEST_RAM_SIZE - 0x2cu)
+#endif
+#ifndef LC_SYNTHETIC_BOOT_GLOBS_SIZE
+#define LC_SYNTHETIC_BOOT_GLOBS_SIZE 0x2cu
 #endif
 
 #define LC_IO_WINDOW_SIZE 0x00100000u
@@ -84,7 +98,10 @@ typedef enum {
     LC_IO_STUB_EARLY_ROM_PROBE_1C00_STRIDE,
     LC_IO_STUB_EARLY_LC_VIA_REGISTER,
     LC_IO_STUB_EARLY_F04000_DEVICE,
+    LC_IO_STUB_EARLY_F10000_DEVICE,
     LC_IO_STUB_EARLY_F14000_DEVICE,
+    LC_IO_STUB_EARLY_F16000_DEVICE,
+    LC_IO_STUB_VRAM,
     LC_IO_STUB_GENERIC,
 } lc_io_stub_kind_t;
 
@@ -97,6 +114,7 @@ typedef struct {
     bool writable;
     lc_io_stub_kind_t io_stub;
     const char *io_stub_name;
+    const char *io_device_alias;
 } lc_addr_decode_t;
 
 typedef struct {
@@ -108,6 +126,21 @@ typedef struct {
     uint8_t *rom_masked_shadow;
     size_t rom_masked_shadow_size;
     bool rom_masked_shadow_enabled;
+    uint8_t *rom_24_shadow;
+    size_t rom_24_shadow_size;
+    bool rom_24_shadow_enabled;
+    uint8_t *vram;
+    size_t vram_size;
+    uint32_t vram_reads;
+    uint32_t vram_writes;
+    uint32_t vram_first_pc;
+    uint32_t vram_first_addr;
+    uint32_t vram_last_pc;
+    uint32_t vram_last_addr;
+    uint8_t vram_last_value;
+    uint8_t rom_serial_bytes[256];
+    uint32_t rom_serial_len;
+    uint32_t rom_serial_total;
     bool initialized;
 } lc_memory_bus_t;
 
@@ -123,6 +156,8 @@ void lc_memory_log_decoder_examples(void);
 void lc_memory_log_io_stub_summary(void);
 void lc_memory_probe_guest_ram_allocation(void);
 void lc_memory_probe_display_buffer_allocation(void);
+void lc_memory_reset_post_reset_atrap_table(void);
+void lc_memory_set_post_reset_atrap_handler(uint16_t trap_word, uint32_t handler);
 esp_err_t lc_memory_bus_init(lc_memory_bus_t *bus, const lc_rom_map_t *rom_map);
 void lc_memory_bus_free(lc_memory_bus_t *bus);
 uint8_t lc_memory_bus_read8(lc_memory_bus_t *bus, uint32_t address);
