@@ -5265,6 +5265,16 @@ void cpu_instr_callback(int pc) {
                         if (res_id == 2u) result_value = 0x0004ff00u;
                         else if (res_id == 3u) result_value = 0x0004ff08u;
                     }
+                    {
+                        static unsigned res_log = 0;
+                        if (res_log < 10u) {
+                            ESP_LOGW(TAG, "LC GetResource: type='%c%c%c%c' id=%d result=0x%08" PRIx32,
+                                     (char)(res_type>>24), (char)(res_type>>16),
+                                     (char)(res_type>>8), (char)res_type,
+                                     (int)(int16_t)res_id, result_value);
+                            res_log++;
+                        }
+                    }
                     m68k_set_reg(M68K_REG_A0, result_value);
                     handled = true;
                     break;
