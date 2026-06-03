@@ -400,10 +400,17 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
     // Jump directly to the INSTALL_DRIVERS site, bypassing all intermediate
     // init that triggers uninitialized high-trap recursion.  Basilisk's
     // EMUL_OP_RESET already sets up all required low-memory state.
-    patch_abs_jump(rom, rom_size, 0x008eu, LC_BASILISK_ROM_BASE_32 + 0x1142u, summary);
-    patch_nops(rom, rom_size, 0x00c2u, 2u, summary);     // Don't GetHardwareInfo.
-    patch_nops(rom, rom_size, 0x00c6u, 15u, summary);    // Don't init VIAs.
+    patch_abs_jump(rom, rom_size, 0x008eu, LC_BASILISK_ROM_BASE_32 + 0x00bau, summary);
+    // Skip ALL ROM init from $ba to $1142.  We cannot run ANY of it without
+    // full VIA/SCC/CUDA hardware emulation.  Seed all prerequisites in RESET.
+    patch_abs_jump(rom, rom_size, 0x00bau, LC_BASILISK_ROM_BASE_32 + 0x1142u, summary);
     put16(rom, rom_size, 0x07c0u, 0x7e02u, summary);     // moveq #2,d7: 68020.
+    // NOP the BNE.W at $C1A that skips the dispatch magic cookie write.
+    // Without this, the A-line dispatcher never gets $5A932BC7 at $0DB0 and
+    // falls into the NuBus scanner loop indefinitely.
+    if (0x0c1cu < rom_size && rom[0x0c1au] == 0x66u && rom[0x0c1bu] == 0x00u) {
+        patch_nops(rom, rom_size, 0x0c1au, 2u, summary);
+    }
     put16(rom, rom_size, 0x07c2u, LC_B2_M68K_RTS, summary);
 
     static const uint8_t clear_globs_dat[] = {0x42, 0x9a, 0x36, 0x0a, 0x66, 0xfa};
@@ -465,7 +472,11 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
 
     put16(rom, rom_size, 0x09c0u, LC_B2_M68K_RTS, summary); // Don't init IWM.
     put16(rom, rom_size, 0x09a0u, LC_B2_M68K_RTS, summary); // Don't init SCSI.
-    patch_nops(rom, rom_size, 0x0190u, 2u, summary);        // Don't EnableExtCache.
+    put16(rom, rom_size, 0x0a30u, LC_B2_M68K_RTS, summary); // Don't init SCC.
+    patch_nops(rom, rom_size, 0x014cu, 2u, summary);       // Don't clear trap table ($1292 clears $100-$2000).
+    patch_nops(rom, rom_size, 0x0160u, 58u, summary);      // Skip all dispatch/SCC/VIA init ($160-$1d3).
+    // NOP $11e (memory test bit): 2 words.
+    patch_nops(rom, rom_size, 0x011eu, 2u, summary);
     put16(rom, rom_size, 0x9f4cu, LC_B2_M68K_RTS, summary); // Don't DisableIntSources.
 
     // SetupTimeK fake CPU timing.
@@ -549,52 +560,47 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
     // prevents reaching Basilisk's patched .Sound/InstallDrivers site.
     patch_nops(rom, rom_size, 0x1134u, 2u, summary);
     put16(rom, rom_size, 0x1142u, LC_B2_EMUL_OP_INSTALL_DRIVERS, summary);
-    patch_nops(rom, rom_size, 0x1144u, 6u, summary); // NOP 0x1144-0x114f (covers bsr 0x1000)
-    put16(rom, rom_size, 0x1150u, LC_B2_M68K_NOP, summary);
-    // NOP the SERD resource load and serial driver install, then RTS.
-    // After INSTALL_DRIVERS, NOP everything through 0x1182 and put RTS.
-    // Since we JMP'd here from RESET (no BSR frame), push a continuation
-    // address before INSTALL_DRIVERS: the ROM's post-boot-init entry at
-    // 0x40802310 (CritError handler, which is benign and halts cleanly).
-    // Actually: just NOP 0x1144-0x1251 (the entire post-install block)
-    // and at 0x1252 let it reach the ROM's mainline continuation.
-    patch_nops(rom, rom_size, 0x1144u, 6u, summary); // 0x1144-0x114f
-    patch_nops(rom, rom_size, 0x1150u, 1u, summary); // 0x1150-0x1151
-    patch_nops(rom, rom_size, 0x1152u, 24u, summary); // 0x1152-0x1181
-    // After INSTALL_DRIVERS: render a Mac-like desktop to VRAM.
-    // White menu bar (top 20 rows) + grey checkerboard desktop (remaining 364 rows).
-    static const uint8_t boot_stub[] = {
-        // move.l #$f40000, a0 (VRAM base)
-        0x20, 0x7c, 0x00, 0xf4, 0x00, 0x00,
-        // Menu bar: 20*512=10240 bytes of $FF (white)
-        0x20, 0x3c, 0x00, 0x00, 0x28, 0x00,  // move.l #10240, d0
-        0x72, 0xff,                            // moveq #-1, d1 ($FF=white)
-        0x10, 0xc1,                            // .m: move.b d1,(a0)+
-        0x53, 0x80,                            // subq.l #1, d0
-        0x66, 0xfa,                            // bne.s .m
-        // Desktop: 364 rows of Mac grey checkerboard
-        0x34, 0x3c, 0x01, 0x6c,                // move.w #364, d2
-        0x76, 0x00,                            // moveq #0, d3 (row parity)
-        // .row:
-        0x30, 0x3c, 0x00, 0xff,                // move.w #255, d0 (256 pairs/row)
-        0x4a, 0x03,                            // tst.b d3
-        0x66, 0x0a,                            // bne.s .odd (+10)
-        0x10, 0xfc, 0x00, 0xaa,                // move.b #$aa,(a0)+
-        0x10, 0xfc, 0x00, 0x55,                // move.b #$55,(a0)+
-        0x60, 0x08,                            // bra.s .next (+8 to dbf)
-        // .odd:
-        0x10, 0xfc, 0x00, 0x55,                // move.b #$55,(a0)+
-        0x10, 0xfc, 0x00, 0xaa,                // move.b #$aa,(a0)+
-        // .next:
-        0x51, 0xc8, 0xff, 0xe8,                // dbf d0, .row+4 (back to tst.b)
-        0x46, 0x03,                            // not.b d3 (flip parity)
-        0x51, 0xca, 0xff, 0xde,                // dbf d2, .row
-        // Spin
-        0x60, 0xfe,
+    // NOP everything from $1144 to $1181 (31 words = 62 bytes).
+    patch_nops(rom, rom_size, 0x1144u, 31u, summary);
+    // After INSTALL_DRIVERS, load and execute boot blocks from disk.
+    // Minimal stub: set up ioParam block, fire DISK_PRIME, jump to boot blocks.
+    static const uint8_t boot_loader[] = {
+        // sub.w #80,sp (allocate 80-byte param block)
+        0x9e, 0xfc, 0x00, 0x50,
+        // move.l sp,a0 (A0 = param block)
+        0x20, 0x4f,
+        // Clear param block: move.l #0,d0 / move.w #19,d1 / .clr: move.l d0,(a0)+ / dbf d1,.clr
+        0x70, 0x00,  // moveq #0,d0
+        0x32, 0x3c, 0x00, 0x13,  // move.w #19,d1
+        0x20, 0xc0,  // .clr: move.l d0,(a0)+
+        0x51, 0xc9, 0xff, 0xfc,  // dbf d1,.clr
+        // Restore a0 to param block base
+        0x20, 0x4f,  // move.l sp,a0
+        // ioTrap = $0002 (read command) at offset 6
+        0x31, 0x7c, 0x00, 0x02, 0x00, 0x06,  // move.w #2,6(a0)
+        // ioBuffer = $800 (param block offset 32)
+        0x21, 0x7c, 0x00, 0x00, 0x08, 0x00, 0x00, 0x20,  // move.l #$800,32(a0)
+        // ioReqCount = 1024 (param block offset 36)
+        0x21, 0x7c, 0x00, 0x00, 0x04, 0x00, 0x00, 0x24,  // move.l #1024,36(a0)
+        // ioPosOffset = 0 (already zero from clear)
+        // ioRefNum = -63 (disk driver, at offset 24)
+        0x31, 0x7c, 0xff, 0xc1, 0x00, 0x18,  // move.w #-63,24(a0)
+        // ioVRefNum = 1 at offset 22
+        0x31, 0x7c, 0x00, 0x01, 0x00, 0x16,  // move.w #1,22(a0)
+        // Set up A1 = dce (use a separate area at $8800 for dce)
+        0x22, 0x7c, 0x00, 0x00, 0x88, 0x00,  // move.l #$8800,a1
+        // Fire DISK_PRIME EMUL_OP (A0=pb, A1=dce)
+        LC_B2_EMUL_OP_DISK_PRIME >> 8, LC_B2_EMUL_OP_DISK_PRIME & 0xff,
+        // Check boot block signature at $800: should be $4C4B ('LK')
+        0x0c, 0x78, 0x4c, 0x4b, 0x08, 0x00,  // cmpi.w #$4C4B,$800
+        // If not LK, spin: bne.s *
+        0x66, 0xfe,
+        // Jump to boot block entry at $802
+        0x4e, 0xf8, 0x08, 0x02,  // jmp $802.w
     };
-    if (0x1182u + sizeof(boot_stub) <= rom_size) {
-        memcpy(&rom[0x1182u], boot_stub, sizeof(boot_stub));
-        summary->patches_applied += (uint32_t)sizeof(boot_stub);
+    if (0x1182u + sizeof(boot_loader) <= rom_size) {
+        memcpy(&rom[0x1182u], boot_loader, sizeof(boot_loader));
+        summary->patches_applied += (uint32_t)sizeof(boot_loader);
     }
 
     // NOP CompBootStack at ROM offset 0x490.  In Basilisk, this only runs

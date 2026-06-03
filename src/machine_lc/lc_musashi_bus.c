@@ -1185,7 +1185,7 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
 
             // Let the Basilisk slot-ROM path use the ROM's real Slot Manager
             // handler instead of the old no-PDS synthetic low-trap default.
-            lc_memory_set_post_reset_atrap_handler(0xa06eu, 0x00406e16u);
+            lc_memory_set_post_reset_atrap_handler(0xa06eu, LC_BASILISK_ROM_BASE_32 + 0x00006e16u);
 
             const uint32_t univ = lc_basilisk_find_universal_info(active_bus->rom, active_bus->rom_size);
             if (univ != 0u) {
@@ -1201,19 +1201,21 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             // Basilisk writes MMU32Bit=1 during RESET so StripAddress
             // returns addresses unchanged in 32-bit mode.
             lc_musashi_bus_ram_write8(0x00000cb2u, 1u); // MMU32Bit = true
+            // Dispatch magic cookie — signals that trap tables are initialized.
+            lc_musashi_bus_ram_write32(0x00000db0u, 0x5a932bc7u);
 
             // SYS trap table at $0000 + selector*4 (for A2xx traps with SYS bit).
             // Skip entries 0-1 (RESET vectors at $00-$07) and seed $08-$3FC.
             // The A-line vector ($28), bus-error ($08), address-error ($0C),
             // illegal ($10) are overwritten below.
             for (uint32_t i = 0x02u; i < 0x100u; i++) {
-                lc_musashi_bus_ram_write32(i * 4u, 0x00400d88u);
+                lc_musashi_bus_ram_write32(i * 4u, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
             // Now write exception vectors OVER the SYS table entries:
-            lc_musashi_bus_ram_write32(LC_LOWMEM_LINE_A_VECTOR, 0x004099b0u); // $28
+            lc_musashi_bus_ram_write32(LC_LOWMEM_LINE_A_VECTOR, 0x408099b0u); // $28
 
             // Seed essential low-memory globals for boot block execution.
-            lc_musashi_bus_ram_write32(0x000002aeu, 0x00400000u); // ROMBase (24-bit)
+            lc_musashi_bus_ram_write32(0x000002aeu, LC_BASILISK_ROM_BASE_32); // ROMBase (32-bit)
             // Write a spin loop at $7f0 as return target after boot code exits.
             lc_musashi_bus_ram_write16(0x000007f0u, 0x60feu); // BRA.S * (infinite loop)
             // Set illegal-instruction vector ($10) to spin at $7f2 for diagnostics
@@ -1239,16 +1241,26 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             lc_musashi_bus_ram_write16(0x00000d04u, 10000u); // TimeSCSIDBRA
 
             // Pre-populate OS trap table ($0400-$0800) with the ROM's generic
-            // NOP handler (moveq #0,d0; rts at ROM+0x0d88) using 24-bit addresses.
+            // NOP handler (moveq #0,d0; rts at ROM+0x0d88) using 32-bit addresses.
             for (uint32_t i = 0; i < 0x100u; i++) {
-                lc_musashi_bus_ram_write32(0x00000400u + i * 4u, 0x00400d88u);
+                lc_musashi_bus_ram_write32(0x00000400u + i * 4u, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
             // Pre-populate toolbox trap table ($0E00-$2E00)
             for (uint32_t addr = 0x00000e00u; addr < 0x00002e00u; addr += 4u) {
-                lc_musashi_bus_ram_write32(addr, 0x00400d88u);
+                lc_musashi_bus_ram_write32(addr, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
 
             m68k_set_reg(M68K_REG_A6, boot_globs);
+            m68k_set_reg(M68K_REG_A4, (uint32_t)active_bus->ram_size); // BootGlobs A4 for PATCH_BOOT_GLOBS
+            // Do PATCH_BOOT_GLOBS work here since we skip $10e entirely:
+            {
+                const uint32_t a4 = (uint32_t)active_bus->ram_size;
+                if (a4 >= 26u) {
+                    lc_musashi_bus_ram_write32(a4 - 20u, (uint32_t)active_bus->ram_size); // MemTop
+                    lc_musashi_bus_ram_write8(a4 - 26u, 0); // No MMU
+                    lc_musashi_bus_ram_write8(a4 - 25u, 1u); // No MMU flag
+                }
+            }
             m68k_set_reg(M68K_REG_SP, 0x00010000u);
         }
         return true;
@@ -3377,7 +3389,7 @@ static void lc_musashi_bus_post_reset_seed_zone(uint32_t zone_start,
 
     // Keep the direct reset probe's RAM-owned A-line vector and immediate
     // follow-on SetApplLimit trap intact after InitZone mutates low memory.
-    lc_musashi_bus_ram_write32(LC_LOWMEM_LINE_A_VECTOR, 0x004099b0u);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_LINE_A_VECTOR, 0x408099b0u);
     lc_musashi_bus_post_reset_seed_low_trap(0x19u, 0x40800d88u);
     lc_musashi_bus_post_reset_seed_low_trap(0x2du, 0x40800d88u);
 
@@ -5003,6 +5015,19 @@ static void lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(uint32_t pc) {
 void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
+
+    // In Basilisk-compatible mode, only run essential I/O and watchpoints.
+    // Skip all trap dispatch hooks — let the ROM handle traps via EMUL_OPs.
+    if (lc_musashi_bus_basilisk_slot_rom_active()) {
+        lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(current_instruction_pc);
+        lc_musashi_bus_maybe_pulse_reset_via_irq(current_instruction_pc);
+#if LC_MUSASHI_TRACE_ROM_WATCHPOINTS
+        lc_musashi_bus_log_rom_watchpoint(current_instruction_pc);
+#endif
+        previous_instruction_pc = current_instruction_pc;
+        return;
+    }
+
     if (lc_musashi_bus_maybe_canonicalize_sr_prefixed_rom_pc(current_instruction_pc)) {
         current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
     }
