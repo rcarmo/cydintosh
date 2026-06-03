@@ -231,9 +231,9 @@ void esp_partition_munmap(esp_partition_mmap_handle_t handle) {
 
 // Load boot 2 and boot 3 resources from fixture files into guest RAM.
 void host_load_boot_resources(uint8_t *ram, size_t ram_size) {
-    if (ram == NULL || ram_size < 0x390000u) return;
+    if (ram == NULL || ram_size < 0x910000u) return;
     const char *paths[] = {"fixtures/boot_2.bin", "fixtures/boot_3.bin"};
-    const uint32_t addrs[] = {0x380000u, 0x382000u};
+    const uint32_t addrs[] = {0x900000u, 0x902000u};
     const uint32_t handles[] = {0x4ff00u, 0x4ff08u};
     const uint32_t sizes[] = {648, 31420};
     for (int i = 0; i < 2; i++) {

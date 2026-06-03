@@ -1247,6 +1247,8 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             lc_musashi_bus_ram_write16(dqe + 14u, (uint16_t)(409600u & 0xFFFF)); // dQDrvSz low
             lc_musashi_bus_ram_write32(0x0000030au, dqe); // DrvQHdr.qHead
             lc_musashi_bus_ram_write32(0x0000030eu, dqe); // DrvQHdr.qTail
+            // BootDrive = 1 (matches drive queue entry dQDrive=1)
+            lc_musashi_bus_ram_write16(0x00000210u, 1u);
             lc_musashi_bus_ram_write32(0x00000130u, (uint32_t)active_bus->ram_size - 0x8000u); // DefltStack
             lc_musashi_bus_ram_write32(0x0000031au, 0x00ffffffu); // Lo3Bytes (strip mask)
             lc_musashi_bus_ram_write16(0x00000d00u, 10000u); // TimeDBRA
@@ -1369,17 +1371,17 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             extern void host_load_boot_resources(uint8_t *ram, size_t ram_size);
             host_load_boot_resources(active_bus->ram, active_bus->ram_size);
             // Register handle sizes so _GetHandleSize returns correct values.
-            lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00380000u, 648u);
-            lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00382000u, 31420u);
+            lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00900000u, 648u);
+            lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00902000u, 31420u);
             // Boot continuation trampoline: ROM calls through $DBC to start boot_2.
             // Must be set HERE (after lc_memory seed which overwrites $DBC).
             // Place trampoline at $7F800 (safe area above heap, below stack).
-            const uint32_t tramp = 0x0007f800u;
+            const uint32_t tramp = 0x00e00000u;
             lc_musashi_bus_ram_write32(0x00000dbcu, tramp); // StartBoot = trampoline
             lc_musashi_bus_ram_write16(tramp + 0u, 0x267cu); // MOVEA.L #imm,A3
             lc_musashi_bus_ram_write32(tramp + 2u, 0x0004ff00u); // boot_2 handle
             lc_musashi_bus_ram_write16(tramp + 6u, 0x4ef9u); // JMP abs.L
-            lc_musashi_bus_ram_write32(tramp + 8u, 0x00380000u); // boot_2 code addr
+            lc_musashi_bus_ram_write32(tramp + 8u, 0x00900000u); // boot_2 code addr
         }
         m68k_set_reg(M68K_REG_D0, 0);
         return true;
@@ -5062,7 +5064,7 @@ void cpu_instr_callback(int pc) {
         if (current_instruction_pc == 0x408099b0u) {
             static unsigned disp_entries = 0;
             disp_entries++;
-            if (disp_entries <= 20u) {
+            if (disp_entries <= 50u) {
                 ESP_LOGI(TAG, "LC DISP entry #%u: sp=0x%08" PRIx32 " sr_at_sp=0x%04x pc_at_sp2=0x%08" PRIx32,
                          disp_entries, m68k_get_reg(NULL, M68K_REG_SP),
                          (unsigned)lc_musashi_bus_peek_ram16(m68k_get_reg(NULL, M68K_REG_SP)),
@@ -5389,6 +5391,22 @@ void cpu_instr_callback(int pc) {
         }
         // Guard: if PC enters the filename-string area at $AD8 (boot blocks
         // write "System" there), redirect to a safe RTS.
+        // Watchpoint: log when ROM calls through $DBC at $1AC
+        if (current_instruction_pc == (LC_BASILISK_ROM_BASE_32 + 0x01acu)) {
+            static unsigned dbc_log = 0;
+            if (dbc_log < 5u) {
+                uint32_t dbc_val = lc_musashi_bus_peek_ram32(0xdbcu);
+                ESP_LOGW(TAG, "LC ROM $1AC: JSR ($DBC) dbc=0x%08" PRIx32
+                         " a0=0x%08x d0=0x%08x sp=0x%08" PRIx32
+                         " [$900000]=0x%04x [$E00000]=0x%04x",
+                         dbc_val, m68k_get_reg(NULL, M68K_REG_A0),
+                         m68k_get_reg(NULL, M68K_REG_D0),
+                         m68k_get_reg(NULL, M68K_REG_SP),
+                         (unsigned)lc_memory_bus_read16(active_bus, 0x900000u),
+                         (unsigned)lc_memory_bus_read16(active_bus, 0xe00000u));
+                dbc_log++;
+            }
+        }
         // Watchpoint: log when PC enters $960-$97A range (boot block GetResource path)
         if (current_instruction_pc >= 0x00000960u && current_instruction_pc < 0x0000097au) {
             static unsigned bb_log = 0;
