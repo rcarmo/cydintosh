@@ -5051,6 +5051,14 @@ void cpu_instr_callback(int pc) {
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
         if (current_instruction_pc == 0x408099b0u) {
+            static unsigned disp_entries = 0;
+            disp_entries++;
+            if (disp_entries <= 20u) {
+                ESP_LOGI(TAG, "LC DISP entry #%u: sp=0x%08" PRIx32 " sr_at_sp=0x%04x pc_at_sp2=0x%08" PRIx32,
+                         disp_entries, m68k_get_reg(NULL, M68K_REG_SP),
+                         (unsigned)lc_musashi_bus_peek_ram16(m68k_get_reg(NULL, M68K_REG_SP)),
+                         lc_musashi_bus_peek_ram32(m68k_get_reg(NULL, M68K_REG_SP) + 2u));
+            }
             // A-line trap fired. Read trap word from exception frame.
             // Stack at entry: [format(2), PC(4), SR(2)] = 8 bytes.
             // PC in frame points to the A-line instruction itself.
@@ -5270,6 +5278,17 @@ void cpu_instr_callback(int pc) {
                     m68k_set_reg(M68K_REG_PC, return_pc);
                     m68k_set_reg(M68K_REG_SR, saved_sr);
                     m68k_set_reg(M68K_REG_D0, 0); // ResErr = noErr
+                    {
+                        static unsigned tb_log = 0;
+                        if (tb_log < 50u) {
+                            ESP_LOGI(TAG, "LC TB trap: trap=0x%04x from=0x%08" PRIx32
+                                     " ret=0x%08" PRIx32 " result=0x%08" PRIx32
+                                     " param_bytes=%u result_bytes=%u",
+                                     trap_word, trap_pc, return_pc, result_value,
+                                     (unsigned)param_bytes, (unsigned)result_bytes);
+                            tb_log++;
+                        }
+                    }
                     previous_instruction_pc = current_instruction_pc;
                     return;
                 }
