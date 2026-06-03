@@ -5226,9 +5226,8 @@ void cpu_instr_callback(int pc) {
                     result_value = 2; // fake refNum
                     handled = true;
                     break;
-                case 0x09a0u: // _GetResource(theType:l, theID:w) → Handle:l
-                case 0x0995u: { // _Get1NamedResource(theType:l, name:l) → Handle:l
-                    param_bytes = ((trap_word & 0x0bffu) == 0x0995u) ? 8u : 6u;
+                case 0x09a0u: { // _GetResource(theType:l, theID:w) → Handle:l
+                    param_bytes = 6u;
                     result_bytes = 4;
                     // Read resource type from stack: sp + 8(frame) + 2(id) = sp+10
                     uint32_t res_type = lc_musashi_bus_peek_ram32(sp + 10u);
@@ -5242,6 +5241,12 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
+                case 0x0995u: // _CurResFile() → refNum:w (no params)
+                    param_bytes = 0;
+                    result_bytes = 2;
+                    result_value = 2; // fake System resource file refNum
+                    handled = true;
+                    break;
                 default:
                     // Unknown toolbox trap — can't determine param sizes safely.
                     // Assume Pascal convention: 4-byte result space, no params to pop.
@@ -5293,6 +5298,16 @@ void cpu_instr_callback(int pc) {
                 previous_instruction_pc = current_instruction_pc;
                 return;
             }
+        }
+        // Guard: if PC enters the filename-string area at $AD8 (boot blocks
+        // write "System" there), redirect to a safe RTS.
+        if (current_instruction_pc >= 0x00000ad8u && current_instruction_pc < 0x00000af0u) {
+            // Something called through $AD8 as code. Return safely.
+            uint32_t ret_addr = lc_musashi_bus_peek_ram32(m68k_get_reg(NULL, M68K_REG_SP));
+            m68k_set_reg(M68K_REG_SP, m68k_get_reg(NULL, M68K_REG_SP) + 4u);
+            m68k_set_reg(M68K_REG_PC, ret_addr);
+            previous_instruction_pc = current_instruction_pc;
+            return;
         }
         lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(current_instruction_pc);
         lc_musashi_bus_maybe_pulse_reset_via_irq(current_instruction_pc);
