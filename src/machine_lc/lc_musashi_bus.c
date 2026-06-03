@@ -5295,11 +5295,67 @@ void cpu_instr_callback(int pc) {
                 // restore SR, pop exception frame.
                 m68k_set_reg(M68K_REG_PC, return_pc);
                 m68k_set_reg(M68K_REG_SP, sp + 8u); // pop exception frame
-                // Restore SR from exception frame. CCR preserved from before trap.
-                m68k_set_reg(M68K_REG_SR, saved_sr);
+                // Restore SR: supervisor mode, CCR reflects D0 (like ROM dispatcher's TST.W D0)
+                {
+                    uint16_t new_sr = saved_sr & 0xFF00u; // keep supervisor/IPL bits
+                    uint32_t d0_val = m68k_get_reg(NULL, M68K_REG_D0);
+                    // TST.W D0 sets: N from bit 15, Z if low word=0, V=0, C=0
+                    uint16_t d0w = (uint16_t)d0_val;
+                    if (d0w == 0) new_sr |= 0x0004u; // Z
+                    if (d0w & 0x8000u) new_sr |= 0x0008u; // N
+                    m68k_set_reg(M68K_REG_SR, new_sr);
+                }
                 previous_instruction_pc = current_instruction_pc;
                 return;
             }
+        }
+        // Intercept at the generic trap handler ($40800D88) for traps dispatched
+        // through the ROM's trap table. D2.B = OS trap number at entry.
+        if (current_instruction_pc == (LC_BASILISK_ROM_BASE_32 + 0x0d88u)) {
+            uint8_t trap_sel = (uint8_t)m68k_get_reg(NULL, M68K_REG_D2);
+            switch (trap_sel) {
+            case 0x1eu: { // _NewPtr (dispatched via table)
+                static uint32_t heap_ptr2 = 0x00100000u; // secondary heap at 1MB
+                uint32_t size = m68k_get_reg(NULL, M68K_REG_D0);
+                if (size == 0) size = 4;
+                size = (size + 3u) & ~3u;
+                uint32_t ptr = heap_ptr2;
+                heap_ptr2 += size;
+                if (heap_ptr2 >= active_bus->ram_size - 0x10000u) {
+                    m68k_set_reg(M68K_REG_A0, 0);
+                    m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-108);
+                } else {
+                    for (uint32_t i = 0; i < size && i < 0x10000u; i++)
+                        lc_memory_bus_write8(active_bus, ptr + i, 0);
+                    m68k_set_reg(M68K_REG_A0, ptr);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                }
+                break;
+            }
+            case 0x22u: { // _NewHandle
+                static uint32_t hheap = 0x00200000u; // handle heap at 2MB
+                uint32_t size = m68k_get_reg(NULL, M68K_REG_D0);
+                if (size == 0) size = 4;
+                size = (size + 3u) & ~3u;
+                uint32_t data = hheap; hheap += size;
+                uint32_t handle = hheap; hheap += 4u;
+                if (hheap >= active_bus->ram_size - 0x10000u) {
+                    m68k_set_reg(M68K_REG_A0, 0);
+                    m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-108);
+                } else {
+                    for (uint32_t i = 0; i < size && i < 0x10000u; i++)
+                        lc_memory_bus_write8(active_bus, data + i, 0);
+                    lc_musashi_bus_ram_write32(handle, data);
+                    m68k_set_reg(M68K_REG_A0, handle);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                }
+                break;
+            }
+            default: // keep moveq#0,d0; rts behavior
+                break;
+            }
+            previous_instruction_pc = current_instruction_pc;
+            return;
         }
         // Guard: if PC enters the filename-string area at $AD8 (boot blocks
         // write "System" there), redirect to a safe RTS.
