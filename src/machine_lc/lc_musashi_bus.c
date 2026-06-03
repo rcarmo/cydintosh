@@ -5125,6 +5125,20 @@ void cpu_instr_callback(int pc) {
                 m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-300);
                 handled = true;
                 break;
+            case 0xa029u: // _HLock: no-op, return noErr
+            case 0xa02au: // _HUnlock: no-op
+            case 0xa004u: // _GetZone: return SysZone in A0
+                m68k_set_reg(M68K_REG_A0, 0x00002800u);
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                break;
+            case 0xa02cu: // _FlushCache: no-op
+            case 0xa04fu: // _RmvTime: no-op
+            case 0xa057u: // _SetTrapAddress: no-op (we handle traps ourselves)
+            case 0xa077u: // _CountADBs: return 0 in D0
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                break;
             default:
                 break;
             }
@@ -5185,6 +5199,27 @@ void cpu_instr_callback(int pc) {
                 uint32_t result_bytes = 0;
                 uint32_t result_value = 0;
                 switch (trap_word & 0x0bffu) { // mask auto-pop bit
+                case 0x08feu: // _InitAllPacks: no params, no result (procedure)
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08a5u: // _Pack3 (StdFile): no-op, assume 0 params
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0997u: // _CountResources(theType:l) → count:w
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    result_value = 0; // no resources
+                    handled = true;
+                    break;
+                case 0x09bcu: // _RmveResource(theRsrc:l): procedure, 4 bytes param
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
                 case 0x09c9u: // _HOpenResFile(vRefNum:w, dirID:l, fileName:l, perm:b→w) → refNum:w
                     param_bytes = 12; // 2+4+4+2
                     result_bytes = 2;
@@ -5208,10 +5243,12 @@ void cpu_instr_callback(int pc) {
                     break;
                 }
                 default:
-                    // Unknown toolbox trap — assume 0 params, 4-byte result = 0
+                    // Unknown toolbox trap — can't determine param sizes safely.
+                    // Assume Pascal convention: 4-byte result space, no params to pop.
+                    // This is wrong for many traps but prevents stack corruption.
                     param_bytes = 0;
-                    result_bytes = 4;
-                    result_value = 0;
+                    result_bytes = 0; // Don't write result — leave pre-pushed space as-is
+                    m68k_set_reg(M68K_REG_D0, 0);
                     m68k_set_reg(M68K_REG_A0, 0);
                     handled = true;
                     break;
