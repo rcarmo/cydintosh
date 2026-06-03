@@ -5045,7 +5045,7 @@ void cpu_instr_callback(int pc) {
             const uint32_t trap_pc = lc_musashi_bus_peek_ram32(sp + 2u); // PC from frame
             const uint16_t trap_word = (uint16_t)lc_memory_bus_read16(active_bus, trap_pc);
             const uint32_t return_pc = trap_pc + 2u; // instruction after trap
-            const uint16_t saved_sr = (uint16_t)lc_memory_bus_read16(active_bus, sp + 6u);
+            const uint16_t saved_sr = (uint16_t)lc_memory_bus_read16(active_bus, sp); // SR at top of frame
             bool handled = false;
             uint16_t trap_num = trap_word & 0x00ffu; // OS trap number (low 8 bits)
             bool is_toolbox = (trap_word & 0x0800u) != 0u;
@@ -5123,40 +5123,57 @@ void cpu_instr_callback(int pc) {
                     break;
                 }
             }
-            // Toolbox traps:
+            // Toolbox traps — Pascal calling convention:
+            // Before trap: stack has [result_space] [params...] from bottom up.
+            // After our exception frame removal, SP points to params.
+            // We pop params and write result to result_space.
             if (!handled && is_toolbox) {
+                // After exception frame pop, return_sp = sp + 8.
+                // Params start at return_sp. We compute param_bytes and result_bytes.
+                uint32_t param_bytes = 0;
+                uint32_t result_bytes = 0;
+                uint32_t result_value = 0;
                 switch (trap_word & 0x0bffu) { // mask auto-pop bit
-                case 0x09c9u: { // _HOpenResFile
-                    // Return refNum = 2 (fake "System" refNum)
-                    // For toolbox traps, result goes on stack (Pascal calling)
-                    // Actually for _HOpenResFile: result in D0? Let's use register:
-                    m68k_set_reg(M68K_REG_D0, 2); // fake refNum
-                    // Also need to set top of stack for Pascal result:
-                    // The trap pops params and pushes result on stack.
-                    // For now just set D0 and hope the boot blocks use it.
+                case 0x09c9u: // _HOpenResFile(vRefNum:w, dirID:l, fileName:l, perm:b→w) → refNum:w
+                    param_bytes = 12; // 2+4+4+2
+                    result_bytes = 2;
+                    result_value = 2; // fake refNum
                     handled = true;
                     break;
-                }
-                case 0x09a0u: // _GetResource
-                case 0x0995u: { // _Get1NamedResource
-                    // Return a handle to our pre-loaded boot resources.
-                    // The boot blocks look for 'boot' 2 and 'boot' 3.
-                    // Return the handle addresses we set up in INSTALL_DRIVERS.
-                    // For now return handle at $4FF00 (boot_2 handle).
+                case 0x09a0u: // _GetResource(theType:l, theID:w) → Handle:l
+                case 0x0995u: { // _Get1NamedResource(theType:l, name:l) → Handle:l
+                    param_bytes = ((trap_word & 0x0bffu) == 0x0995u) ? 8u : 6u;
+                    result_bytes = 4;
                     static uint32_t res_call = 0;
-                    uint32_t handle = (res_call == 0) ? 0x0004ff00u : 0x0004ff08u;
+                    result_value = (res_call == 0) ? 0x0004ff00u : 0x0004ff08u;
                     res_call++;
-                    m68k_set_reg(M68K_REG_A0, handle);
-                    m68k_set_reg(M68K_REG_D0, 0);
+                    m68k_set_reg(M68K_REG_A0, result_value);
                     handled = true;
                     break;
                 }
                 default:
-                    // Unknown toolbox trap — return 0/noErr
-                    m68k_set_reg(M68K_REG_D0, 0);
+                    // Unknown toolbox trap — assume 0 params, 4-byte result = 0
+                    param_bytes = 0;
+                    result_bytes = 4;
+                    result_value = 0;
                     m68k_set_reg(M68K_REG_A0, 0);
                     handled = true;
                     break;
+                }
+                if (handled) {
+                    // Pop exception frame + params, write result to result_space.
+                    uint32_t new_sp = sp + 8u + param_bytes; // skip frame + params
+                    if (result_bytes == 4u) {
+                        lc_musashi_bus_ram_write32(new_sp, result_value);
+                    } else if (result_bytes == 2u) {
+                        lc_musashi_bus_ram_write16(new_sp, (uint16_t)result_value);
+                    }
+                    m68k_set_reg(M68K_REG_SP, new_sp);
+                    m68k_set_reg(M68K_REG_PC, return_pc);
+                    m68k_set_reg(M68K_REG_SR, saved_sr);
+                    m68k_set_reg(M68K_REG_D0, 0); // ResErr = noErr
+                    previous_instruction_pc = current_instruction_pc;
+                    return;
                 }
             }
             if (!handled) {
