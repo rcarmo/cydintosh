@@ -5114,6 +5114,11 @@ void cpu_instr_callback(int pc) {
                 uint32_t src = m68k_get_reg(NULL, M68K_REG_A0);
                 uint32_t dst = m68k_get_reg(NULL, M68K_REG_A1);
                 uint32_t cnt = m68k_get_reg(NULL, M68K_REG_D0);
+                if (dst <= 0x0000FB8Eu && dst + cnt > 0x0000FB8Eu) {
+                    ESP_LOGI(TAG, "LC WATCHPOINT: BlockMove to $FB8E! src=$%08" PRIx32
+                             " dst=$%08" PRIx32 " cnt=%" PRIu32 " from_pc=$%08" PRIx32,
+                             src, dst, cnt, trap_pc);
+                }
                 for (uint32_t i = 0; i < cnt && i < 0x100000u; i++) {
                     uint8_t b = (uint8_t)lc_memory_bus_read8(active_bus, src + i);
                     lc_memory_bus_write8(active_bus, dst + i, b);
@@ -5240,15 +5245,97 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x09bcu: // _RmveResource(theRsrc:l): procedure, 4 bytes param
-                    param_bytes = 4;
-                    result_bytes = 0;
+                case 0x09bcu: { // _GetIndResource(theType:l, index:w) → Handle:l
+                    param_bytes = 6;
+                    result_bytes = 4;
+                    // Pascal: GetIndResource(theType:l, index:w)
+                    // Stack after exception: [frame:8] [index:2] [theType:4] [result:4]
+                    uint16_t gi_index = lc_musashi_bus_peek_ram16(sp + 8u); // 1-based
+                    uint32_t gi_type = lc_musashi_bus_peek_ram32(sp + 10u);
+                    result_value = 0; // NULL by default
+                    // Look up the Nth resource of this type in System.rsrc
+                    if (gi_index > 0 && active_bus && active_bus->ram) {
+                        uint32_t sys_base = 0x00A00000u;
+                        uint32_t data_off_hdr = lc_musashi_bus_peek_ram32(sys_base + 0u);
+                        uint32_t map_off_val = lc_musashi_bus_peek_ram32(sys_base + 4u);
+                        uint32_t map_addr = sys_base + map_off_val;
+                        uint16_t tl_off = lc_musashi_bus_peek_ram16(map_addr + 24u);
+                        uint32_t tl_addr = map_addr + tl_off;
+                        int16_t num_types = (int16_t)lc_musashi_bus_peek_ram16(tl_addr);
+                        num_types += 1;
+                        for (int ti = 0; ti < num_types; ti++) {
+                            uint32_t te_addr = tl_addr + 2u + (uint32_t)ti * 8u;
+                            uint32_t te_type = lc_musashi_bus_peek_ram32(te_addr);
+                            if (te_type == gi_type) {
+                                uint16_t rcount = lc_musashi_bus_peek_ram16(te_addr + 4u) + 1u;
+                                uint16_t ref_off = lc_musashi_bus_peek_ram16(te_addr + 6u);
+                                if (gi_index <= rcount) {
+                                    // Get the ref list entry for this index
+                                    uint32_t rl_addr = tl_addr + ref_off + (uint32_t)(gi_index - 1u) * 12u;
+                                    int16_t rid = (int16_t)lc_musashi_bus_peek_ram16(rl_addr);
+                                    // Call our existing GetResource logic with type+id
+                                    // For now, use the handle cache / allocation path:
+                                    // Compute data offset
+                                    uint8_t d0b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 5u);
+                                    uint8_t d1b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 6u);
+                                    uint8_t d2b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 7u);
+                                    uint32_t d_off = ((uint32_t)d0b << 16) | ((uint32_t)d1b << 8) | d2b;
+                                    uint32_t abs_data = sys_base + data_off_hdr + d_off;
+                                    uint32_t rlen = lc_musashi_bus_peek_ram32(abs_data);
+                                    uint32_t rdata_addr = abs_data + 4u;
+                                    // Allocate handle for this resource
+                                    // Use the resource handle cache area at $4F0000+
+                                    static uint32_t gi_handle_ptr = 0x004F1000u;
+                                    uint32_t handle = gi_handle_ptr;
+                                    gi_handle_ptr += 4u;
+                                    lc_musashi_bus_ram_write32(handle, rdata_addr);
+                                    result_value = handle;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    {
+                        char t[5] = {0};
+                        t[0] = (char)(gi_type >> 24);
+                        t[1] = (char)(gi_type >> 16);
+                        t[2] = (char)(gi_type >> 8);
+                        t[3] = (char)(gi_type);
+                        ESP_LOGI(TAG, "LC GetIndResource('%s', %u) = 0x%08" PRIx32,
+                                 t, (unsigned)gi_index, result_value);
+                    }
                     handled = true;
                     break;
+                }
                 case 0x09c9u: // _HOpenResFile(vRefNum:w, dirID:l, fileName:l, perm:b→w) → refNum:w
                     param_bytes = 12; // 2+4+4+2
                     result_bytes = 2;
-                    result_value = 2; // fake refNum
+                    result_value = 2; // refNum=2 (System file)
+                    // Set up minimal resource file entry so boot_3 can use it.
+                    // TopMapHndl ($A50) = resource map handle for the top (current) file.
+                    // We'll set it to a handle pointing to our System.rsrc map in RAM.
+                    if (active_bus && active_bus->ram) {
+                        // System.rsrc is loaded at $A00000 in guest RAM.
+                        // Resource map offset is stored at bytes 4-7 of the resource header.
+                        uint32_t sys_rsrc_base = 0x00A00000u;
+                        uint32_t map_offset = lc_musashi_bus_peek_ram32(sys_rsrc_base + 4u);
+                        uint32_t map_addr = sys_rsrc_base + map_offset;
+                        // Create a handle for the resource map:
+                        // Allocate a master pointer at $4F0020 → points to map_addr
+                        uint32_t map_handle = 0x0004F020u;
+                        lc_musashi_bus_ram_write32(map_handle, map_addr);
+                        // TopMapHndl ($A50): handle to top resource map
+                        lc_musashi_bus_ram_write32(0x0A50u, map_handle);
+                        // SysMapHndl ($A54): handle to system resource map
+                        lc_musashi_bus_ram_write32(0x0A54u, map_handle);
+                        // SysMap ($A58): refNum of system resource file
+                        lc_musashi_bus_ram_write16(0x0A58u, 2);
+                        // CurMap ($A5A): refNum of current resource file
+                        lc_musashi_bus_ram_write16(0x0A5Au, 2);
+                        ESP_LOGI(TAG, "LC _HOpenResFile: set TopMapHndl=$%08" PRIx32
+                                 " map_addr=$%08" PRIx32 " map_offset=$%08" PRIx32,
+                                 map_handle, map_addr, map_offset);
+                    }
                     handled = true;
                     break;
                 case 0x09a0u: // _GetResource(theType:l, theID:w) → Handle:l
@@ -5287,6 +5374,14 @@ void cpu_instr_callback(int pc) {
                                 static uint32_t handle_alloc = 0x004f0000u;
                                 h = handle_alloc; handle_alloc += 4u;
                                 lc_musashi_bus_ram_write32(h, raddr);
+                                // Verify handle chain for vers resources
+                                if (res_type == 0x76657273u) { // 'vers'
+                                    uint32_t mp = lc_musashi_bus_peek_ram32(h);
+                                    uint16_t first_word = lc_musashi_bus_peek_ram16(mp);
+                                    ESP_LOGI(TAG, "LC vers handle $%08" PRIx32
+                                             " -> mp=$%08" PRIx32 " -> first_word=$%04x",
+                                             h, mp, (unsigned)first_word);
+                                }
                                 if (cache_count < 64) {
                                     cache[cache_count].type = res_type;
                                     cache[cache_count].id = (int16_t)res_id;
@@ -5320,22 +5415,167 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 case 0x0997u: // _CountResources(theType:l) → count:w
-                case 0x09a7u: // _Count1Resources(theType:l) → count:w
+                case 0x09a7u: { // _Count1Resources(theType:l) → count:w
                     param_bytes = 4;
                     result_bytes = 2;
-                    result_value = 0; // no resources of this type
+                    // Read the resource type from the param on the stack
+                    // Stack: [exception_frame:8] [theType:4] [result_space:2]
+                    uint32_t count_type = lc_musashi_bus_peek_ram32(sp + 8u);
+                    // Debug: dump stack around params
+                    {
+                        static unsigned crd = 0;
+                        if (crd < 5) {
+                            ESP_LOGI(TAG, "LC CountRes stack: sp=$%08" PRIx32
+                                     " [+0]=$%04x [+2]=$%08" PRIx32 " [+6]=$%04x"
+                                     " [+8]=$%08" PRIx32 " [+12]=$%04x",
+                                     sp,
+                                     (unsigned)lc_musashi_bus_peek_ram16(sp),
+                                     lc_musashi_bus_peek_ram32(sp + 2u),
+                                     (unsigned)lc_musashi_bus_peek_ram16(sp + 6u),
+                                     lc_musashi_bus_peek_ram32(sp + 8u),
+                                     (unsigned)lc_musashi_bus_peek_ram16(sp + 12u));
+                            crd++;
+                        }
+                    }
+                    uint16_t count_val = 0;
+                    // Count resources of this type in System.rsrc
+                    if (active_bus && active_bus->ram) {
+                        uint32_t sys_base = 0x00A00000u;
+                        uint32_t map_off_val = lc_musashi_bus_peek_ram32(sys_base + 4u);
+                        uint32_t map_addr = sys_base + map_off_val;
+                        uint16_t tl_off = lc_musashi_bus_peek_ram16(map_addr + 24u);
+                        uint32_t tl_addr = map_addr + tl_off;
+                        int16_t num_types = (int16_t)lc_musashi_bus_peek_ram16(tl_addr);
+                        num_types += 1;
+                        for (int i = 0; i < num_types; i++) {
+                            uint32_t te_addr = tl_addr + 2u + (uint32_t)i * 8u;
+                            uint32_t te_type = lc_musashi_bus_peek_ram32(te_addr);
+                            if (te_type == count_type) {
+                                count_val = lc_musashi_bus_peek_ram16(te_addr + 4u) + 1u;
+                                break;
+                            }
+                        }
+                    }
+                    result_value = count_val;
+                    {
+                        char t[5] = {0};
+                        t[0] = (char)(count_type >> 24);
+                        t[1] = (char)(count_type >> 16);
+                        t[2] = (char)(count_type >> 8);
+                        t[3] = (char)(count_type);
+                        ESP_LOGI(TAG, "LC CountResources('%s' $%08" PRIx32 ") = %u sp=$%08" PRIx32,
+                                 t, count_type, (unsigned)count_val, sp);
+                    }
                     handled = true;
                     break;
-                default:
-                    // Unknown toolbox trap — can't determine param sizes safely.
-                    // Assume Pascal convention: 4-byte result space, no params to pop.
-                    // This is wrong for many traps but prevents stack corruption.
+                }
+                case 0x09a3u: // _ReleaseResource(theResource:l) → void
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    // Fix boot_3 stack: if SP is near code ($8372), relocate stack high.
+                    // boot_3's first instruction is _ReleaseResource at $8374.
+                    // boot_2 leaves SP near code base; real Mac has it at ~$7FFC00.
+                    if (trap_pc == 0x00008374u && sp < 0x00009000u) {
+                        // Relocate stack: move exception frame and param to high address
+                        uint32_t new_stack_top = 0x003FFC00u; // 4MB mark
+                        // Copy 12 bytes (frame:8 + param:4) from current sp to new location
+                        uint32_t new_frame_sp = new_stack_top - 12u;
+                        for (uint32_t i = 0; i < 12u; i++) {
+                            uint8_t b = (uint8_t)lc_memory_bus_read8(active_bus, sp + i);
+                            lc_memory_bus_write8(active_bus, new_frame_sp + i, b);
+                        }
+                        // Update sp to new location (Musashi will use this)
+                        m68k_set_reg(M68K_REG_SP, new_frame_sp);
+                        // Also write MemTop, BufPtr if not set
+                        if (lc_musashi_bus_peek_ram32(0x010Cu) == 0) {
+                            lc_musashi_bus_ram_write32(0x010Cu, (uint32_t)active_bus->ram_size);
+                        }
+                        if (lc_musashi_bus_peek_ram32(0x02A6u) == 0) {
+                            lc_musashi_bus_ram_write32(0x02A6u, active_bus->ram_size - 0x8000u);
+                        }
+                        ESP_LOGI(TAG, "LC boot_3 stack relocated: old_sp=$%08" PRIx32
+                                 " new_sp=$%08" PRIx32, sp, new_frame_sp);
+                        // Re-read sp for the epilogue
+                        // Note: we need to update our local sp variable
+                        // Actually, the epilogue uses the 'sp' variable for new_sp computation.
+                        // We can't easily change it here since the epilogue does sp + 8 + param_bytes.
+                        // Instead, just return early with manual handling:
+                        uint32_t ret_pc = lc_musashi_bus_peek_ram32(new_frame_sp + 2u) + 2u;
+                        m68k_set_reg(M68K_REG_SP, new_frame_sp + 8u + 4u); // skip frame + param
+                        m68k_set_reg(M68K_REG_PC, ret_pc);
+                        m68k_set_reg(M68K_REG_SR, lc_musashi_bus_peek_ram16(new_frame_sp));
+                        m68k_set_reg(M68K_REG_D0, 0);
+                        previous_instruction_pc = current_instruction_pc;
+                        return;
+                    }
+                    handled = true;
+                    break;
+                case 0x099au: // _CloseResFile(refNum:w) → void
+                    param_bytes = 2;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x099bu: // _SetResLoad(load:w) → void
+                    param_bytes = 2;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x09a4u: // _DetachResource(theResource:l) → void
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x09a1u: // _GetNamedResource(theType:l, name:l) → Handle:l
+                    param_bytes = 8;
+                    result_bytes = 4;
+                    result_value = 0; // NULL
+                    handled = true;
+                    break;
+                case 0x09a2u: // _LoadResource(theResource:l) → void
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x099cu: // _UseResFile(refNum:w) → void
+                    param_bytes = 2;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x09aau: // _RmveResource(theResource:l) → void
+                case 0x09adu: // _AddResource(theData:l, theType:l, theID:w, name:l) → void
+                    param_bytes = 4; // RmveResource; AddResource uses 14 but rare
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x09a8u: // _GetResAttrs(theResource:l) → attrs:w
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    result_value = 0;
+                    handled = true;
+                    break;
+                case 0x099fu: // _Get1Resource(theType:l, theID:w) → Handle:l
+                    param_bytes = 6;
+                    result_bytes = 4;
+                    result_value = 0; // NULL (fallback — main GetResource path handles real lookups)
+                    handled = true;
+                    break;
+                default: {
+                    // Unknown toolbox trap — log it for debugging.
+                    static unsigned unk_tb_log = 0;
+                    if (unk_tb_log < 100u) {
+                        ESP_LOGW(TAG, "LC UNKNOWN TB trap: 0x%04x (masked=0x%04x) from=0x%08" PRIx32
+                                 " sp=0x%08" PRIx32,
+                                 trap_word, (unsigned)(trap_word & 0x0BFFu), trap_pc, sp);
+                        unk_tb_log++;
+                    }
+                    // Can't determine param sizes. Assume no-param procedure.
                     param_bytes = 0;
-                    result_bytes = 0; // Don't write result — leave pre-pushed space as-is
+                    result_bytes = 0;
                     m68k_set_reg(M68K_REG_D0, 0);
                     m68k_set_reg(M68K_REG_A0, 0);
                     handled = true;
                     break;
+                }
                 }
                 if (handled) {
                     // Pop exception frame + params, write result to result_space.
@@ -5351,7 +5591,7 @@ void cpu_instr_callback(int pc) {
                     m68k_set_reg(M68K_REG_D0, 0); // ResErr = noErr
                     {
                         static unsigned tb_log = 0;
-                        if (tb_log < 50u) {
+                        if (tb_log < 200u) {
                             ESP_LOGI(TAG, "LC TB trap: trap=0x%04x from=0x%08" PRIx32
                                      " ret=0x%08" PRIx32 " result=0x%08" PRIx32
                                      " param_bytes=%u result_bytes=%u",
