@@ -5052,6 +5052,30 @@ void cpu_instr_callback(int pc) {
             if (is_toolbox) trap_num = trap_word & 0x03ffu; // toolbox: low 10 bits
 
             switch (trap_word & 0xf0ffu) { // mask out flag bits for OS traps
+            case 0xa000u: { // _Open: A0=paramBlock
+                uint32_t pb_o = m68k_get_reg(NULL, M68K_REG_A0);
+                // Write ioRefNum=-5 (Sony driver) at pb+24
+                lc_musashi_bus_ram_write16(pb_o + 24u, (uint16_t)(int16_t)-5);
+                m68k_set_reg(M68K_REG_D0, 0); // noErr
+                handled = true;
+                break;
+            }
+            case 0xa002u: { // _Read: A0=paramBlock
+                // Read from disk — delegate to DISK_PRIME
+                uint32_t pb_r = m68k_get_reg(NULL, M68K_REG_A0);
+                int16_t result = lc_musashi_bus_basilisk_disk_prime(false, pb_r, 0x8800u);
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)result);
+                handled = true;
+                break;
+            }
+            case 0xa011u: { // _GetEOF: A0=paramBlock, returns ioMisc=EOF
+                uint32_t pb_e = m68k_get_reg(NULL, M68K_REG_A0);
+                // Return disk size as EOF (200MB)
+                lc_musashi_bus_ram_write32(pb_e + 28u, 209715200u); // ioMisc = file size
+                m68k_set_reg(M68K_REG_D0, 0); // noErr
+                handled = true;
+                break;
+            }
             case 0xa02eu: { // _BlockMove: A0=src, A1=dst, D0=count
                 uint32_t src = m68k_get_reg(NULL, M68K_REG_A0);
                 uint32_t dst = m68k_get_reg(NULL, M68K_REG_A1);
@@ -5144,9 +5168,14 @@ void cpu_instr_callback(int pc) {
                 case 0x0995u: { // _Get1NamedResource(theType:l, name:l) → Handle:l
                     param_bytes = ((trap_word & 0x0bffu) == 0x0995u) ? 8u : 6u;
                     result_bytes = 4;
-                    static uint32_t res_call = 0;
-                    result_value = (res_call == 0) ? 0x0004ff00u : 0x0004ff08u;
-                    res_call++;
+                    // Read resource type from stack: sp + 8(frame) + 2(id) = sp+10
+                    uint32_t res_type = lc_musashi_bus_peek_ram32(sp + 10u);
+                    uint16_t res_id = lc_musashi_bus_peek_ram16(sp + 8u);
+                    result_value = 0; // default: not found
+                    if (res_type == 0x626f6f74u) { // 'boot'
+                        if (res_id == 2u) result_value = 0x0004ff00u;
+                        else if (res_id == 3u) result_value = 0x0004ff08u;
+                    }
                     m68k_set_reg(M68K_REG_A0, result_value);
                     handled = true;
                     break;
