@@ -5252,7 +5252,9 @@ void cpu_instr_callback(int pc) {
                 case 0x0995u: // _CurResFile() → refNum:w (no params)
                     param_bytes = 0;
                     result_bytes = 2;
-                    result_value = 2; // fake System resource file refNum
+                    // Return -1 (no resource file) so BMI at $968 skips the
+                    // GetResource code path (which is overwritten by BlockMove).
+                    result_value = 0xFFFFu; // -1 as unsigned 16-bit
                     handled = true;
                     break;
                 default:
@@ -5378,6 +5380,20 @@ void cpu_instr_callback(int pc) {
         }
         // Guard: if PC enters the filename-string area at $AD8 (boot blocks
         // write "System" there), redirect to a safe RTS.
+        // Watchpoint: log when PC enters $960-$97A range (boot block GetResource path)
+        if (current_instruction_pc >= 0x00000960u && current_instruction_pc < 0x0000097au) {
+            static unsigned bb_log = 0;
+            if (bb_log < 20u) {
+                ESP_LOGI(TAG, "LC BB watch: pc=0x%08" PRIx32 " opcode=0x%04x sp=0x%08" PRIx32
+                         " [$976]=0x%04x [$28]=0x%08" PRIx32,
+                         current_instruction_pc,
+                         (unsigned)lc_memory_bus_read16(active_bus, current_instruction_pc),
+                         m68k_get_reg(NULL, M68K_REG_SP),
+                         (unsigned)lc_memory_bus_read16(active_bus, 0x976u),
+                         lc_musashi_bus_peek_ram32(0x28u));
+                bb_log++;
+            }
+        }
         if (current_instruction_pc >= 0x00000ad8u && current_instruction_pc < 0x00000af0u) {
             // Something called through $AD8 as code. Return safely.
             uint32_t ret_addr = lc_musashi_bus_peek_ram32(m68k_get_reg(NULL, M68K_REG_SP));
