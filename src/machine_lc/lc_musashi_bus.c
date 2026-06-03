@@ -5234,14 +5234,10 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 case 0x08a5u: // _Pack3 (StdFile): no-op, assume 0 params
+                case 0x08a8u: // _ADBReInit: no-op
+                case 0x0895u: // _SysEnvirons: no-op procedure
                     param_bytes = 0;
                     result_bytes = 0;
-                    handled = true;
-                    break;
-                case 0x0997u: // _CountResources(theType:l) → count:w
-                    param_bytes = 4;
-                    result_bytes = 2;
-                    result_value = 0; // no resources
                     handled = true;
                     break;
                 case 0x09bcu: // _RmveResource(theRsrc:l): procedure, 4 bytes param
@@ -5321,6 +5317,13 @@ void cpu_instr_callback(int pc) {
                     // Return -1 (no resource file) so BMI at $968 skips the
                     // GetResource code path (which is overwritten by BlockMove).
                     result_value = 0xFFFFu; // -1 as unsigned 16-bit
+                    handled = true;
+                    break;
+                case 0x0997u: // _CountResources(theType:l) → count:w
+                case 0x09a7u: // _Count1Resources(theType:l) → count:w
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    result_value = 0; // no resources of this type
                     handled = true;
                     break;
                 default:
