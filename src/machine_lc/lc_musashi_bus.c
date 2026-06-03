@@ -5249,7 +5249,8 @@ void cpu_instr_callback(int pc) {
                     result_value = 2; // fake refNum
                     handled = true;
                     break;
-                case 0x09a0u: { // _GetResource(theType:l, theID:w) → Handle:l
+                case 0x09a0u: // _GetResource(theType:l, theID:w) → Handle:l
+                case 0x081fu: { // _Get1Resource(theType:l, theID:w) → Handle:l
                     param_bytes = 6u;
                     result_bytes = 4;
                     // Read resource type from stack: sp + 8(frame) + 2(id) = sp+10
