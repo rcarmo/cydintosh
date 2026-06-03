@@ -5283,17 +5283,19 @@ void cpu_instr_callback(int pc) {
                 static unsigned trap_log_count = 0;
                 if (trap_log_count < 200u) {
                     ESP_LOGI(TAG, "LC trap intercept: trap=0x%04x from_pc=0x%08" PRIx32
-                             " return=0x%08" PRIx32 " d0=0x%08x a0=0x%08x sp=0x%08" PRIx32,
+                             " return=0x%08" PRIx32 " d0=0x%08x a0=0x%08x sp=0x%08" PRIx32
+                             " [$28]=0x%08" PRIx32,
                              trap_word, trap_pc, return_pc,
                              m68k_get_reg(NULL, M68K_REG_D0),
-                             m68k_get_reg(NULL, M68K_REG_A0), sp);
+                             m68k_get_reg(NULL, M68K_REG_A0), sp,
+                             lc_musashi_bus_peek_ram32(0x28u));
                     trap_log_count++;
                 }
                 // Skip the ROM dispatcher: set PC to return address and
                 // restore SR, pop exception frame.
                 m68k_set_reg(M68K_REG_PC, return_pc);
                 m68k_set_reg(M68K_REG_SP, sp + 8u); // pop exception frame
-                // Restore SR (keep supervisor bit)
+                // Restore SR from exception frame. CCR preserved from before trap.
                 m68k_set_reg(M68K_REG_SR, saved_sr);
                 previous_instruction_pc = current_instruction_pc;
                 return;
