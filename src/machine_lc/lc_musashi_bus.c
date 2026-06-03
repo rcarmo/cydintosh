@@ -5064,7 +5064,7 @@ void cpu_instr_callback(int pc) {
         if (current_instruction_pc == 0x408099b0u) {
             static unsigned disp_entries = 0;
             disp_entries++;
-            if (disp_entries <= 50u) {
+            if (disp_entries <= 200u) {
                 ESP_LOGI(TAG, "LC DISP entry #%u: sp=0x%08" PRIx32 " sr_at_sp=0x%04x pc_at_sp2=0x%08" PRIx32,
                          disp_entries, m68k_get_reg(NULL, M68K_REG_SP),
                          (unsigned)lc_musashi_bus_peek_ram16(m68k_get_reg(NULL, M68K_REG_SP)),
@@ -5392,9 +5392,42 @@ void cpu_instr_callback(int pc) {
         // Guard: if PC enters the filename-string area at $AD8 (boot blocks
         // write "System" there), redirect to a safe RTS.
         // Watchpoint: log when ROM calls through $DBC at $1AC
+        // Watchpoint: detect if boot_2 code at $900000 is reached
+        if (current_instruction_pc >= 0x008f0000u && current_instruction_pc <= 0x00910000u) {
+            static unsigned b2_log = 0;
+            if (b2_log < 5u) {
+                ESP_LOGW(TAG, "LC BOOT2 reached! pc=0x%08" PRIx32 " opcode=0x%04x a3=0x%08x sp=0x%08" PRIx32,
+                         current_instruction_pc,
+                         (unsigned)lc_memory_bus_read16(active_bus, current_instruction_pc),
+                         m68k_get_reg(NULL, M68K_REG_A3),
+                         m68k_get_reg(NULL, M68K_REG_SP));
+                b2_log++;
+            }
+        }
+        // Watchpoint: detect trampoline at $E00000
+        if (current_instruction_pc >= 0x00e00000u && current_instruction_pc <= 0x00e00010u) {
+            static unsigned tr_log = 0;
+            if (tr_log < 3u) {
+                ESP_LOGW(TAG, "LC TRAMPOLINE! pc=0x%08" PRIx32 " a3=0x%08x",
+                         current_instruction_pc, m68k_get_reg(NULL, M68K_REG_A3));
+                tr_log++;
+            }
+        }
+        // Intercept boot block re-entry: on second+ call, redirect to boot_2.
+        if (current_instruction_pc == 0x0000088au) {
+            static unsigned bb_entry_count = 0;
+            bb_entry_count++;
+            if (bb_entry_count >= 2u) {
+                // Skip boot blocks, jump directly to boot_2 with A3=handle.
+                m68k_set_reg(M68K_REG_A3, 0x0004ff00u); // boot_2 handle
+                m68k_set_reg(M68K_REG_PC, 0x00900000u); // boot_2 code
+                previous_instruction_pc = current_instruction_pc;
+                return;
+            }
+        }
         if (current_instruction_pc == (LC_BASILISK_ROM_BASE_32 + 0x01acu)) {
             static unsigned dbc_log = 0;
-            if (dbc_log < 5u) {
+            if (dbc_log < 2u) {
                 uint32_t dbc_val = lc_musashi_bus_peek_ram32(0xdbcu);
                 ESP_LOGW(TAG, "LC ROM $1AC: JSR ($DBC) dbc=0x%08" PRIx32
                          " a0=0x%08x d0=0x%08x sp=0x%08" PRIx32

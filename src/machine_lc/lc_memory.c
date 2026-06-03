@@ -484,6 +484,7 @@ static bool lc_memory_should_read_post_reset_lowmem_callback(uint32_t pc, uint32
     (void)address;
     return false;
 #else
+
     const uint32_t rom_offset = pc & 0x000fffffu;
     return !post_reset_core_lowmem_ram_seeded && rom_offset == 0x000001acu &&
            address >= 0x00000dbcu && address < 0x00000dc0u;
