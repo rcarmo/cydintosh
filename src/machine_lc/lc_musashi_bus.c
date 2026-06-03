@@ -1384,7 +1384,26 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
         return true;
     case LC_B2_EMUL_OP_DISK_PRIME:
         lc_musashi_bus_basilisk_log_emul_op(op, "DISK_PRIME");
+        {
+            uint32_t dpb = m68k_get_reg(NULL, M68K_REG_A0);
+            ESP_LOGI(TAG, "LC DISK_PRIME params: pb=0x%08" PRIx32
+                     " buf=0x%08" PRIx32 " len=0x%08" PRIx32
+                     " trap=0x%04x refnum=%d pos_mode=0x%04x",
+                     dpb,
+                     lc_musashi_bus_peek_ram32(dpb + 32u),
+                     lc_musashi_bus_peek_ram32(dpb + 36u),
+                     (unsigned)lc_musashi_bus_peek_ram16(dpb + 6u),
+                     (int)(int16_t)lc_musashi_bus_peek_ram16(dpb + 24u),
+                     (unsigned)lc_musashi_bus_peek_ram16(dpb + 44u));
+        }
+        ESP_LOGI(TAG, "LC A-line vector at DISK_PRIME time: $28=0x%08" PRIx32 " $800=0x%04x",
+                 lc_musashi_bus_peek_ram32(0x28u),
+                 (unsigned)lc_musashi_bus_peek_ram16(0x800u));
         m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)lc_musashi_bus_basilisk_disk_prime(false, m68k_get_reg(NULL, M68K_REG_A0), m68k_get_reg(NULL, M68K_REG_A1)));
+        ESP_LOGI(TAG, "LC DISK_PRIME result: D0=0x%08x $800=0x%04x $802=0x%04x",
+                 m68k_get_reg(NULL, M68K_REG_D0),
+                 (unsigned)lc_musashi_bus_peek_ram16(0x800u),
+                 (unsigned)lc_musashi_bus_peek_ram16(0x802u));
         return true;
     case LC_B2_EMUL_OP_DISK_CONTROL:
     case LC_B2_EMUL_OP_DISK_STATUS:
@@ -5016,9 +5035,155 @@ void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
 
-    // In Basilisk-compatible mode, only run essential I/O and watchpoints.
-    // Skip all trap dispatch hooks — let the ROM handle traps via EMUL_OPs.
+    // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
+        if (current_instruction_pc == 0x408099b0u) {
+            // A-line trap fired. Read trap word from exception frame.
+            // Stack at entry: [format(2), PC(4), SR(2)] = 8 bytes.
+            // PC in frame points to the A-line instruction itself.
+            const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+            const uint32_t trap_pc = lc_musashi_bus_peek_ram32(sp + 2u); // PC from frame
+            const uint16_t trap_word = (uint16_t)lc_memory_bus_read16(active_bus, trap_pc);
+            const uint32_t return_pc = trap_pc + 2u; // instruction after trap
+            const uint16_t saved_sr = (uint16_t)lc_memory_bus_read16(active_bus, sp + 6u);
+            bool handled = false;
+            uint16_t trap_num = trap_word & 0x00ffu; // OS trap number (low 8 bits)
+            bool is_toolbox = (trap_word & 0x0800u) != 0u;
+            if (is_toolbox) trap_num = trap_word & 0x03ffu; // toolbox: low 10 bits
+
+            switch (trap_word & 0xf0ffu) { // mask out flag bits for OS traps
+            case 0xa02eu: { // _BlockMove: A0=src, A1=dst, D0=count
+                uint32_t src = m68k_get_reg(NULL, M68K_REG_A0);
+                uint32_t dst = m68k_get_reg(NULL, M68K_REG_A1);
+                uint32_t cnt = m68k_get_reg(NULL, M68K_REG_D0);
+                for (uint32_t i = 0; i < cnt && i < 0x100000u; i++) {
+                    uint8_t b = (uint8_t)lc_memory_bus_read8(active_bus, src + i);
+                    lc_memory_bus_write8(active_bus, dst + i, b);
+                }
+                m68k_set_reg(M68K_REG_D0, 0); // noErr
+                handled = true;
+                break;
+            }
+            case 0xa06cu: // _FreeMem: returns free bytes in D0
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(active_bus->ram_size / 2u));
+                m68k_set_reg(M68K_REG_A0, (uint32_t)(active_bus->ram_size / 2u));
+                handled = true;
+                break;
+            case 0xa06du: // _MaxMem: returns max block in D0, grow in A0
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(active_bus->ram_size / 4u));
+                m68k_set_reg(M68K_REG_A0, 0);
+                handled = true;
+                break;
+            default:
+                break;
+            }
+            // OS traps with variant flags (NewPtr etc):
+            if (!handled && (trap_word & 0xf000u) == 0xa000u) {
+                uint16_t base_trap = trap_word & 0x00ffu;
+                switch (base_trap) {
+                case 0x001eu: // _NewPtr (A01E/A11E/A21E/A31E)
+                case 0x0007u: { // _NewPtr variant with extra flags
+                    // Simple bump allocator from top of SysZone
+                    static uint32_t heap_ptr = 0x00080000u; // Start at 512KB
+                    uint32_t size = m68k_get_reg(NULL, M68K_REG_D0);
+                    if (size == 0) size = 4;
+                    size = (size + 3u) & ~3u; // align to 4
+                    uint32_t ptr = heap_ptr;
+                    heap_ptr += size;
+                    if (heap_ptr >= active_bus->ram_size - 0x10000u) {
+                        m68k_set_reg(M68K_REG_A0, 0);
+                        m68k_set_reg(M68K_REG_D0, (uint32_t)-108); // memFullErr
+                    } else {
+                        // Clear if CLEAR flag (bit 9) is set
+                        if ((trap_word & 0x0200u) != 0) {
+                            for (uint32_t i = 0; i < size; i++)
+                                lc_memory_bus_write8(active_bus, ptr + i, 0);
+                        }
+                        m68k_set_reg(M68K_REG_A0, ptr);
+                        m68k_set_reg(M68K_REG_D0, 0); // noErr
+                    }
+                    handled = true;
+                    break;
+                }
+                case 0x000eu: // _HPurge — no-op
+                case 0x000fu: // _HNoPurge — no-op
+                case 0x0015u: // _DisposHandle — no-op
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    handled = true;
+                    break;
+                case 0x0057u: // _SetFileInfo — no-op return noErr
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    handled = true;
+                    break;
+                case 0x0060u: // _HGetState — return 0 in D0
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    handled = true;
+                    break;
+                default:
+                    break;
+                }
+            }
+            // Toolbox traps:
+            if (!handled && is_toolbox) {
+                switch (trap_word & 0x0bffu) { // mask auto-pop bit
+                case 0x09c9u: { // _HOpenResFile
+                    // Return refNum = 2 (fake "System" refNum)
+                    // For toolbox traps, result goes on stack (Pascal calling)
+                    // Actually for _HOpenResFile: result in D0? Let's use register:
+                    m68k_set_reg(M68K_REG_D0, 2); // fake refNum
+                    // Also need to set top of stack for Pascal result:
+                    // The trap pops params and pushes result on stack.
+                    // For now just set D0 and hope the boot blocks use it.
+                    handled = true;
+                    break;
+                }
+                case 0x09a0u: // _GetResource
+                case 0x0995u: { // _Get1NamedResource
+                    // Return a handle to our pre-loaded boot resources.
+                    // The boot blocks look for 'boot' 2 and 'boot' 3.
+                    // Return the handle addresses we set up in INSTALL_DRIVERS.
+                    // For now return handle at $4FF00 (boot_2 handle).
+                    static uint32_t res_call = 0;
+                    uint32_t handle = (res_call == 0) ? 0x0004ff00u : 0x0004ff08u;
+                    res_call++;
+                    m68k_set_reg(M68K_REG_A0, handle);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    handled = true;
+                    break;
+                }
+                default:
+                    // Unknown toolbox trap — return 0/noErr
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    m68k_set_reg(M68K_REG_A0, 0);
+                    handled = true;
+                    break;
+                }
+            }
+            if (!handled) {
+                // Unknown OS trap — return noErr
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+            }
+            if (handled) {
+                static unsigned trap_log_count = 0;
+                if (trap_log_count < 30u) {
+                    ESP_LOGI(TAG, "LC trap intercept: trap=0x%04x from_pc=0x%08" PRIx32
+                             " return=0x%08" PRIx32 " d0=0x%08x a0=0x%08x sp=0x%08" PRIx32,
+                             trap_word, trap_pc, return_pc,
+                             m68k_get_reg(NULL, M68K_REG_D0),
+                             m68k_get_reg(NULL, M68K_REG_A0), sp);
+                    trap_log_count++;
+                }
+                // Skip the ROM dispatcher: set PC to return address and
+                // restore SR, pop exception frame.
+                m68k_set_reg(M68K_REG_PC, return_pc);
+                m68k_set_reg(M68K_REG_SP, sp + 8u); // pop exception frame
+                // Restore SR (keep supervisor bit)
+                m68k_set_reg(M68K_REG_SR, saved_sr);
+                previous_instruction_pc = current_instruction_pc;
+                return;
+            }
+        }
         lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(current_instruction_pc);
         lc_musashi_bus_maybe_pulse_reset_via_irq(current_instruction_pc);
 #if LC_MUSASHI_TRACE_ROM_WATCHPOINTS

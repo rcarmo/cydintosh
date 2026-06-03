@@ -246,16 +246,16 @@ void host_load_boot_resources(uint8_t *ram, size_t ram_size) {
         // master_ptr = address of data
         uint32_t master_ptr_addr = handles[i] + 4u;
         uint32_t data_addr = addrs[i];
-        // Write master pointer (big-endian)
+        // Write master pointer (big-endian): data address
         ram[master_ptr_addr + 0] = (data_addr >> 24) & 0xff;
         ram[master_ptr_addr + 1] = (data_addr >> 16) & 0xff;
         ram[master_ptr_addr + 2] = (data_addr >> 8) & 0xff;
         ram[master_ptr_addr + 3] = data_addr & 0xff;
-        // Write handle (pointer to master pointer)
-        ram[handles[i] + 0] = (data_addr >> 24) & 0xff;
-        ram[handles[i] + 1] = (data_addr >> 16) & 0xff;
-        ram[handles[i] + 2] = (data_addr >> 8) & 0xff;
-        ram[handles[i] + 3] = data_addr & 0xff;
+        // Write handle: points TO the master pointer location
+        ram[handles[i] + 0] = (master_ptr_addr >> 24) & 0xff;
+        ram[handles[i] + 1] = (master_ptr_addr >> 16) & 0xff;
+        ram[handles[i] + 2] = (master_ptr_addr >> 8) & 0xff;
+        ram[handles[i] + 3] = master_ptr_addr & 0xff;
         fprintf(stderr, "HOST: loaded %s (%zu bytes) to RAM $%05x handle=$%05x\n",
                 paths[i], n, addrs[i], handles[i]);
     }
