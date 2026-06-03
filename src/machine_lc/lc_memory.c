@@ -688,7 +688,9 @@ static void lc_memory_seed_post_reset_core_lowmem_ram(lc_memory_bus_t *bus) {
     lc_memory_seed32(bus, 0x00000028u, 0x408099b0u); // A-line vector -> LC ROM dispatcher.
 #endif
     lc_memory_seed32(bus, 0x00000db0u, 0x5a932bc7u);
-    lc_memory_seed32(bus, 0x00000dbcu, 0x40800338u);
+    if (!lc_memory_basilisk_slot_rom_active(bus)) {
+        lc_memory_seed32(bus, 0x00000dbcu, 0x40800338u);
+    }
 
 #if LC_ENABLE_RAM_OWNED_LOW_MEMORY
     lc_memory_seed32(bus, 0x000001d4u, 0x00f00000u); // VIA base.
@@ -802,7 +804,9 @@ static void lc_memory_seed_ram_owned_low_memory(lc_memory_bus_t *bus) {
     }
 
     lc_memory_seed32(bus, 0x00000db0u, 0x5a932bc7u); // Basilisk dispatch magic.
-    lc_memory_seed32(bus, 0x00000dbcu, 0x40800338u); // Post-InitMMU callback: ROM RTS.
+    if (!lc_memory_basilisk_slot_rom_active(bus)) {
+        lc_memory_seed32(bus, 0x00000dbcu, 0x40800338u); // Post-InitMMU callback: ROM RTS.
+    }
 
     lc_memory_seed32(bus, 0x000002aeu, LC_ROM_WINDOW_32BIT_BASE_CANDIDATE); // ROMBase.
     lc_memory_seed32(bus, 0x0000031au, 0x00ffffffu); // Resource data offset mask.

@@ -1371,6 +1371,15 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             // Register handle sizes so _GetHandleSize returns correct values.
             lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00380000u, 648u);
             lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00382000u, 31420u);
+            // Boot continuation trampoline: ROM calls through $DBC to start boot_2.
+            // Must be set HERE (after lc_memory seed which overwrites $DBC).
+            // Place trampoline at $7F800 (safe area above heap, below stack).
+            const uint32_t tramp = 0x0007f800u;
+            lc_musashi_bus_ram_write32(0x00000dbcu, tramp); // StartBoot = trampoline
+            lc_musashi_bus_ram_write16(tramp + 0u, 0x267cu); // MOVEA.L #imm,A3
+            lc_musashi_bus_ram_write32(tramp + 2u, 0x0004ff00u); // boot_2 handle
+            lc_musashi_bus_ram_write16(tramp + 6u, 0x4ef9u); // JMP abs.L
+            lc_musashi_bus_ram_write32(tramp + 8u, 0x00380000u); // boot_2 code addr
         }
         m68k_set_reg(M68K_REG_D0, 0);
         return true;
