@@ -1234,6 +1234,19 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             lc_musashi_bus_ram_write32(0x00000904u, 0x00380000u); // SysZone end (ApplZone)
             lc_musashi_bus_ram_write32(0x000002a6u, 0x00380000u); // CurStackBase
             lc_musashi_bus_ram_write32(0x00000118u, 0x00380000u); // ApplZone
+            // Drive Queue Header (empty)
+            lc_musashi_bus_ram_write16(0x00000308u, 0); // DrvQHdr.qFlags
+            // Set up a drive queue entry at $8A40 for boot disk (drive 1, refNum -63)
+            const uint32_t dqe = 0x00008a40u;
+            lc_musashi_bus_ram_write32(dqe + 0u, 0); // qLink (no next)
+            lc_musashi_bus_ram_write16(dqe + 4u, 1u); // qType = drive
+            lc_musashi_bus_ram_write16(dqe + 6u, 1u); // dQDrive = 1
+            lc_musashi_bus_ram_write16(dqe + 8u, (uint16_t)(int16_t)-63); // dQRefNum = -63 (disk)
+            lc_musashi_bus_ram_write16(dqe + 10u, 0); // dQFSID = HFS
+            lc_musashi_bus_ram_write16(dqe + 12u, (uint16_t)(409600u >> 16)); // dQDrvSz high
+            lc_musashi_bus_ram_write16(dqe + 14u, (uint16_t)(409600u & 0xFFFF)); // dQDrvSz low
+            lc_musashi_bus_ram_write32(0x0000030au, dqe); // DrvQHdr.qHead
+            lc_musashi_bus_ram_write32(0x0000030eu, dqe); // DrvQHdr.qTail
             lc_musashi_bus_ram_write32(0x00000130u, (uint32_t)active_bus->ram_size - 0x8000u); // DefltStack
             lc_musashi_bus_ram_write32(0x0000031au, 0x00ffffffu); // Lo3Bytes (strip mask)
             lc_musashi_bus_ram_write16(0x00000d00u, 10000u); // TimeDBRA
@@ -5098,6 +5111,20 @@ void cpu_instr_callback(int pc) {
                 m68k_set_reg(M68K_REG_A0, 0);
                 handled = true;
                 break;
+            case 0xa01cu: { // _GetHandleSize: A0=handle, returns size in D0
+                uint32_t h = m68k_get_reg(NULL, M68K_REG_A0);
+                uint32_t sz = 0x10000u; // default: 64KB
+                if (h == 0x0004ff00u) sz = 648u;
+                else if (h == 0x0004ff08u) sz = 31420u;
+                else if (h == 0u) sz = 0x10000u; // NULL → large to break loops
+                m68k_set_reg(M68K_REG_D0, sz);
+                handled = true;
+                break;
+            }
+            case 0xa06eu: // _SlotManager: return -300 (smEmptySlot) in D0
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-300);
+                handled = true;
+                break;
             default:
                 break;
             }
@@ -5212,7 +5239,7 @@ void cpu_instr_callback(int pc) {
             }
             if (handled) {
                 static unsigned trap_log_count = 0;
-                if (trap_log_count < 30u) {
+                if (trap_log_count < 200u) {
                     ESP_LOGI(TAG, "LC trap intercept: trap=0x%04x from_pc=0x%08" PRIx32
                              " return=0x%08" PRIx32 " d0=0x%08x a0=0x%08x sp=0x%08" PRIx32,
                              trap_word, trap_pc, return_pc,
