@@ -5144,6 +5144,10 @@ void cpu_instr_callback(int pc) {
                 handled = true;
                 break;
             }
+            case 0xa00cu: // _GetPtrSize: A0=ptr, returns size in D0
+                m68k_set_reg(M68K_REG_D0, 0x1000u); // return 4KB as default ptr size
+                handled = true;
+                break;
             case 0xa06eu: // _SlotManager: return -300 (smEmptySlot) in D0
                 m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-300);
                 handled = true;
