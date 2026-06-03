@@ -256,3 +256,65 @@ void host_load_boot_resources(uint8_t *ram, size_t ram_size) {
                 paths[i], n, addrs[i], handles[i]);
     }
 }
+
+// System resource fork loaded into guest RAM at this base address:
+#define SYSRSRC_RAM_BASE 0x00A00000u
+static uint32_t sysrsrc_size = 0;
+
+void host_load_system_rsrc(uint8_t *ram, size_t ram_size) {
+    if (ram == NULL || ram_size < SYSRSRC_RAM_BASE + 0x600000u) return;
+    FILE *f = fopen("fixtures/system_rsrc/System.rsrc", "rb");
+    if (!f) { fprintf(stderr, "WARN: cannot open System.rsrc\n"); return; }
+    fseek(f, 0, SEEK_END);
+    size_t sz = (size_t)ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz > 0x600000u) sz = 0x600000u; // cap at 6MB
+    size_t n = fread(&ram[SYSRSRC_RAM_BASE], 1, sz, f);
+    fclose(f);
+    sysrsrc_size = (uint32_t)n;
+    fprintf(stderr, "HOST: loaded System.rsrc (%zu bytes) at RAM $%06X\n",
+            n, SYSRSRC_RAM_BASE);
+}
+
+// Find a resource in the loaded System.rsrc by type and ID.
+// Returns the guest RAM address of the resource data (after length prefix),
+// and sets *out_size to the data length. Returns 0 if not found.
+uint32_t host_find_system_resource(const uint8_t *ram, size_t ram_size,
+                                   uint32_t res_type, int16_t res_id,
+                                   uint32_t *out_size) {
+    if (sysrsrc_size == 0 || ram == NULL) return 0;
+    const uint8_t *rsrc = &ram[SYSRSRC_RAM_BASE];
+    uint32_t data_offset = (uint32_t)rsrc[0]<<24 | rsrc[1]<<16 | rsrc[2]<<8 | rsrc[3];
+    uint32_t map_offset = (uint32_t)rsrc[4]<<24 | rsrc[5]<<16 | rsrc[6]<<8 | rsrc[7];
+    if (map_offset + 30 > sysrsrc_size) return 0;
+    
+    const uint8_t *map = rsrc + map_offset;
+    uint16_t type_list_off = (uint16_t)(map[24]<<8 | map[25]);
+    const uint8_t *tlist = map + type_list_off;
+    int16_t num_types = (int16_t)(tlist[0]<<8 | tlist[1]) + 1;
+    
+    for (int i = 0; i < num_types; i++) {
+        const uint8_t *te = tlist + 2 + i * 8;
+        uint32_t t = (uint32_t)te[0]<<24 | te[1]<<16 | te[2]<<8 | te[3];
+        if (t != res_type) continue;
+        uint16_t count = (uint16_t)(te[4]<<8 | te[5]) + 1;
+        uint16_t ref_off = (uint16_t)(te[6]<<8 | te[7]);
+        const uint8_t *refs = tlist + ref_off;
+        for (int j = 0; j < count; j++) {
+            const uint8_t *re = refs + j * 12;
+            int16_t rid = (int16_t)(re[0]<<8 | re[1]);
+            if (rid != res_id) continue;
+            // Found! Get data offset (3 bytes at re[5..7])
+            uint32_t doff = (uint32_t)re[5]<<16 | re[6]<<8 | re[7];
+            uint32_t abs_off = data_offset + doff;
+            if (abs_off + 4 > sysrsrc_size) return 0;
+            uint32_t dlen = (uint32_t)rsrc[abs_off]<<24 | rsrc[abs_off+1]<<16 |
+                            rsrc[abs_off+2]<<8 | rsrc[abs_off+3];
+            if (out_size) *out_size = dlen;
+            // Return guest RAM address of the data (after length prefix)
+            return SYSRSRC_RAM_BASE + abs_off + 4;
+        }
+        return 0; // type found but ID not found
+    }
+    return 0; // type not found
+}

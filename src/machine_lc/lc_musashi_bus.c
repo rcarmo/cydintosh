@@ -1369,7 +1369,9 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
         // boot_2 at $50000, boot_3 at $52000. Handles at $4ff00/$4ff08.
         {
             extern void host_load_boot_resources(uint8_t *ram, size_t ram_size);
+            extern void host_load_system_rsrc(uint8_t *ram, size_t ram_size);
             host_load_boot_resources(active_bus->ram, active_bus->ram_size);
+            host_load_system_rsrc(active_bus->ram, active_bus->ram_size);
             // Register handle sizes so _GetHandleSize returns correct values.
             lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00900000u, 648u);
             lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00902000u, 31420u);
@@ -5265,9 +5267,43 @@ void cpu_instr_callback(int pc) {
                         if (res_id == 2u) result_value = 0x0004ff00u;
                         else if (res_id == 3u) result_value = 0x0004ff08u;
                     }
+                    // Search System.rsrc for the requested resource:
+                    // Skip 'gbly' — it's a machine-specific boot check that loops if content mismatches
+                    if (result_value == 0 && res_type != 0x67626c79u && // skip 'gbly'
+                        active_bus != NULL && active_bus->ram != NULL) {
+                        extern uint32_t host_find_system_resource(const uint8_t *, size_t,
+                                                                  uint32_t, int16_t, uint32_t *);
+                        uint32_t rsz = 0;
+                        uint32_t raddr = host_find_system_resource(
+                            active_bus->ram, active_bus->ram_size,
+                            res_type, (int16_t)res_id, &rsz);
+                        if (raddr != 0) {
+                            // Cache: return same handle for same resource
+                            static struct { uint32_t type; int16_t id; uint32_t handle; } cache[64];
+                            static unsigned cache_count = 0;
+                            uint32_t h = 0;
+                            for (unsigned ci = 0; ci < cache_count; ci++) {
+                                if (cache[ci].type == res_type && cache[ci].id == (int16_t)res_id) {
+                                    h = cache[ci].handle; break;
+                                }
+                            }
+                            if (h == 0) {
+                                static uint32_t handle_alloc = 0x004f0000u;
+                                h = handle_alloc; handle_alloc += 4u;
+                                lc_musashi_bus_ram_write32(h, raddr);
+                                if (cache_count < 64) {
+                                    cache[cache_count].type = res_type;
+                                    cache[cache_count].id = (int16_t)res_id;
+                                    cache[cache_count].handle = h;
+                                    cache_count++;
+                                }
+                            }
+                            result_value = h;
+                        }
+                    }
                     {
                         static unsigned res_log = 0;
-                        if (res_log < 10u) {
+                        if (res_log < 20u) {
                             ESP_LOGW(TAG, "LC GetResource: type='%c%c%c%c' id=%d result=0x%08" PRIx32,
                                      (char)(res_type>>24), (char)(res_type>>16),
                                      (char)(res_type>>8), (char)res_type,
