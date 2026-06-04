@@ -5345,10 +5345,11 @@ void cpu_instr_callback(int pc) {
                     }
                     {
                         char t[5] = {0};
-                        t[0] = (char)(gi_type >> 24); t[1] = (char)(gi_type >> 16);
-                        t[2] = (char)(gi_type >> 8); t[3] = (char)gi_type;
-                        ESP_LOGI(TAG, "LC GetIndResource('%s', %u) = 0x%08" PRIx32,
-                                 t, (unsigned)gi_index, result_value);
+                        uint8_t tb[4] = {(uint8_t)(gi_type >> 24), (uint8_t)(gi_type >> 16),
+                                         (uint8_t)(gi_type >> 8), (uint8_t)gi_type};
+                        for (int ti = 0; ti < 4; ti++) t[ti] = (tb[ti] >= 32 && tb[ti] < 127) ? (char)tb[ti] : '.';
+                        ESP_LOGI(TAG, "LC GetIndResource('%s' $%08" PRIx32 ", %u) = 0x%08" PRIx32,
+                                 t, gi_type, (unsigned)gi_index, result_value);
                     }
                     handled = true;
                     break;
@@ -5523,12 +5524,11 @@ void cpu_instr_callback(int pc) {
                     result_value = count_val;
                     {
                         char t[5] = {0};
-                        t[0] = (char)(count_type >> 24);
-                        t[1] = (char)(count_type >> 16);
-                        t[2] = (char)(count_type >> 8);
-                        t[3] = (char)(count_type);
-                        ESP_LOGI(TAG, "LC CountResources('%s' $%08" PRIx32 ") = %u sp=$%08" PRIx32 " A5=$%08x",
-                                 t, count_type, (unsigned)count_val, sp,
+                        uint8_t tb[4] = {(uint8_t)(count_type >> 24), (uint8_t)(count_type >> 16),
+                                         (uint8_t)(count_type >> 8), (uint8_t)count_type};
+                        for (int ti = 0; ti < 4; ti++) t[ti] = (tb[ti] >= 32 && tb[ti] < 127) ? (char)tb[ti] : '.';
+                        ESP_LOGI(TAG, "LC CountResources('%s' raw=$%08" PRIx32 " type=$%08" PRIx32 ") = %u sp=$%08" PRIx32 " A5=$%08x",
+                                 t, raw_type, count_type, (unsigned)count_val, sp,
                                  m68k_get_reg(NULL, M68K_REG_A5));
                     }
                     handled = true;
@@ -5537,6 +5537,18 @@ void cpu_instr_callback(int pc) {
                 case 0x09a3u: // _ReleaseResource(theResource:l) → void
                     param_bytes = 4;
                     result_bytes = 0;
+                    // boot_3 starts with MOVE.L A3,-(SP); _ReleaseResource.
+                    // Its A5 globals/type pool live at code_base + $10BE.
+                    // Compute this from the copied code location rather than
+                    // hardcoding the old low-memory $9430 address.
+                    if (lc_memory_bus_read16(active_bus, trap_pc - 2u) == 0x2f0bu &&
+                        trap_pc >= 2u && trap_pc < active_bus->ram_size) {
+                        uint32_t boot3_a5 = (trap_pc - 2u) + 0x10BEu;
+                        m68k_set_reg(M68K_REG_A5, boot3_a5);
+                        lc_musashi_bus_ram_write32(0x0904u, boot3_a5); // CurrentA5
+                        ESP_LOGI(TAG, "LC boot_3 dynamic A5: trap_pc=$%08" PRIx32
+                                 " A5=$%08" PRIx32, trap_pc, boot3_a5);
+                    }
                     handled = true;
                     break;
                 case 0x099au: // _CloseResFile(refNum:w) → void
