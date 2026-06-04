@@ -5251,6 +5251,14 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x08ecu: // QuickDraw _CopyBits(srcBits:l,dstBits:l,srcRect:l,dstRect:l,mode:w,maskRgn:l) → void
+                    // boot_3 allocates local bitmap/rect scratch, pushes the 22-byte
+                    // CopyBits argument list, calls A8EC, then separately releases
+                    // 14 bytes of local scratch with LEA 14(SP),SP.
+                    param_bytes = 22;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
                 case 0x09bcu: { // _GetIndResource(index:w) → Handle:l
                     // In boot_3 context: type is IMPLICIT from last CountResources.
                     // Stack: [frame:8] [index:2] [result_space:4 already allocated]
@@ -5517,7 +5525,7 @@ void cpu_instr_callback(int pc) {
                         // within boot_3 at offset $10BE from code start ($8372+$10BE=$9430).
                         // PEA $02BA(A5) should yield 'PTCH' at $9430+$02BA=$96EA.
                         m68k_set_reg(M68K_REG_A5, 0x00009430u);
-                        // Also set CurrentA5 ($904) for ROM code that reads it
+                        // Also set CurrentA5 ($904) for ROM code that reads it.
                         lc_musashi_bus_ram_write32(0x0904u, 0x00009430u);
                         // Re-read sp for the epilogue
                         // Note: we need to update our local sp variable
