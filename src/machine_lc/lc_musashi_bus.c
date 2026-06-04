@@ -1028,6 +1028,18 @@ static int16_t lc_musashi_bus_basilisk_disk_control_status(uint16_t op, uint32_t
 static void lc_musashi_bus_post_reset_set_handle_record(uint32_t handle, uint32_t data_ptr,
                                                          uint32_t size);
 
+static void lc_musashi_bus_install_startboot_trampoline(void) {
+    if (active_bus == NULL || active_bus->ram == NULL || active_bus->ram_size <= 0x00e0000cu) {
+        return;
+    }
+    const uint32_t tramp = 0x00e00000u;
+    lc_musashi_bus_ram_write32(0x00000dbcu, tramp); // StartBoot = trampoline
+    lc_musashi_bus_ram_write16(tramp + 0u, 0x267cu); // MOVEA.L #imm,A3
+    lc_musashi_bus_ram_write32(tramp + 2u, 0x0004ff00u); // boot_2 handle
+    lc_musashi_bus_ram_write16(tramp + 6u, 0x4ef9u); // JMP abs.L
+    lc_musashi_bus_ram_write32(tramp + 8u, 0x00900000u); // boot_2 code addr
+}
+
 static void lc_musashi_bus_stage_boot_resources(void) {
     if (active_bus == NULL || active_bus->ram == NULL) {
         return;
@@ -1038,6 +1050,7 @@ static void lc_musashi_bus_stage_boot_resources(void) {
     host_load_system_rsrc(active_bus->ram, active_bus->ram_size);
     lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00900000u, 648u);
     lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00902000u, 31420u);
+    lc_musashi_bus_install_startboot_trampoline();
 }
 
 static bool lc_musashi_bus_guest_pstring_equals(uint32_t addr, const char *s) {
@@ -1288,6 +1301,7 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                     lc_musashi_bus_ram_write8(a4 - 25u, 1u); // No MMU flag
                 }
             }
+            lc_musashi_bus_stage_boot_resources();
             m68k_set_reg(M68K_REG_SP, 0x00010000u);
         }
         return true;
@@ -1421,9 +1435,11 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             uint32_t dpb = m68k_get_reg(NULL, M68K_REG_A0);
             uint32_t dce = m68k_get_reg(NULL, M68K_REG_A1);
             // In the ROM-init path, Basilisk's Disk Driver dispatch reaches
-            // DISK_PRIME with A0 clear and A1 holding the parameter block.
-            // The old skipped-init path used A0=PB, A1=DCE. Support both.
-            if ((dpb == 0u || dpb + 49u >= active_bus->ram_size) &&
+            // DISK_PRIME with A1 holding the parameter block. A0 can be clear
+            // or contain the StartBoot trampoline address from the preceding
+            // $DBC call. The old skipped-init path used A0=PB, A1=DCE. Support both.
+            const uint32_t startboot = lc_musashi_bus_peek_ram32(0x00000dbcu);
+            if ((dpb == 0u || dpb == startboot || dpb + 49u >= active_bus->ram_size) &&
                 dce != 0u && dce + 49u < active_bus->ram_size) {
                 dpb = dce;
                 dce = 0x00008a40u; // synthetic drive queue/DCE-ish record
@@ -5104,6 +5120,7 @@ void cpu_instr_callback(int pc) {
 
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
+
         if (current_instruction_pc == 0x408099b0u) {
             static unsigned disp_entries = 0;
             disp_entries++;
@@ -5297,6 +5314,13 @@ void cpu_instr_callback(int pc) {
                     // CopyBits argument list, calls A8EC, then separately releases
                     // 14 bytes of local scratch with LEA 14(SP),SP.
                     param_bytes = 22;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08f6u: // QuickDraw _DrawPicture(pic:l, dstRect:l) → caller-cleaned here
+                    // boot_3 follows this A-trap with ADDQ.W #8,SP, so leave
+                    // the stack untouched and just no-op drawing for now.
+                    param_bytes = 0;
                     result_bytes = 0;
                     handled = true;
                     break;
@@ -5551,11 +5575,19 @@ void cpu_instr_callback(int pc) {
                     }
                     handled = true;
                     break;
-                case 0x099au: // _CloseResFile(refNum:w) → void
-                    param_bytes = 2;
+                case 0x099au: { // _CloseResFile(refNum:w) → void
+                    // In boot_3's PTCH cleanup path, A99A is followed by a
+                    // branch to an RTS while the type/count scratch pair is
+                    // still above the real return address. Match by boot_3-relative
+                    // offset so copied high-RAM instances work too.
+                    uint32_t a5_now = m68k_get_reg(NULL, M68K_REG_A5);
+                    uint32_t boot3_base = (a5_now >= 0x10BEu) ? (a5_now - 0x10BEu) : 0u;
+                    uint32_t boot3_off = (trap_pc >= boot3_base) ? (trap_pc - boot3_base) : 0xffffffffu;
+                    param_bytes = (boot3_off == 0x00006f66u) ? 10u : 2u;
                     result_bytes = 0;
                     handled = true;
                     break;
+                }
                 case 0x099bu: // _SetResLoad(load:w) → void
                     param_bytes = 2;
                     result_bytes = 0;
