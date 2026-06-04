@@ -5120,7 +5120,6 @@ void cpu_instr_callback(int pc) {
 
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
-
         if (current_instruction_pc == 0x408099b0u) {
             static unsigned disp_entries = 0;
             disp_entries++;
@@ -5301,6 +5300,14 @@ void cpu_instr_callback(int pc) {
                 case 0x08a5u: // _Pack3 (StdFile): no-op, assume 0 params
                 case 0x0895u: // _SysEnvirons: no-op procedure
                     param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0873u: // QuickDraw _SetPort(port:l) → void
+                case 0x0874u: // QuickDraw _GetPort(VAR port:l) → void
+                case 0x0884u: // QuickDraw _DrawString(str:l) → void
+                case 0x0893u: // QuickDraw _MoveTo(h:w, v:w) → void
+                    param_bytes = 4;
                     result_bytes = 0;
                     handled = true;
                     break;
