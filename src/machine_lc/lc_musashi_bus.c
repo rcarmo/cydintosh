@@ -1028,6 +1028,18 @@ static int16_t lc_musashi_bus_basilisk_disk_control_status(uint16_t op, uint32_t
 static void lc_musashi_bus_post_reset_set_handle_record(uint32_t handle, uint32_t data_ptr,
                                                          uint32_t size);
 
+static void lc_musashi_bus_stage_boot_resources(void) {
+    if (active_bus == NULL || active_bus->ram == NULL) {
+        return;
+    }
+    extern void host_load_boot_resources(uint8_t *ram, size_t ram_size);
+    extern void host_load_system_rsrc(uint8_t *ram, size_t ram_size);
+    host_load_boot_resources(active_bus->ram, active_bus->ram_size);
+    host_load_system_rsrc(active_bus->ram, active_bus->ram_size);
+    lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00900000u, 648u);
+    lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00902000u, 31420u);
+}
+
 static bool lc_musashi_bus_guest_pstring_equals(uint32_t addr, const char *s) {
     if (s == NULL || active_bus == NULL) {
         return false;
@@ -1334,13 +1346,15 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             lc_musashi_bus_ram_write8(a4 - 26u, 0);
             lc_musashi_bus_ram_write8(a4 - 25u, (uint8_t)(active_bus->ram[a4 - 25u] | 1u));
         }
-        m68k_set_reg(M68K_REG_A6, (uint32_t)active_bus->ram_size);
+        const uint32_t boot_globs = (uint32_t)active_bus->ram_size - 0x1cu;
+        m68k_set_reg(M68K_REG_A6, boot_globs);
         return true;
     }
 
     case LC_B2_EMUL_OP_FIX_BOOTSTACK:
         lc_musashi_bus_basilisk_log_emul_op(op, "FIX_BOOTSTACK");
-        m68k_set_reg(M68K_REG_A1, (uint32_t)(active_bus->ram_size * 3u / 4u));
+        // Basilisk RESET initializes boot stack to RAMBaseMac + 0x10000.
+        m68k_set_reg(M68K_REG_A1, 0x00010000u);
         return true;
 
     case LC_B2_EMUL_OP_FIX_MEMSIZE: {
@@ -1365,16 +1379,9 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
     case LC_B2_EMUL_OP_INSTALL_DRIVERS:
         lc_musashi_bus_basilisk_log_emul_op(op, "INSTALL_DRIVERS");
         lc_musashi_bus_basilisk_install_drivers(m68k_get_reg(NULL, M68K_REG_A0));
-        // Load boot resources from fixture files into RAM and set up handles.
-        // boot_2 at $50000, boot_3 at $52000. Handles at $4ff00/$4ff08.
+        // Stage boot/System resources and set up handles.
         {
-            extern void host_load_boot_resources(uint8_t *ram, size_t ram_size);
-            extern void host_load_system_rsrc(uint8_t *ram, size_t ram_size);
-            host_load_boot_resources(active_bus->ram, active_bus->ram_size);
-            host_load_system_rsrc(active_bus->ram, active_bus->ram_size);
-            // Register handle sizes so _GetHandleSize returns correct values.
-            lc_musashi_bus_post_reset_set_handle_record(0x0004ff00u, 0x00900000u, 648u);
-            lc_musashi_bus_post_reset_set_handle_record(0x0004ff08u, 0x00902000u, 31420u);
+            lc_musashi_bus_stage_boot_resources();
             // Boot continuation trampoline: ROM calls through $DBC to start boot_2.
             // Must be set HERE (after lc_memory seed which overwrites $DBC).
             // Place trampoline at $7F800 (safe area above heap, below stack).
@@ -1412,20 +1419,54 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
         lc_musashi_bus_basilisk_log_emul_op(op, "DISK_PRIME");
         {
             uint32_t dpb = m68k_get_reg(NULL, M68K_REG_A0);
-            ESP_LOGI(TAG, "LC DISK_PRIME params: pb=0x%08" PRIx32
+            uint32_t dce = m68k_get_reg(NULL, M68K_REG_A1);
+            // In the ROM-init path, Basilisk's Disk Driver dispatch reaches
+            // DISK_PRIME with A0 clear and A1 holding the parameter block.
+            // The old skipped-init path used A0=PB, A1=DCE. Support both.
+            if ((dpb == 0u || dpb + 49u >= active_bus->ram_size) &&
+                dce != 0u && dce + 49u < active_bus->ram_size) {
+                dpb = dce;
+                dce = 0x00008a40u; // synthetic drive queue/DCE-ish record
+            }
+            // ROM-init boot path can arrive with a scratch PB at $8800 that
+            // has not been filled by our replacement Disk Driver. Basilisk's
+            // driver code would populate this for the boot block read; do it here.
+            if (dpb == 0x00008800u) {
+                if (lc_musashi_bus_peek_ram32(dpb + 32u) == 0u &&
+                    lc_musashi_bus_peek_ram32(dpb + 36u) == 0u) {
+                    lc_musashi_bus_ram_write16(dpb + 6u, 2u);       // read
+                    lc_musashi_bus_ram_write16(dpb + 24u, (uint16_t)(int16_t)-63); // .Disk
+                    lc_musashi_bus_ram_write32(dpb + 32u, 0x00000800u);
+                    lc_musashi_bus_ram_write32(dpb + 36u, 1024u);
+                    lc_musashi_bus_ram_write32(dpb + 40u, 0u);
+                    lc_musashi_bus_ram_write16(dpb + 44u, 0u);
+                }
+                // The ROM boot block probe reuses this scratch PB and expects
+                // block zero; keep synthetic DCE position pinned to the start.
+                lc_musashi_bus_ram_write32(dce + 16u, 0u);
+            }
+            ESP_LOGI(TAG, "LC DISK_PRIME params: pb=0x%08" PRIx32 " dce=0x%08" PRIx32
                      " buf=0x%08" PRIx32 " len=0x%08" PRIx32
                      " trap=0x%04x refnum=%d pos_mode=0x%04x",
-                     dpb,
+                     dpb, dce,
                      lc_musashi_bus_peek_ram32(dpb + 32u),
                      lc_musashi_bus_peek_ram32(dpb + 36u),
                      (unsigned)lc_musashi_bus_peek_ram16(dpb + 6u),
                      (int)(int16_t)lc_musashi_bus_peek_ram16(dpb + 24u),
                      (unsigned)lc_musashi_bus_peek_ram16(dpb + 44u));
+            ESP_LOGI(TAG, "LC A-line vector at DISK_PRIME time: $28=0x%08" PRIx32 " $800=0x%04x",
+                     lc_musashi_bus_peek_ram32(0x28u),
+                     (unsigned)lc_musashi_bus_peek_ram16(0x800u));
+            int16_t prime_result = lc_musashi_bus_basilisk_disk_prime(false, dpb, dce);
+            if (prime_result == 0 && dpb == 0x00008800u &&
+                lc_musashi_bus_peek_ram16(0x800u) == 0x4c4bu) {
+                // ROM-init path now has valid boot blocks and is about to enter
+                // the boot_2 staging area. Stage boot_2/boot_3/System.rsrc here
+                // instead of relying on the old skipped-init INSTALL_DRIVERS hook.
+                lc_musashi_bus_stage_boot_resources();
+            }
+            m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)prime_result);
         }
-        ESP_LOGI(TAG, "LC A-line vector at DISK_PRIME time: $28=0x%08" PRIx32 " $800=0x%04x",
-                 lc_musashi_bus_peek_ram32(0x28u),
-                 (unsigned)lc_musashi_bus_peek_ram16(0x800u));
-        m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)lc_musashi_bus_basilisk_disk_prime(false, m68k_get_reg(NULL, M68K_REG_A0), m68k_get_reg(NULL, M68K_REG_A1)));
         ESP_LOGI(TAG, "LC DISK_PRIME result: D0=0x%08x $800=0x%04x $802=0x%04x",
                  m68k_get_reg(NULL, M68K_REG_D0),
                  (unsigned)lc_musashi_bus_peek_ram16(0x800u),
@@ -5496,50 +5537,6 @@ void cpu_instr_callback(int pc) {
                 case 0x09a3u: // _ReleaseResource(theResource:l) → void
                     param_bytes = 4;
                     result_bytes = 0;
-                    // Fix boot_3 stack: if SP is near code ($8372), relocate stack high.
-                    // boot_3's first instruction is _ReleaseResource at $8374.
-                    // boot_2 leaves SP near code base; real Mac has it at ~$7FFC00.
-                    if (trap_pc == 0x00008374u && sp < 0x00009000u) {
-                        // Relocate stack: move exception frame and param to high address
-                        uint32_t new_stack_top = 0x003FFC00u; // 4MB mark
-                        // Copy 12 bytes (frame:8 + param:4) from current sp to new location
-                        uint32_t new_frame_sp = new_stack_top - 12u;
-                        for (uint32_t i = 0; i < 12u; i++) {
-                            uint8_t b = (uint8_t)lc_memory_bus_read8(active_bus, sp + i);
-                            lc_memory_bus_write8(active_bus, new_frame_sp + i, b);
-                        }
-                        // Update sp to new location (Musashi will use this)
-                        m68k_set_reg(M68K_REG_SP, new_frame_sp);
-                        // Also write MemTop, BufPtr if not set
-                        if (lc_musashi_bus_peek_ram32(0x010Cu) == 0) {
-                            lc_musashi_bus_ram_write32(0x010Cu, (uint32_t)active_bus->ram_size);
-                        }
-                        if (lc_musashi_bus_peek_ram32(0x02A6u) == 0) {
-                            lc_musashi_bus_ram_write32(0x02A6u, active_bus->ram_size - 0x8000u);
-                        }
-                        ESP_LOGI(TAG, "LC boot_3 stack relocated: old_sp=$%08" PRIx32
-                                 " new_sp=$%08" PRIx32 " A5=$%08x",
-                                 sp, new_frame_sp, m68k_get_reg(NULL, M68K_REG_A5));
-                        // Set A5 = boot_3 globals base.
-                        // boot_3 code starts at $8372. Globals/constants are embedded
-                        // within boot_3 at offset $10BE from code start ($8372+$10BE=$9430).
-                        // PEA $02BA(A5) should yield 'PTCH' at $9430+$02BA=$96EA.
-                        m68k_set_reg(M68K_REG_A5, 0x00009430u);
-                        // Also set CurrentA5 ($904) for ROM code that reads it.
-                        lc_musashi_bus_ram_write32(0x0904u, 0x00009430u);
-                        // Re-read sp for the epilogue
-                        // Note: we need to update our local sp variable
-                        // Actually, the epilogue uses the 'sp' variable for new_sp computation.
-                        // We can't easily change it here since the epilogue does sp + 8 + param_bytes.
-                        // Instead, just return early with manual handling:
-                        uint32_t ret_pc = lc_musashi_bus_peek_ram32(new_frame_sp + 2u) + 2u;
-                        m68k_set_reg(M68K_REG_SP, new_frame_sp + 8u + 4u); // skip frame + param
-                        m68k_set_reg(M68K_REG_PC, ret_pc);
-                        m68k_set_reg(M68K_REG_SR, lc_musashi_bus_peek_ram16(new_frame_sp));
-                        m68k_set_reg(M68K_REG_D0, 0);
-                        previous_instruction_pc = current_instruction_pc;
-                        return;
-                    }
                     handled = true;
                     break;
                 case 0x099au: // _CloseResFile(refNum:w) → void

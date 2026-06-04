@@ -401,9 +401,11 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
     // init that triggers uninitialized high-trap recursion.  Basilisk's
     // EMUL_OP_RESET already sets up all required low-memory state.
     patch_abs_jump(rom, rom_size, 0x008eu, LC_BASILISK_ROM_BASE_32 + 0x00bau, summary);
-    // Skip ALL ROM init from $ba to $1142.  We cannot run ANY of it without
-    // full VIA/SCC/CUDA hardware emulation.  Seed all prerequisites in RESET.
-    patch_abs_jump(rom, rom_size, 0x00bau, LC_BASILISK_ROM_BASE_32 + 0x1142u, summary);
+    // Basilisk runs ROM init with targeted hardware-loop patches instead of
+    // skipping all init.  Do not jump $BA->$1142 here; let ROM init run so it
+    // can establish A5/BootGlobs/low-memory invariants.  Port missing Basilisk
+    // hardware patches as failures appear.
+    // patch_abs_jump(rom, rom_size, 0x00bau, LC_BASILISK_ROM_BASE_32 + 0x1142u, summary);
     put16(rom, rom_size, 0x07c0u, 0x7e02u, summary);     // moveq #2,d7: 68020.
     // NOP the BNE.W at $C1A that skips the dispatch magic cookie write.
     // Without this, the A-line dispatcher never gets $5A932BC7 at $0DB0 and
