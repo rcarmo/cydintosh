@@ -5241,9 +5241,13 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 case 0x08a5u: // _Pack3 (StdFile): no-op, assume 0 params
-                case 0x08a8u: // _ADBReInit: no-op
                 case 0x0895u: // _SysEnvirons: no-op procedure
                     param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08a8u: // QuickDraw _OffsetRect/_OffsetRgn(ptr:l, dh:w, dv:w) → void
+                    param_bytes = 8;
                     result_bytes = 0;
                     handled = true;
                     break;
@@ -5343,9 +5347,15 @@ void cpu_instr_callback(int pc) {
                         if (res_id == 2u) result_value = 0x0004ff00u;
                         else if (res_id == 3u) result_value = 0x0004ff08u;
                     }
-                    // Search System.rsrc for the requested resource:
-                    // Skip 'gbly' — it's a machine-specific boot check that loops if content mismatches
-                    if (result_value == 0 && res_type != 0x67626c79u && // skip 'gbly'
+                    // Search System.rsrc for the requested resource.
+                    // Skip optional/debug/patch resources until enough managers exist to run them:
+                    // - 'gbly': machine-specific boot check that loops if content mismatches
+                    // - 'dbex': debugger extension path; optional
+                    // - 'ptch': lowercase patch resources; unsafe before full system state
+                    bool skip_rsrc = (res_type == 0x67626c79u) || // 'gbly'
+                                     (res_type == 0x64626578u) || // 'dbex'
+                                     (res_type == 0x70746368u);   // 'ptch'
+                    if (result_value == 0 && !skip_rsrc &&
                         active_bus != NULL && active_bus->ram != NULL) {
                         extern uint32_t host_find_system_resource(const uint8_t *, size_t,
                                                                   uint32_t, int16_t, uint32_t *);
@@ -5460,8 +5470,6 @@ void cpu_instr_callback(int pc) {
                     }
                     // Remember last counted type for GetIndResource
                     last_count_type_val = count_type;
-                    // Skip PTCH resources — patches require full system state
-                    if (count_type == 0x50544348u) count_val = 0; // 'PTCH'
                     last_count_val = count_val;
                     result_value = count_val;
                     {
@@ -5536,6 +5544,13 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x0992u: // Resource handle op in boot_3 (one Handle:l param) → void
+                    // Observed call sites push exactly one resource handle before $A992.
+                    // Treat as no-op procedure to keep stack balanced.
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
                 case 0x09a4u: // _DetachResource(theResource:l) → void
                     param_bytes = 4;
                     result_bytes = 0;
@@ -5582,6 +5597,26 @@ void cpu_instr_callback(int pc) {
                         ESP_LOGW(TAG, "LC UNKNOWN TB trap: 0x%04x (masked=0x%04x) from=0x%08" PRIx32
                                  " sp=0x%08" PRIx32,
                                  trap_word, (unsigned)(trap_word & 0x0BFFu), trap_pc, sp);
+                        if (trap_word == 0xA992u && unk_tb_log < 20u) {
+                            ESP_LOGW(TAG,
+                                     "LC A992 ctx: code[-8..+14]=%04x %04x %04x %04x [%04x] %04x %04x %04x %04x %04x %04x %04x"
+                                     " stack+8=%08" PRIx32 " +12=%08" PRIx32 " +16=%08" PRIx32,
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc - 8u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc - 6u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc - 4u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc - 2u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 2u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 4u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 6u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 8u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 10u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 12u),
+                                     (unsigned)lc_memory_bus_read16(active_bus, trap_pc + 14u),
+                                     lc_musashi_bus_peek_ram32(sp + 8u),
+                                     lc_musashi_bus_peek_ram32(sp + 12u),
+                                     lc_musashi_bus_peek_ram32(sp + 16u));
+                        }
                         unk_tb_log++;
                     }
                     // Can't determine param sizes. Assume no-param procedure.
