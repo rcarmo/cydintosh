@@ -5317,64 +5317,32 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x08f6u: // QuickDraw _DrawPicture(pic:l, dstRect:l) → caller-cleaned here
-                    // boot_3 follows this A-trap with ADDQ.W #8,SP, so leave
-                    // the stack untouched and just no-op drawing for now.
+                case 0x08f6u: // QuickDraw _DrawPicture(pic:l, dstRect:l) → caller-cleaned in boot_3
+                    // boot_3 call sites clean their picture/rect arguments themselves.
                     param_bytes = 0;
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x09bcu: { // _GetIndResource(index:w) → Handle:l
-                    // In boot_3 context: type is IMPLICIT from last CountResources.
-                    // Stack: [frame:8] [index:2] [result_space:4 already allocated]
-                    // So param_bytes=2 (just index), result_bytes=4.
+                case 0x09bcu: { // _GetPicture(pictureID:w) → PicHandle:l
                     param_bytes = 2;
                     result_bytes = 4;
-                    uint16_t gi_index = lc_musashi_bus_peek_ram16(sp + 8u); // 0-based in boot_3!
+                    int16_t pict_id = (int16_t)lc_musashi_bus_peek_ram16(sp + 8u);
                     result_value = 0;
-                    // Use the type from last CountResources call
-                    uint32_t gi_type = last_count_type_val;
-                    if (gi_type != 0 && gi_index < last_count_val && active_bus && active_bus->ram) {
-                        uint32_t sys_base = 0x00A00000u;
-                        uint32_t data_off_hdr = lc_musashi_bus_peek_ram32(sys_base + 0u);
-                        uint32_t map_off_val = lc_musashi_bus_peek_ram32(sys_base + 4u);
-                        uint32_t map_addr = sys_base + map_off_val;
-                        uint16_t tl_off = lc_musashi_bus_peek_ram16(map_addr + 24u);
-                        uint32_t tl_addr = map_addr + tl_off;
-                        int16_t num_types = (int16_t)lc_musashi_bus_peek_ram16(tl_addr) + 1;
-                        for (int ti = 0; ti < num_types; ti++) {
-                            uint32_t te_addr = tl_addr + 2u + (uint32_t)ti * 8u;
-                            uint32_t te_type = lc_musashi_bus_peek_ram32(te_addr);
-                            if (te_type == gi_type) {
-                                uint16_t rcount = lc_musashi_bus_peek_ram16(te_addr + 4u) + 1u;
-                                uint16_t ref_off = lc_musashi_bus_peek_ram16(te_addr + 6u);
-                                // gi_index is 0-based in this context
-                                if (gi_index < rcount) {
-                                    uint32_t rl_addr = tl_addr + ref_off + (uint32_t)gi_index * 12u;
-                                    uint8_t d0b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 5u);
-                                    uint8_t d1b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 6u);
-                                    uint8_t d2b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 7u);
-                                    uint32_t d_off = ((uint32_t)d0b << 16) | ((uint32_t)d1b << 8) | d2b;
-                                    uint32_t abs_data = sys_base + data_off_hdr + d_off;
-                                    uint32_t rdata_addr = abs_data + 4u;
-                                    static uint32_t gi_handle_ptr = 0x004F1000u;
-                                    uint32_t handle = gi_handle_ptr;
-                                    gi_handle_ptr += 4u;
-                                    lc_musashi_bus_ram_write32(handle, rdata_addr);
-                                    result_value = handle;
-                                }
-                                break;
-                            }
+                    if (active_bus != NULL && active_bus->ram != NULL) {
+                        extern uint32_t host_find_system_resource(const uint8_t *, size_t,
+                                                                  uint32_t, int16_t, uint32_t *);
+                        uint32_t rsz = 0;
+                        uint32_t raddr = host_find_system_resource(active_bus->ram, active_bus->ram_size,
+                                                                   0x50494354u, pict_id, &rsz); // 'PICT'
+                        if (raddr != 0u) {
+                            static uint32_t pict_handle_ptr = 0x00510000u;
+                            uint32_t handle = pict_handle_ptr;
+                            pict_handle_ptr += 4u;
+                            lc_musashi_bus_ram_write32(handle, raddr);
+                            result_value = handle;
                         }
                     }
-                    {
-                        char t[5] = {0};
-                        uint8_t tb[4] = {(uint8_t)(gi_type >> 24), (uint8_t)(gi_type >> 16),
-                                         (uint8_t)(gi_type >> 8), (uint8_t)gi_type};
-                        for (int ti = 0; ti < 4; ti++) t[ti] = (tb[ti] >= 32 && tb[ti] < 127) ? (char)tb[ti] : '.';
-                        ESP_LOGI(TAG, "LC GetIndResource('%s' $%08" PRIx32 ", %u) = 0x%08" PRIx32,
-                                 t, gi_type, (unsigned)gi_index, result_value);
-                    }
+                    ESP_LOGI(TAG, "LC GetPicture(%d) = 0x%08" PRIx32, (int)pict_id, result_value);
                     handled = true;
                     break;
                 }
