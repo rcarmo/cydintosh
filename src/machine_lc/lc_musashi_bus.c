@@ -5224,6 +5224,7 @@ void cpu_instr_callback(int pc) {
             }
             // Toolbox traps — Pascal calling convention:
             static uint32_t last_count_type_val = 0; // shared between CountRes/GetIndRes
+            static uint16_t last_count_val = 0; // last count result
             // Before trap: stack has [result_space] [params...] from bottom up.
             // After our exception frame removal, SP points to params.
             // We pop params and write result to result_space.
@@ -5256,7 +5257,7 @@ void cpu_instr_callback(int pc) {
                     result_value = 0;
                     // Use the type from last CountResources call
                     uint32_t gi_type = last_count_type_val;
-                    if (gi_type != 0 && gi_index < 200u && active_bus && active_bus->ram) {
+                    if (gi_type != 0 && gi_index < last_count_val && active_bus && active_bus->ram) {
                         uint32_t sys_base = 0x00A00000u;
                         uint32_t data_off_hdr = lc_musashi_bus_peek_ram32(sys_base + 0u);
                         uint32_t map_off_val = lc_musashi_bus_peek_ram32(sys_base + 4u);
@@ -5459,6 +5460,9 @@ void cpu_instr_callback(int pc) {
                     }
                     // Remember last counted type for GetIndResource
                     last_count_type_val = count_type;
+                    // Skip PTCH resources — patches require full system state
+                    if (count_type == 0x50544348u) count_val = 0; // 'PTCH'
+                    last_count_val = count_val;
                     result_value = count_val;
                     {
                         char t[5] = {0};
