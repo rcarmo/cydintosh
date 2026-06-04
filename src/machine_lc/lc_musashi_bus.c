@@ -5223,6 +5223,7 @@ void cpu_instr_callback(int pc) {
                 }
             }
             // Toolbox traps — Pascal calling convention:
+            static uint32_t last_count_type_val = 0; // shared between CountRes/GetIndRes
             // Before trap: stack has [result_space] [params...] from bottom up.
             // After our exception frame removal, SP points to params.
             // We pop params and write result to result_space.
@@ -5245,52 +5246,39 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x09bcu: { // _GetIndResource(theType:l, index:w) → Handle:l
-                    param_bytes = 6;
+                case 0x09bcu: { // _GetIndResource(index:w) → Handle:l
+                    // In boot_3 context: type is IMPLICIT from last CountResources.
+                    // Stack: [frame:8] [index:2] [result_space:4 already allocated]
+                    // So param_bytes=2 (just index), result_bytes=4.
+                    param_bytes = 2;
                     result_bytes = 4;
-                    // Pascal: GetIndResource(theType:l, index:w)
-                    // Stack after exception: [frame:8] [index:2] [theType:4] [result:4]
-                    uint16_t gi_index = lc_musashi_bus_peek_ram16(sp + 8u); // 1-based
-                    uint32_t gi_raw_type = lc_musashi_bus_peek_ram32(sp + 10u);
-                    uint32_t gi_type;
-                    if (gi_raw_type > 0x00008000u && gi_raw_type < active_bus->ram_size - 4u) {
-                        gi_type = lc_musashi_bus_peek_ram32(gi_raw_type); // dereference pointer
-                    } else {
-                        gi_type = gi_raw_type;
-                    }
-                    result_value = 0; // NULL by default
-                    // Look up the Nth resource of this type in System.rsrc
-                    if (gi_index > 0 && active_bus && active_bus->ram) {
+                    uint16_t gi_index = lc_musashi_bus_peek_ram16(sp + 8u); // 0-based in boot_3!
+                    result_value = 0;
+                    // Use the type from last CountResources call
+                    uint32_t gi_type = last_count_type_val;
+                    if (gi_type != 0 && gi_index < 200u && active_bus && active_bus->ram) {
                         uint32_t sys_base = 0x00A00000u;
                         uint32_t data_off_hdr = lc_musashi_bus_peek_ram32(sys_base + 0u);
                         uint32_t map_off_val = lc_musashi_bus_peek_ram32(sys_base + 4u);
                         uint32_t map_addr = sys_base + map_off_val;
                         uint16_t tl_off = lc_musashi_bus_peek_ram16(map_addr + 24u);
                         uint32_t tl_addr = map_addr + tl_off;
-                        int16_t num_types = (int16_t)lc_musashi_bus_peek_ram16(tl_addr);
-                        num_types += 1;
+                        int16_t num_types = (int16_t)lc_musashi_bus_peek_ram16(tl_addr) + 1;
                         for (int ti = 0; ti < num_types; ti++) {
                             uint32_t te_addr = tl_addr + 2u + (uint32_t)ti * 8u;
                             uint32_t te_type = lc_musashi_bus_peek_ram32(te_addr);
                             if (te_type == gi_type) {
                                 uint16_t rcount = lc_musashi_bus_peek_ram16(te_addr + 4u) + 1u;
                                 uint16_t ref_off = lc_musashi_bus_peek_ram16(te_addr + 6u);
-                                if (gi_index <= rcount) {
-                                    // Get the ref list entry for this index
-                                    uint32_t rl_addr = tl_addr + ref_off + (uint32_t)(gi_index - 1u) * 12u;
-                                    int16_t rid = (int16_t)lc_musashi_bus_peek_ram16(rl_addr);
-                                    // Call our existing GetResource logic with type+id
-                                    // For now, use the handle cache / allocation path:
-                                    // Compute data offset
+                                // gi_index is 0-based in this context
+                                if (gi_index < rcount) {
+                                    uint32_t rl_addr = tl_addr + ref_off + (uint32_t)gi_index * 12u;
                                     uint8_t d0b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 5u);
                                     uint8_t d1b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 6u);
                                     uint8_t d2b = (uint8_t)lc_memory_bus_read8(active_bus, rl_addr + 7u);
                                     uint32_t d_off = ((uint32_t)d0b << 16) | ((uint32_t)d1b << 8) | d2b;
                                     uint32_t abs_data = sys_base + data_off_hdr + d_off;
-                                    uint32_t rlen = lc_musashi_bus_peek_ram32(abs_data);
                                     uint32_t rdata_addr = abs_data + 4u;
-                                    // Allocate handle for this resource
-                                    // Use the resource handle cache area at $4F0000+
                                     static uint32_t gi_handle_ptr = 0x004F1000u;
                                     uint32_t handle = gi_handle_ptr;
                                     gi_handle_ptr += 4u;
@@ -5303,10 +5291,8 @@ void cpu_instr_callback(int pc) {
                     }
                     {
                         char t[5] = {0};
-                        t[0] = (char)(gi_type >> 24);
-                        t[1] = (char)(gi_type >> 16);
-                        t[2] = (char)(gi_type >> 8);
-                        t[3] = (char)(gi_type);
+                        t[0] = (char)(gi_type >> 24); t[1] = (char)(gi_type >> 16);
+                        t[2] = (char)(gi_type >> 8); t[3] = (char)gi_type;
                         ESP_LOGI(TAG, "LC GetIndResource('%s', %u) = 0x%08" PRIx32,
                                  t, (unsigned)gi_index, result_value);
                     }
@@ -5471,6 +5457,8 @@ void cpu_instr_callback(int pc) {
                             }
                         }
                     }
+                    // Remember last counted type for GetIndResource
+                    last_count_type_val = count_type;
                     result_value = count_val;
                     {
                         char t[5] = {0};
