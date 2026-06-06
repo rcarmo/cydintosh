@@ -383,6 +383,29 @@ clean gate. The remaining per-PC scaffolds are now the dispatcher/return repairs
 Resource Manager/video prototypes, and earlier address-map/BootGlobs probes
 rather than low-trap table reads.
 
+## 2026-06-06 host boot_3 progress
+
+The host LC harness now gets past the boot_3 progress-picture high-PC return
+that previously jumped from the progress SetPort restore path into values such
+as `0xf4800000`. The narrow fixes are:
+
+- handle `_DrawPicture` as site-aware: caller-cleaned sites that immediately
+  execute `ADDQ #8,SP` keep their two long arguments on the stack; progress
+  sites without caller cleanup let the Toolbox trap pop the PicHandle and Rect;
+- keep `_CloseResFile` on the normal 2-byte refNum signature in this progress
+  path instead of over-popping the adjacent scratch frame;
+- skip uppercase `PTCH` resources as well as lowercase `ptch` until the patch
+  loader/resource execution model is safe;
+- add minimal `_TextFace`, `_StringWidth`, and `_GetString` signatures needed by
+  the progress text path.
+
+Verification log: `logs/host-lc-final-stackfix-20260606-135912.log` using
+`HOST_LC_ENTRY_BASE=0x40800000u`, `HOST_LC_ENTRY_OFFSET=0x0008cu`, 16MiB guest
+RAM, HD200MB, and `--basilisk-compat`. The run reaches later copied boot_3/PTCH
+control flow and stops on a new low-PC illegal-instruction frontier
+(`opcode=0x017a` around `0x00bf9fec`/`0x00bea3d6`), with the framebuffer still in
+status-overlay mode rather than a Mac desktop.
+
 ## ROM metadata
 
 The supplied ROM is stored only under ignored `vendor/` storage. Do not commit

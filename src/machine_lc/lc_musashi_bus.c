@@ -5311,6 +5311,17 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x0888u: // QuickDraw _TextFace(face:w) → void
+                    param_bytes = 2;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x088cu: // QuickDraw _StringWidth(s:l) → width:w
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    result_value = 0;
+                    handled = true;
+                    break;
                 case 0x08a8u: // QuickDraw _OffsetRect/_OffsetRgn(ptr:l, dh:w, dv:w) → void
                     param_bytes = 8;
                     result_bytes = 0;
@@ -5324,10 +5335,21 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x08f6u: // QuickDraw _DrawPicture(pic:l, dstRect:l) → caller-cleaned in boot_3
-                    // boot_3 call sites clean their picture/rect arguments themselves.
-                    param_bytes = 0;
+                case 0x08f6u: { // QuickDraw _DrawPicture(pic:l, dstRect:l) → void
+                    // boot_3 has both caller-cleaned and trap-cleaned DrawPicture sites.
+                    // When the trap is followed by ADDQ #8,SP, leave the two long
+                    // arguments for that instruction.  Other progress-picture sites
+                    // have no caller cleanup, so the Toolbox trap must pop them.
+                    uint16_t next_word = (uint16_t)lc_memory_bus_read16(active_bus, trap_pc + 2u);
+                    param_bytes = (next_word == 0x504fu) ? 0u : 8u; // ADDQ.W #8,A7
                     result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x09bau: // _GetString(stringID:w) → StringHandle:l
+                    param_bytes = 2;
+                    result_bytes = 4;
+                    result_value = 0;
                     handled = true;
                     break;
                 case 0x09bcu: { // _GetPicture(pictureID:w) → PicHandle:l
@@ -5400,9 +5422,10 @@ void cpu_instr_callback(int pc) {
                     // Skip optional/debug/patch resources until enough managers exist to run them:
                     // - 'gbly': machine-specific boot check that loops if content mismatches
                     // - 'dbex': debugger extension path; optional
-                    // - 'ptch': lowercase patch resources; unsafe before full system state
+                    // - 'PTCH'/'ptch': patch resources; unsafe before full system state
                     bool skip_rsrc = (res_type == 0x67626c79u) || // 'gbly'
                                      (res_type == 0x64626578u) || // 'dbex'
+                                     (res_type == 0x50544348u) || // 'PTCH'
                                      (res_type == 0x70746368u);   // 'ptch'
                     if (result_value == 0 && !skip_rsrc &&
                         active_bus != NULL && active_bus->ram != NULL) {
@@ -5550,19 +5573,14 @@ void cpu_instr_callback(int pc) {
                     }
                     handled = true;
                     break;
-                case 0x099au: { // _CloseResFile(refNum:w) → void
-                    // In boot_3's PTCH cleanup path, A99A is followed by a
-                    // branch to an RTS while the type/count scratch pair is
-                    // still above the real return address. Match by boot_3-relative
-                    // offset so copied high-RAM instances work too.
-                    uint32_t a5_now = m68k_get_reg(NULL, M68K_REG_A5);
-                    uint32_t boot3_base = (a5_now >= 0x10BEu) ? (a5_now - 0x10BEu) : 0u;
-                    uint32_t boot3_off = (trap_pc >= boot3_base) ? (trap_pc - boot3_base) : 0xffffffffu;
-                    param_bytes = (boot3_off == 0x00006f66u) ? 10u : 2u;
+                case 0x099au: // _CloseResFile(refNum:w) → void
+                    // boot_3's progress path falls through real code after A99A;
+                    // over-popping the surrounding scratch frame corrupts the later
+                    // progress-picture return.  Match the normal Toolbox signature.
+                    param_bytes = 2;
                     result_bytes = 0;
                     handled = true;
                     break;
-                }
                 case 0x099bu: // _SetResLoad(load:w) → void
                     param_bytes = 2;
                     result_bytes = 0;
