@@ -383,6 +383,26 @@ clean gate. The remaining per-PC scaffolds are now the dispatcher/return repairs
 Resource Manager/video prototypes, and earlier address-map/BootGlobs probes
 rather than low-trap table reads.
 
+## 2026-06-08 host boot_3 patch-loader progress
+
+The copied boot_3/PTCH illegal-instruction loop at `opcode=0x017a` was traced to
+boot_3's optional patch-loader interpreter entering its jump-table data after
+loading patch-support resources (`gusd`/`lodr`/`gtbl`/`gpch`).  Following the
+Basilisk-style approach of emulating only the boot contract needed now, the host
+harness now keeps `System.rsrc` host-side and copies requested resource data into
+a bounded guest scratch arena instead of mapping the entire 5MB fork into guest
+RAM near the ROM-created heap.  `_CountResources('PTCH'/'ptch')` reports zero
+until patch execution is safe, and the copied boot_3 patch-loader entry is
+bypassed as an optional helper.
+
+Verification log: `logs/host-lc-final-patchloader-skip-20260608-093344.log` with
+`HOST_LC_ENTRY_BASE=0x40800000u`, `HOST_LC_ENTRY_OFFSET=0x0008cu`, 16MiB guest
+RAM, HD200MB, and `--basilisk-compat`.  The previous `0x017a` illegal loop is
+gone in the 10M-cycle run.  The next blocker is a later GDevice/display-status
+loop around `_Status`/`_Control` (`A205`/`A204`) at the copied boot_3 video/gamma
+helper (`pc_after≈0x00bfabda`), and the framebuffer is still a host status
+overlay rather than a Mac desktop.
+
 ## 2026-06-06 host boot_3 progress
 
 The host LC harness now gets past the boot_3 progress-picture high-PC return
@@ -401,10 +421,11 @@ as `0xf4800000`. The narrow fixes are:
 
 Verification log: `logs/host-lc-final-stackfix-20260606-135912.log` using
 `HOST_LC_ENTRY_BASE=0x40800000u`, `HOST_LC_ENTRY_OFFSET=0x0008cu`, 16MiB guest
-RAM, HD200MB, and `--basilisk-compat`. The run reaches later copied boot_3/PTCH
-control flow and stops on a new low-PC illegal-instruction frontier
-(`opcode=0x017a` around `0x00bf9fec`/`0x00bea3d6`), with the framebuffer still in
-status-overlay mode rather than a Mac desktop.
+RAM, HD200MB, and `--basilisk-compat`. That run reached later copied boot_3/PTCH
+control flow and stopped on the then-new low-PC illegal-instruction frontier
+(`opcode=0x017a` around `0x00bf9fec`/`0x00bea3d6`), which the 2026-06-08 tranche
+then moved forward. The framebuffer was still in status-overlay mode rather than
+a Mac desktop.
 
 ## ROM metadata
 

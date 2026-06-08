@@ -257,33 +257,62 @@ void host_load_boot_resources(uint8_t *ram, size_t ram_size) {
     }
 }
 
-// System resource fork loaded into guest RAM at this base address:
-#define SYSRSRC_RAM_BASE 0x00A00000u
+// System resource fork is kept host-side and individual resources are copied
+// into a guest scratch arena on demand.  Loading the entire 5MB fork into guest
+// RAM used to collide with the ROM-created heap near $00c00000 and made boot
+// code execute raw resource data (e.g. nift/nitt records).
+#define SYSRSRC_COPY_BASE 0x00520000u
+#define SYSRSRC_COPY_LIMIT 0x00780000u
+static uint8_t *sysrsrc_buf = NULL;
 static uint32_t sysrsrc_size = 0;
+static uint32_t sysrsrc_copy_cursor = SYSRSRC_COPY_BASE;
 
 void host_load_system_rsrc(uint8_t *ram, size_t ram_size) {
-    if (ram == NULL || ram_size < SYSRSRC_RAM_BASE + 0x600000u) return;
+    (void)ram;
+    (void)ram_size;
     FILE *f = fopen("fixtures/system_rsrc/System.rsrc", "rb");
     if (!f) { fprintf(stderr, "WARN: cannot open System.rsrc\n"); return; }
     fseek(f, 0, SEEK_END);
     size_t sz = (size_t)ftell(f);
     fseek(f, 0, SEEK_SET);
     if (sz > 0x600000u) sz = 0x600000u; // cap at 6MB
-    size_t n = fread(&ram[SYSRSRC_RAM_BASE], 1, sz, f);
+    uint8_t *buf = (uint8_t *)malloc(sz);
+    if (!buf) { fclose(f); fprintf(stderr, "WARN: cannot allocate System.rsrc buffer\n"); return; }
+    size_t n = fread(buf, 1, sz, f);
     fclose(f);
+    free(sysrsrc_buf);
+    sysrsrc_buf = buf;
     sysrsrc_size = (uint32_t)n;
-    fprintf(stderr, "HOST: loaded System.rsrc (%zu bytes) at RAM $%06X\n",
-            n, SYSRSRC_RAM_BASE);
+    sysrsrc_copy_cursor = SYSRSRC_COPY_BASE;
+    fprintf(stderr, "HOST: loaded System.rsrc (%zu bytes) host-side; guest copies start at $%06X\n",
+            n, SYSRSRC_COPY_BASE);
+}
+
+uint16_t host_count_system_resources(uint32_t res_type) {
+    if (sysrsrc_size == 0 || sysrsrc_buf == NULL) return 0;
+    const uint8_t *rsrc = sysrsrc_buf;
+    uint32_t map_offset = (uint32_t)rsrc[4]<<24 | rsrc[5]<<16 | rsrc[6]<<8 | rsrc[7];
+    if (map_offset + 30 > sysrsrc_size) return 0;
+    const uint8_t *map = rsrc + map_offset;
+    uint16_t type_list_off = (uint16_t)(map[24]<<8 | map[25]);
+    const uint8_t *tlist = map + type_list_off;
+    int16_t num_types = (int16_t)(tlist[0]<<8 | tlist[1]) + 1;
+    for (int i = 0; i < num_types; i++) {
+        const uint8_t *te = tlist + 2 + i * 8;
+        uint32_t t = (uint32_t)te[0]<<24 | te[1]<<16 | te[2]<<8 | te[3];
+        if (t == res_type) return (uint16_t)((te[4]<<8 | te[5]) + 1u);
+    }
+    return 0;
 }
 
 // Find a resource in the loaded System.rsrc by type and ID.
-// Returns the guest RAM address of the resource data (after length prefix),
-// and sets *out_size to the data length. Returns 0 if not found.
+// Returns the guest RAM address of a copied resource data block (after length
+// prefix), and sets *out_size to the data length. Returns 0 if not found.
 uint32_t host_find_system_resource(const uint8_t *ram, size_t ram_size,
                                    uint32_t res_type, int16_t res_id,
                                    uint32_t *out_size) {
-    if (sysrsrc_size == 0 || ram == NULL) return 0;
-    const uint8_t *rsrc = &ram[SYSRSRC_RAM_BASE];
+    if (sysrsrc_size == 0 || sysrsrc_buf == NULL || ram == NULL) return 0;
+    const uint8_t *rsrc = sysrsrc_buf;
     uint32_t data_offset = (uint32_t)rsrc[0]<<24 | rsrc[1]<<16 | rsrc[2]<<8 | rsrc[3];
     uint32_t map_offset = (uint32_t)rsrc[4]<<24 | rsrc[5]<<16 | rsrc[6]<<8 | rsrc[7];
     if (map_offset + 30 > sysrsrc_size) return 0;
@@ -311,8 +340,12 @@ uint32_t host_find_system_resource(const uint8_t *ram, size_t ram_size,
             uint32_t dlen = (uint32_t)rsrc[abs_off]<<24 | rsrc[abs_off+1]<<16 |
                             rsrc[abs_off+2]<<8 | rsrc[abs_off+3];
             if (out_size) *out_size = dlen;
-            // Return guest RAM address of the data (after length prefix)
-            return SYSRSRC_RAM_BASE + abs_off + 4;
+            uint32_t guest_addr = (sysrsrc_copy_cursor + 3u) & ~3u;
+            uint32_t next = guest_addr + dlen;
+            if (next > SYSRSRC_COPY_LIMIT || next > ram_size) return 0;
+            memcpy((uint8_t *)ram + guest_addr, rsrc + abs_off + 4u, dlen);
+            sysrsrc_copy_cursor = next;
+            return guest_addr;
         }
         return 0; // type found but ID not found
     }

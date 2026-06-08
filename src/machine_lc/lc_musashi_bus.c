@@ -5120,6 +5120,29 @@ void cpu_instr_callback(int pc) {
 
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
+        if (active_bus != NULL && active_bus->ram != NULL &&
+            lc_memory_bus_read16(active_bus, current_instruction_pc + 0u) == 0x48e7u &&
+            lc_memory_bus_read16(active_bus, current_instruction_pc + 2u) == 0xfef8u &&
+            lc_memory_bus_read16(active_bus, current_instruction_pc + 4u) == 0x594fu &&
+            lc_memory_bus_read16(active_bus, current_instruction_pc + 6u) == 0x2f3cu &&
+            lc_memory_bus_read16(active_bus, current_instruction_pc + 8u) == 0x6775u &&
+            lc_memory_bus_read16(active_bus, current_instruction_pc + 10u) == 0x7364u) { // 'gusd'
+            static unsigned patch_loader_skip_logs = 0;
+            uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+            uint32_t ret = lc_musashi_bus_peek_ram32(sp);
+            if (ret != 0u && ret < active_bus->ram_size) {
+                if (patch_loader_skip_logs < 8u) {
+                    ESP_LOGI(TAG, "LC skip boot_3 patch loader: pc=0x%08" PRIx32
+                             " ret=0x%08" PRIx32 " sp=0x%08" PRIx32,
+                             current_instruction_pc, ret, sp);
+                    patch_loader_skip_logs++;
+                }
+                m68k_set_reg(M68K_REG_SP, sp + 4u);
+                m68k_set_reg(M68K_REG_PC, ret);
+                previous_instruction_pc = current_instruction_pc;
+                return;
+            }
+        }
         if (current_instruction_pc == 0x408099b0u) {
             static unsigned disp_entries = 0;
             disp_entries++;
@@ -5218,6 +5241,9 @@ void cpu_instr_callback(int pc) {
                 break;
             case 0xa029u: // _HLock: no-op, return noErr
             case 0xa02au: // _HUnlock: no-op
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                break;
             case 0xa004u: // _GetZone: return SysZone in A0
                 m68k_set_reg(M68K_REG_A0, 0x00002800u);
                 m68k_set_reg(M68K_REG_D0, 0);
@@ -5379,17 +5405,12 @@ void cpu_instr_callback(int pc) {
                     param_bytes = 12; // 2+4+4+2
                     result_bytes = 2;
                     result_value = 2; // refNum=2 (System file)
-                    // Set up minimal resource file entry so boot_3 can use it.
-                    // TopMapHndl ($A50) = resource map handle for the top (current) file.
-                    // We'll set it to a handle pointing to our System.rsrc map in RAM.
+                    // Set up minimal resource-file lowmem.  The host harness keeps
+                    // System.rsrc host-side and services Resource Manager traps, so
+                    // do not point guest code at a full in-RAM resource map.
                     if (active_bus && active_bus->ram) {
-                        // System.rsrc is loaded at $A00000 in guest RAM.
-                        // Resource map offset is stored at bytes 4-7 of the resource header.
-                        uint32_t sys_rsrc_base = 0x00A00000u;
-                        uint32_t map_offset = lc_musashi_bus_peek_ram32(sys_rsrc_base + 4u);
-                        uint32_t map_addr = sys_rsrc_base + map_offset;
-                        // Create a handle for the resource map:
-                        // Allocate a master pointer at $4F0020 → points to map_addr
+                        uint32_t map_addr = 0;
+                        uint32_t map_offset = 0;
                         uint32_t map_handle = 0x0004F020u;
                         lc_musashi_bus_ram_write32(map_handle, map_addr);
                         // TopMapHndl ($A50): handle to top resource map
@@ -5522,22 +5543,15 @@ void cpu_instr_callback(int pc) {
                         }
                     }
                     uint16_t count_val = 0;
-                    // Count resources of this type in System.rsrc
-                    if (active_bus && active_bus->ram) {
-                        uint32_t sys_base = 0x00A00000u;
-                        uint32_t map_off_val = lc_musashi_bus_peek_ram32(sys_base + 4u);
-                        uint32_t map_addr = sys_base + map_off_val;
-                        uint16_t tl_off = lc_musashi_bus_peek_ram16(map_addr + 24u);
-                        uint32_t tl_addr = map_addr + tl_off;
-                        int16_t num_types = (int16_t)lc_musashi_bus_peek_ram16(tl_addr);
-                        num_types += 1;
-                        for (int i = 0; i < num_types; i++) {
-                            uint32_t te_addr = tl_addr + 2u + (uint32_t)i * 8u;
-                            uint32_t te_type = lc_musashi_bus_peek_ram32(te_addr);
-                            if (te_type == count_type) {
-                                count_val = lc_musashi_bus_peek_ram16(te_addr + 4u) + 1u;
-                                break;
-                            }
+                    // Patch resources are unsafe until the resource/patch loader is real.
+                    // Report none so boot_3 skips the patch-loading interpreter rather
+                    // than executing copied patch-table data as code.
+                    if (count_type == 0x50544348u || count_type == 0x70746368u) { // 'PTCH'/'ptch'
+                        count_val = 0;
+                    } else {
+                        extern uint16_t host_count_system_resources(uint32_t) __attribute__((weak));
+                        if (host_count_system_resources != NULL) {
+                            count_val = host_count_system_resources(count_type);
                         }
                     }
                     // Remember last counted type for GetIndResource
