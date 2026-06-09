@@ -383,6 +383,31 @@ clean gate. The remaining per-PC scaffolds are now the dispatcher/return repairs
 Resource Manager/video prototypes, and earlier address-map/BootGlobs probes
 rather than low-trap table reads.
 
+## 2026-06-09 copied boot_3 INIT/CFM resource progress
+
+After the video/GDevice tranche, the next crash was in copied boot_3 startup
+resource/INIT handling.  The dirty `external/umac` state was audited and found
+to be the expected `make prepare` patch/symlink state (`umac` hot-path/eject
+patches plus `external/Musashi/m68kconf.h -> ../../../../include/m68kconf.h`),
+not a new source change to vendor.
+
+The host trap model now records host-side resource handle sizes for PICT and
+resource handles, implements `_SizeRsrc`, corrects `_CurResFile`/`_UseResFile`
+stack signatures, skips optional `INIT` resources until native startup-extension
+execution is safe, and adds stack-correct no-op/failure handling for copied
+boot_3 `_AUXDispatch`, `_ScriptUtil`, `_ExpansionBusDispatch`, and the early
+Code Fragment Manager dispatch sequence.  CFM selector 3/5 calls deliberately
+return a non-zero result so copied boot_3 skips native thunk execution instead
+of jumping through uninitialized callback locals.
+
+Verification log: `logs/host-lc-init-cfm-skip-20260609-075542.log` with the
+same Basilisk-compatible 16MiB/HD200MB settings.  This removes the previous
+low-PC invalid-stack loop at `pc_after=0x00000003` and advances through the
+first copied boot_3 INIT/CFM helper into a later copied boot_3/video pass.  The
+new blocker is a later resource-manager/open-file path after `_HOpenResFile`,
+ending at zero RAM (`pc_after=0x00026738`, `sp_after=0x00be8f6e`), with the
+framebuffer still in host status-overlay mode.
+
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 
 The host LC harness now seeds a coherent Basilisk-style video contract instead

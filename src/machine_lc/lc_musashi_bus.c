@@ -5902,9 +5902,46 @@ void cpu_instr_callback(int pc) {
                     result_value = 0;
                     handled = true;
                     break;
+                case 0x0bf9u: // _AUXDispatch(command:w, param:l) → void
+                    // Copied boot_3 pushes a 16-bit selector followed by a long
+                    // argument around startup/INIT housekeeping.  The AUX trap is
+                    // optional here, but it must consume those six bytes.
+                    param_bytes = 6;
+                    result_bytes = 0;
+                    result_value = 0;
+                    handled = true;
+                    break;
                 case 0x0895u: // _SysEnvirons: no-op procedure
                     param_bytes = 0;
                     result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0a5au: { // _CodeFragmentDispatch(...): returns OSErr word
+                    // The copied boot_3 CFM helper uses a few fixed stack
+                    // layouts.  Return noErr but consume each selector's
+                    // Pascal argument block precisely so the helper can take
+                    // its normal fallback/skip paths without executing CFM.
+                    if (trap_pc == 0x00bfae98u) {
+                        param_bytes = 8;   // ptr:l, byte/pad:w, selector:w
+                        result_value = 0;
+                    } else if (trap_pc == 0x00bfaf1eu) {
+                        param_bytes = 30;  // selector 3 launch/prepare block
+                        result_value = 0xffffu; // CFM unavailable; make boot_3 skip native INIT thunk
+                    } else if (trap_pc == 0x00bfaf3au) {
+                        param_bytes = 18;  // selector 5 cleanup/lookup block
+                        result_value = 0xffffu;
+                    } else {
+                        param_bytes = 0;
+                        result_value = 0xffffu;
+                    }
+                    result_bytes = 2;
+                    handled = true;
+                    break;
+                }
+                case 0x0af3u: // _ExpansionBusDispatch: D0 selector, no stack args in copied boot_3
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    result_value = 0;
                     handled = true;
                     break;
                 case 0x0873u: { // QuickDraw _SetPort(port:l) → void
@@ -5955,6 +5992,15 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
+                case 0x08b5u: // _ScriptUtil(scriptTag:l) → word result
+                    // boot_3 reserves a word result, pushes one long selector,
+                    // then caller-pops the result word.  Return zero/no-op while
+                    // preserving the Pascal stack contract.
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    result_value = 0;
+                    handled = true;
+                    break;
                 case 0x0884u: // QuickDraw _DrawString(str:l) → void
                 case 0x0893u: // QuickDraw _MoveTo(h:w, v:w) → void
                 case 0x0899u: // QuickDraw _SetPenState(pnState:l) → void
@@ -6040,6 +6086,7 @@ void cpu_instr_callback(int pc) {
                             uint32_t handle = pict_handle_ptr;
                             pict_handle_ptr += 4u;
                             lc_musashi_bus_ram_write32(handle, raddr);
+                            lc_musashi_bus_post_reset_set_handle_record(handle, raddr, rsz);
                             result_value = handle;
                         }
                     }
@@ -6104,6 +6151,7 @@ void cpu_instr_callback(int pc) {
                     // - 'PTCH'/'ptch': patch resources; unsafe before full system state
                     bool skip_rsrc = (res_type == 0x67626c79u) || // 'gbly'
                                      (res_type == 0x64626578u) || // 'dbex'
+                                     (res_type == 0x494e4954u) || // 'INIT' startup extensions; skip until trap/runtime model is safe
                                      (res_type == 0x50544348u) || // 'PTCH'
                                      (res_type == 0x70746368u);   // 'ptch'
                     if (result_value == 0 && !skip_rsrc &&
@@ -6116,12 +6164,15 @@ void cpu_instr_callback(int pc) {
                             res_type, (int16_t)res_id, &rsz);
                         if (raddr != 0) {
                             // Cache: return same handle for same resource
-                            static struct { uint32_t type; int16_t id; uint32_t handle; } cache[64];
+                            static struct { uint32_t type; int16_t id; uint32_t handle; uint32_t size; } cache[64];
                             static unsigned cache_count = 0;
                             uint32_t h = 0;
+                            uint32_t h_size = rsz;
                             for (unsigned ci = 0; ci < cache_count; ci++) {
                                 if (cache[ci].type == res_type && cache[ci].id == (int16_t)res_id) {
-                                    h = cache[ci].handle; break;
+                                    h = cache[ci].handle;
+                                    h_size = cache[ci].size;
+                                    break;
                                 }
                             }
                             if (h == 0) {
@@ -6140,9 +6191,11 @@ void cpu_instr_callback(int pc) {
                                     cache[cache_count].type = res_type;
                                     cache[cache_count].id = (int16_t)res_id;
                                     cache[cache_count].handle = h;
+                                    cache[cache_count].size = rsz;
                                     cache_count++;
                                 }
                             }
+                            lc_musashi_bus_post_reset_set_handle_record(h, raddr, h_size);
                             result_value = h;
                         }
                     }
@@ -6160,11 +6213,26 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
-                case 0x0995u: // _CurResFile() → refNum:w (no params)
+                case 0x09a5u: { // _SizeRsrc(theResource:l) → size:l
+                    const uint32_t handle = lc_musashi_bus_peek_ram32(sp + 8u);
+                    param_bytes = 4;
+                    result_bytes = 4;
+                    result_value = lc_musashi_bus_post_reset_infer_handle_size(handle);
+                    handled = true;
+                    break;
+                }
+                case 0x0994u: // _CurResFile() → refNum:w (no params)
                     param_bytes = 0;
                     result_bytes = 2;
-                    // Return -1 (no resource file) so BMI at $968 skips the
-                    // GetResource code path (which is overwritten by BlockMove).
+                    result_value = 2; // System file refNum in our host-side resource model
+                    handled = true;
+                    break;
+                case 0x0995u: // _InitResources() → refNum:w (no params)
+                    param_bytes = 0;
+                    result_bytes = 2;
+                    // Return -1 during the early boot-block call so BMI at $968
+                    // skips the GetResource code path (which is overwritten by
+                    // BlockMove); copied boot_3 uses HOpenResFile instead.
                     result_value = 0xFFFFu; // -1 as unsigned 16-bit
                     handled = true;
                     break;
@@ -6253,6 +6321,7 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x0998u: // _UseResFile(refNum:w) → void
                 case 0x099bu: // _SetResLoad(load:w) → void
                     param_bytes = 2;
                     result_bytes = 0;
