@@ -407,6 +407,20 @@ handled on its real `A81A` trap, while `A9C9` is treated as register-based
 12-byte HOpen frame from ordinary `SysError` checks, which had been corrupting
 later copied-boot stack frames.
 
+The copied boot_3 progress-picture loop was then traced to two stack/resource
+contract errors rather than missing PICT data.  `A997` is `_OpenResFile`, not
+`_CountResources`; returning refNum/result `0` for the optional `PTCH` file probe
+made boot_3 request `GetPicture(0)` repeatedly.  The model now handles `A997` as
+missing optional `PTCH`/`ptch`, moves `_CountResources` to `A99C`, and keeps
+patch-resource counts at zero until patch execution is safe.  Repeated real PICT
+lookups now return stable cached handles.  The remaining repeated QuickDraw loop
+was a stack-shape issue in the script/text helper: `_ScriptUtil` uses a 6-byte
+argument block and 4-byte result in this path, and `AA54`/`_TextServicesDispatch`
+selector 14 consumes the long pointer while the caller cleans the adjacent word
+and scratch record.  With those signatures, the 500M-cycle run exits the copied
+boot_3 progress-picture loop and reaches ROM code around `0x408426dc` with no
+unknown Toolbox traps and no `GetPicture(0)` requests.
+
 Verification logs use the same Basilisk-compatible 16MiB/HD200MB settings.
 `logs/host-lc-init-cfm-skip-20260609-075542.log` removed the previous low-PC
 invalid-stack loop at `pc_after=0x00000003` and advanced through the first copied
@@ -414,7 +428,13 @@ boot_3 INIT/CFM helper into a later copied boot_3/video pass.  The current
 follow-up log, `logs/host-lc-a9c9-sites-20260609-080321.log`, reaches the later
 pass with site-specific A9C9 handling and stops after the copied-boot resource
 manager path at `pc_after=0x00be9a6e`, `sp_after=0x00be8f56`; this is still
-zero-filled RAM, so the framebuffer remains in host status-overlay mode.
+zero-filled RAM.  The current progress-loop verification log is
+`logs/host-lc-scriptutil-textservices-500m-20260609-144421.log`: it reports
+`HOST_LC_OK`, `stopped_on_zero_ram=0`, `stopped_on_monitor=0`,
+`stopped_on_zero_rom=0`, `GetPicture(0)=0`, and only the real progress PICT IDs
+`-16503`, `-20235`, and `-20241`.  It still has no guest VRAM writes or ROM
+serial output, so the framebuffer remains in host status-overlay mode rather
+than a Mac desktop.
 
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 

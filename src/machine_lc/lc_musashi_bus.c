@@ -846,6 +846,45 @@ static void lc_musashi_bus_ram_write32(uint32_t address, uint32_t value) {
 static int16_t lc_musashi_bus_basilisk_disk_control_status(uint16_t op, uint32_t pb,
                                                            uint32_t dce);
 
+static void lc_musashi_bus_maybe_repair_copied_boot3_bytes(uint32_t pc) {
+    if (active_bus == NULL || active_bus->ram == NULL) {
+        return;
+    }
+    static const uint32_t copy_bases[] = {0x00bf8544u, 0x00be8934u};
+    for (size_t i = 0; i < sizeof(copy_bases) / sizeof(copy_bases[0]); i++) {
+        const uint32_t base = copy_bases[i];
+        const uint32_t region = base + 0x1130u;
+        if (pc < region || pc >= region + 0x40u) {
+            continue;
+        }
+        const uint32_t expected_branch_addr = base + 0x1134u;
+        const uint32_t expected_andi_addr = base + 0x113au;
+        if (lc_musashi_bus_peek_ram16(expected_branch_addr) == 0x6c24u &&
+            lc_musashi_bus_peek_ram16(expected_andi_addr) == 0x0242u) {
+            return;
+        }
+        uint32_t boot3 = lc_musashi_bus_peek_ram32(0x0004ff08u);
+        if (boot3 == 0u || boot3 + 0x1170u >= active_bus->ram_size) {
+            boot3 = 0x00902000u;
+        }
+        if (boot3 + 0x1170u >= active_bus->ram_size || region + 0x40u >= active_bus->ram_size) {
+            return;
+        }
+        for (uint32_t off = 0x1130u; off < 0x1170u; off++) {
+            lc_musashi_bus_ram_write8(base + off, active_bus->ram[boot3 + off]);
+        }
+        static unsigned repair_logs = 0;
+        if (repair_logs < 8u) {
+            ESP_LOGW(TAG,
+                     "LC repaired copied boot_3 heap-compact bytes: pc=0x%08" PRIx32
+                     " base=0x%08" PRIx32 " src=0x%08" PRIx32,
+                     pc, base, boot3);
+            repair_logs++;
+        }
+        return;
+    }
+}
+
 static uint32_t lc_musashi_bus_video_unit_table(void) {
     uint32_t unit_table = lc_musashi_bus_peek_ram32(LC_LOWMEM_UNIT_TABLE);
     if (active_bus == NULL || active_bus->ram == NULL ||
@@ -5580,6 +5619,7 @@ static void lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(uint32_t pc) {
 void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
+    lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
 
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
@@ -5770,6 +5810,17 @@ void cpu_instr_callback(int pc) {
                     m68k_set_reg(M68K_REG_D0, 0);
                     handled = true;
                     break;
+                case 0x004cu: { // _CompactMem: D0=requested bytes, returns compacted/largest block in D0
+                    uint32_t requested = m68k_get_reg(NULL, M68K_REG_D0);
+                    if (requested == 0u) {
+                        requested = active_bus != NULL && active_bus->ram_size > 0x80000u
+                                        ? active_bus->ram_size - 0x80000u : 0x100000u;
+                    }
+                    m68k_set_reg(M68K_REG_D0, requested);
+                    m68k_set_reg(M68K_REG_A0, requested);
+                    handled = true;
+                    break;
+                }
                 case 0x0057u: // _SetFileInfo — no-op return noErr
                     m68k_set_reg(M68K_REG_D0, 0);
                     handled = true;
@@ -5783,8 +5834,6 @@ void cpu_instr_callback(int pc) {
                 }
             }
             // Toolbox traps — Pascal calling convention:
-            static uint32_t last_count_type_val = 0; // shared between CountRes/GetIndRes
-            static uint16_t last_count_val = 0; // last count result
             // Before trap: stack has [result_space] [params...] from bottom up.
             // After our exception frame removal, SP points to params.
             // We pop params and write result to result_space.
@@ -5916,6 +5965,23 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x082au: { // _ComponentDispatch selector in D0
+                    const uint32_t selector = m68k_get_reg(NULL, M68K_REG_D0) & 0xffffu;
+                    if (selector == 20u) {
+                        // copied boot_3 pushes a long result slot plus two word
+                        // params, then ADDQ #4,SP discards the long result.
+                        param_bytes = 4;
+                        result_bytes = 4;
+                        result_value = 0;
+                    } else {
+                        // selector 22 at the same helper has no stack frame.
+                        param_bytes = 0;
+                        result_bytes = 0;
+                        result_value = 0;
+                    }
+                    handled = true;
+                    break;
+                }
                 case 0x0a5au: { // _CodeFragmentDispatch(...): returns OSErr word
                     // The copied boot_3 CFM helper uses a few fixed stack
                     // layouts.  Return noErr but consume each selector's
@@ -5992,12 +6058,14 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
-                case 0x08b5u: // _ScriptUtil(scriptTag:l) → word result
-                    // boot_3 reserves a word result, pushes one long selector,
-                    // then caller-pops the result word.  Return zero/no-op while
-                    // preserving the Pascal stack contract.
-                    param_bytes = 4;
-                    result_bytes = 2;
+                case 0x08b5u: // _ScriptUtil(selector:l, script:w) → long result
+                    // The copied boot_3 script/font helper reserves a long result,
+                    // pushes a long selector and a word script/code argument, and
+                    // then reads either the returned long or its low word.  Keeping
+                    // this as a two-byte result leaves the stack two bytes low and
+                    // corrupts the following TextServicesDispatch cleanup.
+                    param_bytes = 6;
+                    result_bytes = 4;
                     result_value = 0;
                     handled = true;
                     break;
@@ -6045,6 +6113,15 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x0a54u: // _TextServicesDispatch selector in D0
+                    // boot_3 selector 14 passes a long pointer after a word cookie;
+                    // the ROM-side dispatcher consumes the pointer while the caller
+                    // cleans the remaining word plus its four-byte scratch record.
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    result_value = 0;
+                    handled = true;
+                    break;
                 case 0x08ecu: // QuickDraw _CopyBits(srcBits:l,dstBits:l,srcRect:l,dstRect:l,mode:w,maskRgn:l) → void
                     // boot_3 allocates local bitmap/rect scratch, pushes the 22-byte
                     // CopyBits argument list, calls A8EC, then separately releases
@@ -6076,24 +6153,53 @@ void cpu_instr_callback(int pc) {
                     int16_t pict_id = (int16_t)lc_musashi_bus_peek_ram16(sp + 8u);
                     result_value = 0;
                     if (active_bus != NULL && active_bus->ram != NULL) {
-                        extern uint32_t host_find_system_resource(const uint8_t *, size_t,
-                                                                  uint32_t, int16_t, uint32_t *);
-                        uint32_t rsz = 0;
-                        uint32_t raddr = host_find_system_resource(active_bus->ram, active_bus->ram_size,
-                                                                   0x50494354u, pict_id, &rsz); // 'PICT'
-                        if (raddr != 0u) {
-                            static uint32_t pict_handle_ptr = 0x00510000u;
-                            uint32_t handle = pict_handle_ptr;
-                            pict_handle_ptr += 4u;
-                            lc_musashi_bus_ram_write32(handle, raddr);
-                            lc_musashi_bus_post_reset_set_handle_record(handle, raddr, rsz);
-                            result_value = handle;
+                        static struct { int16_t id; uint32_t handle; uint32_t addr; uint32_t size; } pict_cache[32];
+                        static unsigned pict_cache_count = 0;
+                        for (unsigned ci = 0; ci < pict_cache_count; ci++) {
+                            if (pict_cache[ci].id == pict_id) {
+                                result_value = pict_cache[ci].handle;
+                                lc_musashi_bus_post_reset_set_handle_record(
+                                    pict_cache[ci].handle, pict_cache[ci].addr, pict_cache[ci].size);
+                                break;
+                            }
+                        }
+                        if (result_value == 0u) {
+                            extern uint32_t host_find_system_resource(const uint8_t *, size_t,
+                                                                      uint32_t, int16_t, uint32_t *);
+                            uint32_t rsz = 0;
+                            uint32_t raddr = host_find_system_resource(active_bus->ram, active_bus->ram_size,
+                                                                       0x50494354u, pict_id, &rsz); // 'PICT'
+                            if (raddr != 0u) {
+                                static uint32_t pict_handle_ptr = 0x00510000u;
+                                uint32_t handle = pict_handle_ptr;
+                                pict_handle_ptr += 4u;
+                                lc_musashi_bus_ram_write32(handle, raddr);
+                                lc_musashi_bus_post_reset_set_handle_record(handle, raddr, rsz);
+                                if (pict_cache_count < sizeof(pict_cache) / sizeof(pict_cache[0])) {
+                                    pict_cache[pict_cache_count].id = pict_id;
+                                    pict_cache[pict_cache_count].handle = handle;
+                                    pict_cache[pict_cache_count].addr = raddr;
+                                    pict_cache[pict_cache_count].size = rsz;
+                                    pict_cache_count++;
+                                }
+                                result_value = handle;
+                            }
                         }
                     }
                     ESP_LOGI(TAG, "LC GetPicture(%d) = 0x%08" PRIx32, (int)pict_id, result_value);
                     handled = true;
                     break;
                 }
+                case 0x0822u: // _ResourceDispatch selector in D0; copied boot_3 selector 5 passes two handles
+                    // The resource-map sync path pushes TopMapHndl and SysMapHndl
+                    // before D0=5/_ResourceDispatch.  Treat it as a no-op but
+                    // consume both long parameters so the caller's stack remains
+                    // aligned for subsequent resource/heap code.
+                    param_bytes = (m68k_get_reg(NULL, M68K_REG_D0) == 5u) ? 8u : 0u;
+                    result_bytes = 0;
+                    result_value = 0;
+                    handled = true;
+                    break;
                 case 0x081au: // _HOpenResFile(vRefNum:w, dirID:l, fileName:l, perm:b→w) → refNum:w
                     param_bytes = 12; // 2+4+4+2 (byte arg is stack-word aligned on A7)
                     result_bytes = 2;
@@ -6261,42 +6367,58 @@ void cpu_instr_callback(int pc) {
                     result_value = 0xFFFFu; // -1 as unsigned 16-bit
                     handled = true;
                     break;
-                case 0x0997u: // _CountResources(theType:l) → count:w
-                case 0x09a7u: { // _Count1Resources(theType:l) → count:w
+                case 0x0997u: { // _OpenResFile(fileName:l) → refNum:w
                     param_bytes = 4;
                     result_bytes = 2;
-                    // Read the resource type from the param on the stack
-                    // Stack: [exception_frame:8] [theType:4] [result_space:2]
-                    // The type parameter may be passed by value OR by reference (PEA).
-                    // If the value looks like a valid RAM pointer, dereference it.
-                    uint32_t raw_type = lc_musashi_bus_peek_ram32(sp + 8u);
-                    uint32_t count_type;
-                    if (raw_type > 0x00008000u && raw_type < active_bus->ram_size - 4u) {
-                        // Likely a pointer — dereference to get actual type
-                        count_type = lc_musashi_bus_peek_ram32(raw_type);
-                    } else {
-                        count_type = raw_type; // Use directly as type value
+                    const uint32_t name_ptr = lc_musashi_bus_peek_ram32(sp + 8u);
+                    uint32_t name_tag = 0;
+                    if (active_bus != NULL && active_bus->ram != NULL &&
+                        name_ptr < active_bus->ram_size - 4u) {
+                        name_tag = lc_musashi_bus_peek_ram32(name_ptr);
                     }
-                    // Debug: dump stack around params
+                    // The copied boot_3 progress path probes an optional "PTCH"
+                    // resource file with OpenResFile.  The file is not present in
+                    // the host-side System.rsrc model; return -1 so its BMI takes
+                    // the normal missing-file path instead of treating refNum 0 as
+                    // a picture ID and spinning through GetPicture(0).
+                    if (name_tag == 0x50544348u || name_tag == 0x70746368u) { // 'PTCH'/'ptch'
+                        result_value = 0xffffu;
+                    } else {
+                        result_value = 0xffffu;
+                    }
                     {
-                        static unsigned crd = 0;
-                        if (crd < 5) {
-                            ESP_LOGI(TAG, "LC CountRes stack: sp=$%08" PRIx32
-                                     " [+0]=$%04x [+2]=$%08" PRIx32 " [+6]=$%04x"
-                                     " [+8]=$%08" PRIx32 " [+12]=$%04x",
-                                     sp,
-                                     (unsigned)lc_musashi_bus_peek_ram16(sp),
-                                     lc_musashi_bus_peek_ram32(sp + 2u),
-                                     (unsigned)lc_musashi_bus_peek_ram16(sp + 6u),
-                                     lc_musashi_bus_peek_ram32(sp + 8u),
-                                     (unsigned)lc_musashi_bus_peek_ram16(sp + 12u));
-                            crd++;
+                        static unsigned open_log = 0;
+                        if (open_log < 20u) {
+                            char t[5] = {0};
+                            uint8_t tb[4] = {(uint8_t)(name_tag >> 24), (uint8_t)(name_tag >> 16),
+                                             (uint8_t)(name_tag >> 8), (uint8_t)name_tag};
+                            for (int ti = 0; ti < 4; ti++) t[ti] = (tb[ti] >= 32 && tb[ti] < 127) ? (char)tb[ti] : '.';
+                            ESP_LOGI(TAG, "LC OpenResFile(name=$%08" PRIx32 " tag='%s'/$%08" PRIx32
+                                     ") = %d sp=$%08" PRIx32 " A5=$%08x",
+                                     name_ptr, t, name_tag, (int16_t)result_value, sp,
+                                     m68k_get_reg(NULL, M68K_REG_A5));
+                            open_log++;
                         }
                     }
+                    handled = true;
+                    break;
+                }
+                case 0x099cu: { // _CountResources(theType:l) → count:w
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    // Read the resource type from the param on the stack.  The type
+                    // parameter may be passed by value or via PEA; accept both forms.
+                    uint32_t raw_type = lc_musashi_bus_peek_ram32(sp + 8u);
+                    uint32_t count_type;
+                    if (raw_type > 0x00008000u && active_bus != NULL &&
+                        raw_type < active_bus->ram_size - 4u) {
+                        count_type = lc_musashi_bus_peek_ram32(raw_type);
+                    } else {
+                        count_type = raw_type;
+                    }
                     uint16_t count_val = 0;
-                    // Patch resources are unsafe until the resource/patch loader is real.
-                    // Report none so boot_3 skips the patch-loading interpreter rather
-                    // than executing copied patch-table data as code.
+                    // Patch resources are unsafe until the patch loader/runtime is
+                    // real.  Report none so boot_3 skips copied patch execution.
                     if (count_type == 0x50544348u || count_type == 0x70746368u) { // 'PTCH'/'ptch'
                         count_val = 0;
                     } else {
@@ -6305,16 +6427,14 @@ void cpu_instr_callback(int pc) {
                             count_val = host_count_system_resources(count_type);
                         }
                     }
-                    // Remember last counted type for GetIndResource
-                    last_count_type_val = count_type;
-                    last_count_val = count_val;
                     result_value = count_val;
                     {
                         char t[5] = {0};
                         uint8_t tb[4] = {(uint8_t)(count_type >> 24), (uint8_t)(count_type >> 16),
                                          (uint8_t)(count_type >> 8), (uint8_t)count_type};
                         for (int ti = 0; ti < 4; ti++) t[ti] = (tb[ti] >= 32 && tb[ti] < 127) ? (char)tb[ti] : '.';
-                        ESP_LOGI(TAG, "LC CountResources('%s' raw=$%08" PRIx32 " type=$%08" PRIx32 ") = %u sp=$%08" PRIx32 " A5=$%08x",
+                        ESP_LOGI(TAG, "LC CountResources('%s' raw=$%08" PRIx32 " type=$%08" PRIx32
+                                 ") = %u sp=$%08" PRIx32 " A5=$%08x",
                                  t, raw_type, count_type, (unsigned)count_val, sp,
                                  m68k_get_reg(NULL, M68K_REG_A5));
                     }
@@ -6372,11 +6492,6 @@ void cpu_instr_callback(int pc) {
                     break;
                 case 0x09a2u: // _LoadResource(theResource:l) → void
                     param_bytes = 4;
-                    result_bytes = 0;
-                    handled = true;
-                    break;
-                case 0x099cu: // _UseResFile(refNum:w) → void
-                    param_bytes = 2;
                     result_bytes = 0;
                     handled = true;
                     break;
@@ -6618,6 +6733,9 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_PC, ret_addr);
             previous_instruction_pc = current_instruction_pc;
             return;
+        }
+        if (lc_musashi_bus_maybe_canonicalize_sr_prefixed_rom_pc(current_instruction_pc)) {
+            current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
         }
         lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(current_instruction_pc);
         lc_musashi_bus_maybe_pulse_reset_via_irq(current_instruction_pc);
