@@ -383,6 +383,37 @@ clean gate. The remaining per-PC scaffolds are now the dispatcher/return repairs
 Resource Manager/video prototypes, and earlier address-map/BootGlobs probes
 rather than low-trap table reads.
 
+## 2026-06-09 copied boot_3 video/GDevice contract progress
+
+The host LC harness now seeds a coherent Basilisk-style video contract instead
+of relying only on fake trap success for the copied boot_3 video path.  The
+scaffold creates a synthetic `GDevice` handle/pointer, matching `PixMap`, CLUT,
+video DCE/unit-table entry, and low-memory globals (`ScrnBase`, `MainDevice`,
+`DeviceList`, `TheGDevice`, cursor/source devices).  `_Control`/`_Status` calls
+for the synthetic video refnum now decode the `csCode` and return coherent mode,
+base-address, CLUT, geometry, and connection data for the 512×384×8-bit LC
+framebuffer model.
+
+The same tranche adds narrow QuickDraw/window/display contract support needed by
+copied boot_3: seeded WMgr/Desk ports, rectangular vis/clip regions,
+`_InitGraf`/`_InitCPort`/`_SetPort`/`_GetPort` port state, a stack-correct
+`_DisplayDispatch` result frame for selectors 1830/2031, and a site-specific
+`_SysError` no-op for the copied boot_3 heap-bound warning path at
+`0x00bf9afe`.  The per-copy boot_3 A5 port at `A5+112` is repaired to point at
+the same PixMap as `MainDevice`, preventing the copied helper from following
+stale `0x6a042f..` port data while reading `portPixMap`.
+
+Verification log: `logs/host-lc-video-gdevice-qdstacks8-20260609-071501.log`
+with `HOST_LC_ENTRY_BASE=0x40800000u`, `HOST_LC_ENTRY_OFFSET=0x0008cu`, 16MiB
+guest RAM, HD200MB, and `--basilisk-compat`.  This moves past the previous
+`A205`/`A204` GDevice/gamma loop and the earlier DisplayDispatch stack fallthrough:
+`_DisplayDispatch` at `0x00bff82e` returns with `param_bytes=14`,
+`result_bytes=2`, and the second copied boot_3 instance seeds `A5+112` at
+`0x00bf200e`.  The run advances into later INIT/resource-manager work before
+corrupting into a low-PC/invalid-stack loop (`pc_after=0x00000003`,
+`sp_after=0x39265f27`), so the framebuffer is still the host status overlay and
+not yet a Mac desktop.
+
 ## 2026-06-08 host boot_3 patch-loader progress
 
 The copied boot_3/PTCH illegal-instruction loop at `opcode=0x017a` was traced to

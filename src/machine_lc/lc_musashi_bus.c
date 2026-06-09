@@ -6,6 +6,7 @@
 #include "esp_partition.h"
 #include "lc_disk.h"
 #include "lc_trace.h"
+#include "lc_video.h"
 #include "m68k.h"
 
 #include <inttypes.h>
@@ -98,6 +99,7 @@ static uint32_t post_reset_handle_bump;
 static uint32_t post_reset_emergency_bump;
 static uint32_t post_reset_low_emergency_bump;
 static unsigned basilisk_emul_op_logs;
+static uint32_t lc_qd_current_port;
 
 #define LC_POST_RESET_HANDLE_RECORD_COUNT 1024u
 
@@ -152,6 +154,34 @@ static unsigned post_reset_low_trap_ring_index;
 #define LC_LOWMEM_TOP_MAP_HNDL 0x00000a50u
 #define LC_LOWMEM_SYS_MAP_HNDL 0x00000a54u
 #define LC_LOWMEM_ROM_MAP_HNDL 0x00000b06u
+#define LC_LOWMEM_WMGR_PORT 0x000009deu
+#define LC_LOWMEM_DESK_PORT 0x000009e2u
+#define LC_LOWMEM_SCRN_BASE 0x00000824u
+#define LC_LOWMEM_CRSR_BASE 0x00000898u
+#define LC_LOWMEM_CRSR_DEVICE 0x0000089cu
+#define LC_LOWMEM_SRC_DEVICE 0x000008a0u
+#define LC_LOWMEM_MAIN_DEVICE 0x000008a4u
+#define LC_LOWMEM_DEVICE_LIST 0x000008a8u
+#define LC_LOWMEM_UNIT_TABLE 0x0000011cu
+#define LC_LOWMEM_THE_GDEVICE 0x00000cc8u
+
+#define LC_VIDEO_REFNUM ((int16_t)-64)
+#define LC_VIDEO_APPLE_MODE_8BIT 0x0083u
+#define LC_VIDEO_RESOLUTION_ID 0x00000080u
+#define LC_VIDEO_GDEVICE_HANDLE 0x00009600u
+#define LC_VIDEO_GDEVICE_PTR 0x00009610u
+#define LC_VIDEO_PIXMAP_HANDLE 0x00009660u
+#define LC_VIDEO_PIXMAP_PTR 0x00009670u
+#define LC_VIDEO_CTAB_HANDLE 0x000096c0u
+#define LC_VIDEO_CTAB_PTR 0x000096d0u
+#define LC_VIDEO_DCE_HANDLE 0x00009f40u
+#define LC_VIDEO_DCE_PTR 0x00009f50u
+#define LC_VIDEO_VIS_RGN_HANDLE 0x00009f90u
+#define LC_VIDEO_VIS_RGN_PTR 0x00009fa0u
+#define LC_VIDEO_CLIP_RGN_HANDLE 0x00009fb0u
+#define LC_VIDEO_CLIP_RGN_PTR 0x00009fc0u
+#define LC_VIDEO_WMGR_PORT 0x00009fd0u
+#define LC_VIDEO_UNIT_TABLE_FALLBACK 0x00008a00u
 
 #define LC_RESOURCE_ROM_MASTER_PTR_BASE 0x00008400u
 #define LC_RESOURCE_ROM_MASTER_PTR_LIMIT 0x00008700u
@@ -530,6 +560,7 @@ void lc_musashi_bus_reset_stats(void) {
     reset_via_irq_wait1_hits = 0;
     reset_via_irq_pulses = 0;
     reset_via_irq_asserted = false;
+    lc_qd_current_port = 0;
     get_video_default_stub_logged = false;
     slot_manager_video_default_stub_logged = false;
     control_video_default_stub_logged = false;
@@ -812,6 +843,432 @@ static void lc_musashi_bus_ram_write32(uint32_t address, uint32_t value) {
     lc_musashi_bus_ram_write16(address + 2u, (uint16_t)value);
 }
 
+static int16_t lc_musashi_bus_basilisk_disk_control_status(uint16_t op, uint32_t pb,
+                                                           uint32_t dce);
+
+static uint32_t lc_musashi_bus_video_unit_table(void) {
+    uint32_t unit_table = lc_musashi_bus_peek_ram32(LC_LOWMEM_UNIT_TABLE);
+    if (active_bus == NULL || active_bus->ram == NULL ||
+        unit_table < 0x00001000u || unit_table + (64u * 4u) > active_bus->ram_size) {
+        unit_table = LC_VIDEO_UNIT_TABLE_FALLBACK;
+        lc_musashi_bus_ram_write32(LC_LOWMEM_UNIT_TABLE, unit_table);
+    }
+    return unit_table;
+}
+
+static void lc_musashi_bus_video_write_rect(uint32_t addr,
+                                            uint16_t top,
+                                            uint16_t left,
+                                            uint16_t bottom,
+                                            uint16_t right) {
+    lc_musashi_bus_ram_write16(addr + 0u, top);
+    lc_musashi_bus_ram_write16(addr + 2u, left);
+    lc_musashi_bus_ram_write16(addr + 4u, bottom);
+    lc_musashi_bus_ram_write16(addr + 6u, right);
+}
+
+static void lc_musashi_bus_seed_qd_region(uint32_t handle, uint32_t ptr) {
+    lc_musashi_bus_ram_write32(handle, ptr);
+    lc_musashi_bus_ram_write16(ptr + 0u, 10u); // rgnSize: header-only rectangular region
+    lc_musashi_bus_video_write_rect(ptr + 2u, 0, 0,
+                                    (uint16_t)LC_VIDEO_HEIGHT, (uint16_t)LC_VIDEO_WIDTH);
+}
+
+static void lc_musashi_bus_seed_qd_regions(void) {
+    lc_musashi_bus_seed_qd_region(LC_VIDEO_VIS_RGN_HANDLE, LC_VIDEO_VIS_RGN_PTR);
+    lc_musashi_bus_seed_qd_region(LC_VIDEO_CLIP_RGN_HANDLE, LC_VIDEO_CLIP_RGN_PTR);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_WMGR_PORT, LC_VIDEO_WMGR_PORT);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_DESK_PORT, LC_VIDEO_WMGR_PORT);
+}
+
+static void lc_musashi_bus_seed_qd_port(uint32_t port, bool color_port) {
+    if (active_bus == NULL || active_bus->ram == NULL ||
+        port < 0x00001000u || port + 32u >= active_bus->ram_size) {
+        return;
+    }
+    lc_musashi_bus_seed_qd_regions();
+    lc_musashi_bus_ram_write16(port + 0u, 0u); // device
+    if (color_port) {
+        // CGrafPort: device, portPixMap, portVersion/grafVars/chExtra,
+        // then the shared portRect/visRgn/clipRgn fields.  boot_3 follows
+        // portPixMap immediately after InitCPort, so keep it tied to the
+        // same PixMap handle used by MainDevice/TheGDevice.
+        lc_musashi_bus_ram_write32(port + 2u, LC_VIDEO_PIXMAP_HANDLE);
+        lc_musashi_bus_ram_write16(port + 6u, 0xc000u);
+        lc_musashi_bus_ram_write32(port + 8u, 0u);
+        lc_musashi_bus_ram_write16(port + 12u, 0u);
+        lc_musashi_bus_ram_write16(port + 14u, 0u);
+    } else {
+        // GrafPort: embedded BitMap starts at +2.
+        lc_musashi_bus_ram_write32(port + 2u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        lc_musashi_bus_ram_write16(port + 6u, (uint16_t)LC_VIDEO_ROWBYTES);
+        lc_musashi_bus_video_write_rect(port + 8u, 0, 0,
+                                        (uint16_t)LC_VIDEO_HEIGHT, (uint16_t)LC_VIDEO_WIDTH);
+    }
+    lc_musashi_bus_video_write_rect(port + 16u, 0, 0,
+                                    (uint16_t)LC_VIDEO_HEIGHT, (uint16_t)LC_VIDEO_WIDTH);
+    lc_musashi_bus_ram_write32(port + 24u, LC_VIDEO_VIS_RGN_HANDLE);
+    lc_musashi_bus_ram_write32(port + 28u, LC_VIDEO_CLIP_RGN_HANDLE);
+    lc_qd_current_port = port;
+
+    static unsigned qd_port_logs = 0;
+    if (qd_port_logs < 20u) {
+        ESP_LOGI(TAG,
+                 "LC seeded %s QuickDraw port: port=0x%08" PRIx32
+                 " pixmap_h=0x%08x frame=0x%08x rowbytes=%u bounds=%ux%u",
+                 color_port ? "color" : "classic", port, LC_VIDEO_PIXMAP_HANDLE,
+                 LC_BASILISK_FRAME_BASE_CANDIDATE, (unsigned)LC_VIDEO_ROWBYTES,
+                 (unsigned)LC_VIDEO_WIDTH, (unsigned)LC_VIDEO_HEIGHT);
+        qd_port_logs++;
+    }
+}
+
+static uint32_t lc_musashi_bus_current_qd_port(void) {
+    if (lc_qd_current_port == 0u) {
+        lc_musashi_bus_seed_qd_port(LC_VIDEO_WMGR_PORT, true);
+    }
+    return lc_qd_current_port;
+}
+
+static void lc_musashi_bus_seed_boot3_a5_qd_port(void) {
+    if (active_bus == NULL || active_bus->ram == NULL) {
+        return;
+    }
+    const uint32_t a5 = m68k_get_reg(NULL, M68K_REG_A5);
+    // Copied boot_3 keeps its temporary CGrafPort at A5+112 and later
+    // follows portPixMap via A5+114.  Keep that per-copy port coherent with
+    // the MainDevice PixMap whenever the dynamic A5 points into guest RAM.
+    if (a5 < 0x00008000u || a5 + 160u >= active_bus->ram_size) {
+        return;
+    }
+    if (a5 < 0x00be0000u || a5 > 0x00c10000u) {
+        return;
+    }
+    lc_musashi_bus_seed_qd_port(a5 + 112u, true);
+}
+
+static void lc_musashi_bus_seed_video_color_table(void) {
+    lc_musashi_bus_ram_write32(LC_VIDEO_CTAB_HANDLE, LC_VIDEO_CTAB_PTR);
+    lc_musashi_bus_ram_write32(LC_VIDEO_CTAB_PTR + 0u, 0x00000001u); // ctSeed
+    lc_musashi_bus_ram_write16(LC_VIDEO_CTAB_PTR + 4u, 0x0000u);     // ctFlags/transIndex
+    lc_musashi_bus_ram_write16(LC_VIDEO_CTAB_PTR + 6u, (uint16_t)(LC_VIDEO_CLUT_ENTRIES - 1u));
+    for (uint32_t i = 0; i < LC_VIDEO_CLUT_ENTRIES; i++) {
+        const uint32_t e = LC_VIDEO_CTAB_PTR + 8u + i * 8u;
+        const uint16_t v = (uint16_t)((i << 8u) | i);
+        lc_musashi_bus_ram_write16(e + 0u, (uint16_t)i);
+        lc_musashi_bus_ram_write16(e + 2u, v);
+        lc_musashi_bus_ram_write16(e + 4u, v);
+        lc_musashi_bus_ram_write16(e + 6u, v);
+    }
+}
+
+static void lc_musashi_bus_seed_video_pixmap(void) {
+    const uint16_t rowbytes = (uint16_t)LC_VIDEO_ROWBYTES;
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_HANDLE, LC_VIDEO_PIXMAP_PTR);
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 0u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 4u, (uint16_t)(0x8000u | rowbytes));
+    lc_musashi_bus_video_write_rect(LC_VIDEO_PIXMAP_PTR + 6u, 0, 0,
+                                    (uint16_t)LC_VIDEO_HEIGHT, (uint16_t)LC_VIDEO_WIDTH);
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 14u, 0u); // pmVersion
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 16u, 0u); // packType
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 18u, 0u); // packSize
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 22u, 0x00480000u); // hRes 72dpi
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 26u, 0x00480000u); // vRes
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 30u, 0u);          // indexed pixels
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 32u, (uint16_t)LC_VIDEO_BPP);
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 34u, 1u);
+    lc_musashi_bus_ram_write16(LC_VIDEO_PIXMAP_PTR + 36u, (uint16_t)LC_VIDEO_BPP);
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 38u, 0u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 42u, LC_VIDEO_CTAB_HANDLE);
+    lc_musashi_bus_ram_write32(LC_VIDEO_PIXMAP_PTR + 46u, 0u);
+}
+
+static void lc_musashi_bus_seed_video_gdevice(void) {
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_HANDLE, LC_VIDEO_GDEVICE_PTR);
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 0u, (uint16_t)LC_VIDEO_REFNUM);
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 2u, 0u);          // gdID
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 4u, 0u);          // gdType: screen
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 6u, 0u);          // gdITable
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 10u, 0u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 12u, 0u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 16u, 0u);
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 20u, 0x0001u);    // active main screen
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 22u, LC_VIDEO_PIXMAP_HANDLE);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 26u, 0u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 30u, 0u);         // gdNextGD
+    lc_musashi_bus_video_write_rect(LC_VIDEO_GDEVICE_PTR + 34u, 0, 0,
+                                    (uint16_t)LC_VIDEO_HEIGHT, (uint16_t)LC_VIDEO_WIDTH);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 42u, LC_VIDEO_RESOLUTION_ID);
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 46u, (uint16_t)LC_VIDEO_ROWBYTES);
+    lc_musashi_bus_ram_write16(LC_VIDEO_GDEVICE_PTR + 48u, (uint16_t)LC_VIDEO_BPP);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 50u, 0u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 54u, 0u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_GDEVICE_PTR + 58u, 0u);
+}
+
+static void lc_musashi_bus_seed_video_dce(void) {
+    const uint32_t unit_table = lc_musashi_bus_video_unit_table();
+    const uint32_t unit_index = (~(uint32_t)(int32_t)LC_VIDEO_REFNUM) & 0xffu;
+    if (unit_table + unit_index * 4u + 3u < active_bus->ram_size) {
+        lc_musashi_bus_ram_write32(LC_VIDEO_DCE_HANDLE, LC_VIDEO_DCE_PTR);
+        lc_musashi_bus_ram_write32(unit_table + unit_index * 4u, LC_VIDEO_DCE_HANDLE);
+    }
+    lc_musashi_bus_ram_write32(LC_VIDEO_DCE_PTR + 0u, 0u); // synthetic driver header
+    lc_musashi_bus_ram_write16(LC_VIDEO_DCE_PTR + 4u, 0x4c00u);
+    lc_musashi_bus_ram_write16(LC_VIDEO_DCE_PTR + 6u, 3u);
+    lc_musashi_bus_ram_write32(LC_VIDEO_DCE_PTR + 16u, 0u);
+    lc_musashi_bus_ram_write16(LC_VIDEO_DCE_PTR + 24u, (uint16_t)LC_VIDEO_REFNUM);
+    lc_musashi_bus_ram_write8(LC_VIDEO_DCE_PTR + 40u, 0x80u); // Basilisk-style virtual slot id
+    lc_musashi_bus_ram_write8(LC_VIDEO_DCE_PTR + 41u, 0x80u); // functional sResource id
+    lc_musashi_bus_ram_write32(LC_VIDEO_DCE_PTR + 42u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+    lc_musashi_bus_ram_write32(LC_VIDEO_DCE_PTR + 46u, 0u);
+    lc_musashi_bus_ram_write8(LC_VIDEO_DCE_PTR + 50u, 0u);
+}
+
+static void lc_musashi_bus_seed_video_contract(void) {
+    if (active_bus == NULL || active_bus->ram == NULL ||
+        active_bus->ram_size <= LC_VIDEO_DCE_PTR + 64u) {
+        return;
+    }
+    for (uint32_t addr = LC_VIDEO_GDEVICE_HANDLE; addr < LC_VIDEO_DCE_PTR + 64u; addr++) {
+        lc_musashi_bus_ram_write8(addr, 0u);
+    }
+    lc_musashi_bus_seed_video_color_table();
+    lc_musashi_bus_seed_video_pixmap();
+    lc_musashi_bus_seed_video_gdevice();
+    lc_musashi_bus_seed_video_dce();
+    lc_musashi_bus_seed_qd_regions();
+    lc_musashi_bus_seed_boot3_a5_qd_port();
+
+    lc_musashi_bus_ram_write32(LC_LOWMEM_SCRN_BASE, LC_BASILISK_FRAME_BASE_CANDIDATE);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_CRSR_BASE, LC_BASILISK_FRAME_BASE_CANDIDATE);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_CRSR_DEVICE, LC_VIDEO_GDEVICE_HANDLE);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_SRC_DEVICE, LC_VIDEO_GDEVICE_HANDLE);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_MAIN_DEVICE, LC_VIDEO_GDEVICE_HANDLE);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_DEVICE_LIST, LC_VIDEO_GDEVICE_HANDLE);
+    lc_musashi_bus_ram_write32(LC_LOWMEM_THE_GDEVICE, LC_VIDEO_GDEVICE_HANDLE);
+
+    static bool logged = false;
+    if (!logged) {
+        logged = true;
+        ESP_LOGW(TAG,
+                 "LC seeded coherent video/GDevice contract: gdev_h=0x%08x gdev=0x%08x"
+                 " pixmap_h=0x%08x pixmap=0x%08x dce_h=0x%08x dce=0x%08x"
+                 " frame=0x%08x rowbytes=%u bounds=%ux%u refnum=%d",
+                 LC_VIDEO_GDEVICE_HANDLE, LC_VIDEO_GDEVICE_PTR,
+                 LC_VIDEO_PIXMAP_HANDLE, LC_VIDEO_PIXMAP_PTR,
+                 LC_VIDEO_DCE_HANDLE, LC_VIDEO_DCE_PTR,
+                 LC_BASILISK_FRAME_BASE_CANDIDATE, (unsigned)LC_VIDEO_ROWBYTES,
+                 (unsigned)LC_VIDEO_WIDTH, (unsigned)LC_VIDEO_HEIGHT,
+                 (int)LC_VIDEO_REFNUM);
+    }
+}
+
+static uint16_t lc_musashi_bus_video_mode(void) {
+    return LC_VIDEO_APPLE_MODE_8BIT;
+}
+
+static int16_t lc_musashi_bus_video_status(uint32_t pb, uint32_t dce) {
+    if (active_bus == NULL || active_bus->ram == NULL || pb + 31u >= active_bus->ram_size) {
+        return -50; // paramErr
+    }
+    (void)dce;
+    const uint16_t code = lc_musashi_bus_peek_ram16(pb + 26u);
+    const uint32_t param = lc_musashi_bus_peek_ram32(pb + 28u);
+    switch (code) {
+    case 2: // cscGetMode
+        lc_musashi_bus_ram_write16(param + 0u, lc_musashi_bus_video_mode());
+        lc_musashi_bus_ram_write16(param + 6u, 0u);
+        lc_musashi_bus_ram_write32(param + 8u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        return 0;
+    case 3: { // cscGetEntries
+        const uint32_t table = lc_musashi_bus_peek_ram32(param + 0u);
+        const uint16_t start = lc_musashi_bus_peek_ram16(param + 4u);
+        uint16_t count = lc_musashi_bus_peek_ram16(param + 6u);
+        if (table == 0u || count > 255u) return -50;
+        if (count > 31u) count = 31u; // bounded diagnostic copy
+        for (uint32_t i = 0; i <= count; i++) {
+            const uint32_t index = start == 0xffffu ? (lc_musashi_bus_peek_ram16(table + i * 8u) & 0xffu)
+                                                    : ((uint32_t)start + i) & 0xffu;
+            const uint16_t v = (uint16_t)((index << 8u) | index);
+            lc_musashi_bus_ram_write16(table + i * 8u + 0u, (uint16_t)index);
+            lc_musashi_bus_ram_write16(table + i * 8u + 2u, v);
+            lc_musashi_bus_ram_write16(table + i * 8u + 4u, v);
+            lc_musashi_bus_ram_write16(table + i * 8u + 6u, v);
+        }
+        return 0;
+    }
+    case 4: // cscGetPages
+        lc_musashi_bus_ram_write16(param + 6u, 1u);
+        return 0;
+    case 5: // cscGetBaseAddress
+        lc_musashi_bus_ram_write32(param + 8u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        return lc_musashi_bus_peek_ram16(param + 6u) == 0u ? 0 : -50;
+    case 6: // cscGetGray
+        lc_musashi_bus_ram_write8(param, 0u);
+        return 0;
+    case 7: // cscGetInterrupt
+        lc_musashi_bus_ram_write8(param, 1u);
+        return 0;
+    case 8: // cscGetGamma
+        lc_musashi_bus_ram_write32(param, 0u);
+        return 0;
+    case 9: // cscGetDefaultMode
+        lc_musashi_bus_ram_write8(param, (uint8_t)lc_musashi_bus_video_mode());
+        return 0;
+    case 10: // cscGetCurrentMode
+        lc_musashi_bus_ram_write16(param + 0u, lc_musashi_bus_video_mode());
+        lc_musashi_bus_ram_write32(param + 2u, LC_VIDEO_RESOLUTION_ID);
+        lc_musashi_bus_ram_write16(param + 6u, 0u);
+        lc_musashi_bus_ram_write32(param + 8u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        return 0;
+    case 12: // cscGetConnection
+        lc_musashi_bus_ram_write16(param + 0u, 8u);
+        lc_musashi_bus_ram_write8(param + 2u, 0u);
+        lc_musashi_bus_ram_write8(param + 3u, 0u);
+        lc_musashi_bus_ram_write32(param + 4u, 0x43u);
+        lc_musashi_bus_ram_write32(param + 8u, 0u);
+        return 0;
+    case 13: // cscGetModeTiming
+        lc_musashi_bus_ram_write32(param + 8u, 0x6465636cu); // 'decl'
+        lc_musashi_bus_ram_write32(param + 12u, 0u);
+        lc_musashi_bus_ram_write32(param + 16u, 0x0fu);
+        return 0;
+    case 14: // cscGetModeBaseAddress
+        lc_musashi_bus_ram_write32(param + 8u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        return 0;
+    case 16: // cscGetPreferredConfiguration
+        lc_musashi_bus_ram_write16(param + 0u, lc_musashi_bus_video_mode());
+        lc_musashi_bus_ram_write32(param + 2u, LC_VIDEO_RESOLUTION_ID);
+        return 0;
+    case 17: { // cscGetNextResolution
+        const uint32_t prev = lc_musashi_bus_peek_ram32(param + 0u);
+        const uint32_t id = (prev == 0u || prev == 0xfffffffeu) ? LC_VIDEO_RESOLUTION_ID : 0xfffffffdu;
+        lc_musashi_bus_ram_write32(param + 4u, id);
+        if (id == LC_VIDEO_RESOLUTION_ID) {
+            lc_musashi_bus_ram_write32(param + 8u, (uint32_t)LC_VIDEO_WIDTH);
+            lc_musashi_bus_ram_write32(param + 12u, (uint32_t)LC_VIDEO_HEIGHT);
+            lc_musashi_bus_ram_write32(param + 16u, 60u << 16u);
+            lc_musashi_bus_ram_write16(param + 20u, lc_musashi_bus_video_mode());
+            lc_musashi_bus_ram_write16(param + 22u, 0u);
+        }
+        return 0;
+    }
+    case 18: { // cscGetVideoParameters
+        const uint32_t vp = lc_musashi_bus_peek_ram32(param + 6u);
+        lc_musashi_bus_ram_write32(vp + 0u, 0u);
+        lc_musashi_bus_ram_write16(vp + 4u, (uint16_t)LC_VIDEO_ROWBYTES);
+        lc_musashi_bus_video_write_rect(vp + 6u, 0, 0, (uint16_t)LC_VIDEO_HEIGHT, (uint16_t)LC_VIDEO_WIDTH);
+        lc_musashi_bus_ram_write16(vp + 14u, 0u);
+        lc_musashi_bus_ram_write16(vp + 16u, 0u);
+        lc_musashi_bus_ram_write32(vp + 18u, 0u);
+        lc_musashi_bus_ram_write32(vp + 22u, 0x00480000u);
+        lc_musashi_bus_ram_write32(vp + 26u, 0x00480000u);
+        lc_musashi_bus_ram_write16(vp + 30u, 0u);
+        lc_musashi_bus_ram_write16(vp + 32u, (uint16_t)LC_VIDEO_BPP);
+        lc_musashi_bus_ram_write16(vp + 34u, 1u);
+        lc_musashi_bus_ram_write16(vp + 36u, (uint16_t)LC_VIDEO_BPP);
+        lc_musashi_bus_ram_write32(vp + 38u, 0u);
+        lc_musashi_bus_ram_write32(param + 10u, 1u);
+        lc_musashi_bus_ram_write32(param + 14u, 0u); // CLUT device
+        return 0;
+    }
+    case 28: { // cscGetMultiConnect
+        uint32_t conn = lc_musashi_bus_peek_ram32(param + 0u);
+        if (conn == 0xffffffffu) {
+            lc_musashi_bus_ram_write32(param + 0u, 1u);
+            return 0;
+        }
+        if (conn == 1u) {
+            lc_musashi_bus_ram_write16(param + 4u, 8u);
+            lc_musashi_bus_ram_write8(param + 6u, 0u);
+            lc_musashi_bus_ram_write8(param + 7u, 0u);
+            lc_musashi_bus_ram_write32(param + 8u, 0x43u);
+            lc_musashi_bus_ram_write32(param + 12u, 0u);
+            return 0;
+        }
+        return -50;
+    }
+    case 20: // cscGetGammaInfoList is optional; Basilisk leaves it unsupported.
+    default:
+        return -18; // statusErr
+    }
+}
+
+static int16_t lc_musashi_bus_video_control(uint32_t pb, uint32_t dce) {
+    if (active_bus == NULL || active_bus->ram == NULL || pb + 31u >= active_bus->ram_size) {
+        return -50;
+    }
+    const uint16_t code = lc_musashi_bus_peek_ram16(pb + 26u);
+    const uint32_t param = lc_musashi_bus_peek_ram32(pb + 28u);
+    switch (code) {
+    case 2:  // cscSetMode
+    case 10: // cscSwitchMode
+        lc_musashi_bus_ram_write32(param + 8u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        if (dce + 45u < active_bus->ram_size) {
+            lc_musashi_bus_ram_write32(dce + 42u, LC_BASILISK_FRAME_BASE_CANDIDATE);
+        }
+        return lc_musashi_bus_peek_ram16(param + 6u) == 0u ? 0 : -50;
+    case 3: // cscSetEntries
+    case 8: // cscDirectSetEntries
+        return 0;
+    case 4: // cscSetGamma
+    case 5: // cscGrayPage
+    case 6: // cscSetGray
+    case 7: // cscSetInterrupt
+    case 9: // cscSetDefaultMode
+    case 16: // cscSavePreferredConfiguration
+        return 0;
+    default:
+        return -17; // controlErr
+    }
+}
+
+static int16_t lc_musashi_bus_video_control_status(bool status_call, uint32_t pb) {
+    lc_musashi_bus_seed_video_contract();
+    uint32_t dce = 0;
+    if (active_bus != NULL && active_bus->ram != NULL && pb + 31u < active_bus->ram_size) {
+        const int16_t refnum = (int16_t)lc_musashi_bus_peek_ram16(pb + 24u);
+        const uint32_t unit_table = lc_musashi_bus_video_unit_table();
+        const uint32_t unit_index = (~(uint32_t)(int32_t)refnum) & 0xffu;
+        const uint32_t handle = unit_table + unit_index * 4u + 3u < active_bus->ram_size
+                                    ? lc_musashi_bus_peek_ram32(unit_table + unit_index * 4u)
+                                    : 0u;
+        if (handle != 0u && handle + 3u < active_bus->ram_size) {
+            dce = lc_musashi_bus_peek_ram32(handle);
+        }
+        if (refnum != LC_VIDEO_REFNUM) {
+            if (refnum == (int16_t)-63 || refnum == (int16_t)-5) {
+                return lc_musashi_bus_basilisk_disk_control_status(
+                    status_call ? LC_B2_EMUL_OP_DISK_STATUS : LC_B2_EMUL_OP_DISK_CONTROL,
+                    pb, dce);
+            }
+            return status_call ? -18 : -17;
+        }
+    }
+    if (dce == 0u) {
+        dce = LC_VIDEO_DCE_PTR;
+    }
+    const int16_t result = status_call ? lc_musashi_bus_video_status(pb, dce)
+                                       : lc_musashi_bus_video_control(pb, dce);
+    if (pb + 17u < active_bus->ram_size) {
+        lc_musashi_bus_ram_write16(pb + 16u, (uint16_t)result);
+    }
+    static unsigned video_log = 0;
+    if (video_log < 80u) {
+        ESP_LOGI(TAG,
+                 "LC video driver %s: pb=0x%08" PRIx32 " dce=0x%08" PRIx32
+                 " ref=%d code=%u param=0x%08" PRIx32 " result=%d frame=0x%08x",
+                 status_call ? "Status" : "Control", pb, dce,
+                 (int)(int16_t)lc_musashi_bus_peek_ram16(pb + 24u),
+                 (unsigned)lc_musashi_bus_peek_ram16(pb + 26u),
+                 lc_musashi_bus_peek_ram32(pb + 28u), (int)result,
+                 LC_BASILISK_FRAME_BASE_CANDIDATE);
+        video_log++;
+    }
+    return result;
+}
+
 static uint32_t lc_musashi_bus_basilisk_find_driver_by_pstring(const char *name, size_t name_len) {
     if (active_bus == NULL || active_bus->rom == NULL || name == NULL || name_len == 0u ||
         name_len > 255u || active_bus->rom_size < name_len + 20u) {
@@ -884,11 +1341,13 @@ static void lc_musashi_bus_basilisk_install_drivers(uint32_t pb) {
         lc_musashi_bus_ram_write32(0x00000cc0u, asc_regs);
     }
 
+    lc_musashi_bus_seed_video_contract();
+
     ESP_LOGW(TAG,
              "LC Basilisk InstallDrivers modeled: pb=0x%08" PRIx32
              " unit_table=0x%08" PRIx32 " sony=0x%08" PRIx32
-             " disk=0x%08" PRIx32 " asc=0x%08x",
-             pb, unit_table, sony_driver, disk_driver, asc_regs);
+             " disk=0x%08" PRIx32 " asc=0x%08x video_refnum=%d",
+             pb, unit_table, sony_driver, disk_driver, asc_regs, (int)LC_VIDEO_REFNUM);
 }
 
 static int16_t lc_musashi_bus_basilisk_disk_prime(bool is_sony, uint32_t pb, uint32_t dce) {
@@ -1145,6 +1604,8 @@ static void lc_musashi_bus_maybe_stub_basilisk_unit_table_newptr(uint32_t pc) {
     for (uint32_t i = 0; i < bytes; i++) {
         lc_musashi_bus_ram_write8(unit_table + i, 0);
     }
+    lc_musashi_bus_ram_write32(LC_LOWMEM_UNIT_TABLE, unit_table);
+    lc_musashi_bus_seed_video_contract();
     m68k_set_reg(M68K_REG_A0, unit_table);
     m68k_set_reg(M68K_REG_D0, 0);
     m68k_set_reg(M68K_REG_PC, pc + 2u);
@@ -1302,6 +1763,7 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                 }
             }
             lc_musashi_bus_stage_boot_resources();
+            lc_musashi_bus_seed_video_contract();
             m68k_set_reg(M68K_REG_SP, 0x00010000u);
         }
         return true;
@@ -1521,18 +1983,19 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
         return true;
 
     case LC_B2_EMUL_OP_VIDEO_OPEN:
-        lc_musashi_bus_basilisk_log_emul_op(op, "VIDEO_OPEN_STUB");
+        lc_musashi_bus_basilisk_log_emul_op(op, "VIDEO_OPEN");
+        lc_musashi_bus_seed_video_contract();
         m68k_set_reg(M68K_REG_D0, 0);
         return true;
 
     case LC_B2_EMUL_OP_VIDEO_CONTROL:
-        lc_musashi_bus_basilisk_log_emul_op(op, "VIDEO_CONTROL_STUB");
-        m68k_set_reg(M68K_REG_D0, 0);
+        lc_musashi_bus_basilisk_log_emul_op(op, "VIDEO_CONTROL");
+        m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)lc_musashi_bus_video_control_status(false, m68k_get_reg(NULL, M68K_REG_A0)));
         return true;
 
     case LC_B2_EMUL_OP_VIDEO_STATUS:
-        lc_musashi_bus_basilisk_log_emul_op(op, "VIDEO_STATUS_STUB");
-        m68k_set_reg(M68K_REG_D0, 0);
+        lc_musashi_bus_basilisk_log_emul_op(op, "VIDEO_STATUS");
+        m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)lc_musashi_bus_video_control_status(true, m68k_get_reg(NULL, M68K_REG_A0)));
         return true;
 
     case LC_B2_EMUL_OP_IRQ:
@@ -5165,6 +5628,7 @@ void cpu_instr_callback(int pc) {
             bool is_toolbox = (trap_word & 0x0800u) != 0u;
             if (is_toolbox) trap_num = trap_word & 0x03ffu; // toolbox: low 10 bits
 
+            if (!is_toolbox) {
             switch (trap_word & 0xf0ffu) { // mask out flag bits for OS traps
             case 0xa000u: { // _Open: A0=paramBlock
                 uint32_t pb_o = m68k_get_reg(NULL, M68K_REG_A0);
@@ -5244,11 +5708,18 @@ void cpu_instr_callback(int pc) {
                 m68k_set_reg(M68K_REG_D0, 0);
                 handled = true;
                 break;
-            case 0xa004u: // _GetZone: return SysZone in A0
-                m68k_set_reg(M68K_REG_A0, 0x00002800u);
-                m68k_set_reg(M68K_REG_D0, 0);
+            case 0xa004u: { // _Control: A0=paramBlock
+                const int16_t result = lc_musashi_bus_video_control_status(false, m68k_get_reg(NULL, M68K_REG_A0));
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)result);
                 handled = true;
                 break;
+            }
+            case 0xa005u: { // _Status: A0=paramBlock
+                const int16_t result = lc_musashi_bus_video_control_status(true, m68k_get_reg(NULL, M68K_REG_A0));
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)result);
+                handled = true;
+                break;
+            }
             case 0xa02cu: // _FlushCache: no-op
             case 0xa04fu: // _RmvTime: no-op
             case 0xa057u: // _SetTrapAddress: no-op (we handle traps ourselves)
@@ -5259,10 +5730,16 @@ void cpu_instr_callback(int pc) {
             default:
                 break;
             }
+            }
             // OS traps with variant flags (NewPtr etc):
-            if (!handled && (trap_word & 0xf000u) == 0xa000u) {
+            if (!is_toolbox && !handled && (trap_word & 0xf000u) == 0xa000u) {
                 uint16_t base_trap = trap_word & 0x00ffu;
                 switch (base_trap) {
+                case 0x001au: // _GetZone (A11A)
+                    m68k_set_reg(M68K_REG_A0, 0x00002800u);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    handled = true;
+                    break;
                 case 0x001eu: // _NewPtr (A01E/A11E/A21E/A31E)
                 case 0x0007u: { // _NewPtr variant with extra flags
                     // Simple bump allocator from top of SysZone
@@ -5323,16 +5800,167 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x08a5u: // _Pack3 (StdFile): no-op, assume 0 params
+                case 0x086eu: { // _InitGraf(globalPtr:l) → void
+                    // boot_3 pushes the current QD globals pointer before A86E;
+                    // if this long is left on the stack, the following InitPalettes
+                    // path restores A0-A2 from the wrong words and falls into low RAM.
+                    const uint32_t global_ptr = lc_musashi_bus_peek_ram32(sp + 8u);
+                    lc_musashi_bus_seed_video_contract();
+                    if (global_ptr != 0u) {
+                        lc_musashi_bus_ram_write32(global_ptr, LC_VIDEO_WMGR_PORT);
+                    }
+                    lc_musashi_bus_seed_qd_port(LC_VIDEO_WMGR_PORT, true);
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x086fu: { // _OpenPort(port:l) → void
+                    const uint32_t port = lc_musashi_bus_peek_ram32(sp + 8u);
+                    lc_musashi_bus_seed_video_contract();
+                    lc_musashi_bus_seed_qd_port(port, false);
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x087du: // _ClosePort(port:l) → void
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0a29u: // _GetDeviceList() → GDHandle
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 0;
+                    result_bytes = 4;
+                    result_value = LC_VIDEO_GDEVICE_HANDLE;
+                    handled = true;
+                    break;
+                case 0x0a2au: // _GetMainDevice() → GDHandle
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 0;
+                    result_bytes = 4;
+                    result_value = LC_VIDEO_GDEVICE_HANDLE;
+                    handled = true;
+                    break;
+                case 0x0a2bu: { // _GetNextDevice(gdh:l) → GDHandle
+                    const uint32_t gdh = lc_musashi_bus_peek_ram32(sp + 8u);
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 4;
+                    result_bytes = 4;
+                    result_value = (gdh == LC_VIDEO_GDEVICE_HANDLE) ? 0u : LC_VIDEO_GDEVICE_HANDLE;
+                    handled = true;
+                    break;
+                }
+                case 0x0a2cu: // _TestDeviceAttribute(gdh:l, attribute:w) → Boolean
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 6;
+                    result_bytes = 2;
+                    result_value = 1;
+                    handled = true;
+                    break;
+                case 0x0a31u: // _SetGDevice(gdh:l) → void
+                    lc_musashi_bus_seed_video_contract();
+                    if (active_bus != NULL && active_bus->ram != NULL) {
+                        uint32_t gdh = lc_musashi_bus_peek_ram32(sp + 8u);
+                        if (gdh != 0u) lc_musashi_bus_ram_write32(LC_LOWMEM_THE_GDEVICE, gdh);
+                    }
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0a32u: // _GetGDevice() → GDHandle
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 0;
+                    result_bytes = 4;
+                    result_value = lc_musashi_bus_peek_ram32(LC_LOWMEM_THE_GDEVICE);
+                    handled = true;
+                    break;
+                case 0x0a90u: // _InitPalettes() → void
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0912u: // _InitWindows() → void
+                    lc_musashi_bus_seed_video_contract();
+                    lc_musashi_bus_seed_qd_port(LC_VIDEO_WMGR_PORT, true);
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x0bebu: // _DisplayDispatch(...): D0 selector, returns OSErr word
+                    // boot_3 calls DisplayDispatch selectors 1830/2031 with a
+                    // callback pointer, A5 cookie, and two small arguments, plus a
+                    // caller-popped OSErr result word.  Model the dispatcher as
+                    // noErr but keep the Pascal stack frame exact so the following
+                    // RTS returns through boot_3 instead of into the parameter list.
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 14;
+                    result_bytes = 2;
+                    result_value = 0;
+                    handled = true;
+                    break;
                 case 0x0895u: // _SysEnvirons: no-op procedure
                     param_bytes = 0;
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x0873u: // QuickDraw _SetPort(port:l) → void
-                case 0x0874u: // QuickDraw _GetPort(VAR port:l) → void
+                case 0x0873u: { // QuickDraw _SetPort(port:l) → void
+                    const uint32_t port = lc_musashi_bus_peek_ram32(sp + 8u);
+                    if (port != 0u) {
+                        lc_qd_current_port = port;
+                    }
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x0874u: { // QuickDraw _GetPort(VAR port:l) → void
+                    const uint32_t out_port = lc_musashi_bus_peek_ram32(sp + 8u);
+                    lc_musashi_bus_ram_write32(out_port, lc_musashi_bus_current_qd_port());
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x0a01u: { // Color QuickDraw _InitCPort(cport:l) → void
+                    const uint32_t port = lc_musashi_bus_peek_ram32(sp + 8u);
+                    lc_musashi_bus_seed_video_contract();
+                    lc_musashi_bus_seed_qd_port(port, true);
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x0898u: { // QuickDraw _GetPenState(pnState:l) → void
+                    const uint32_t state = lc_musashi_bus_peek_ram32(sp + 8u);
+                    for (uint32_t i = 0; i < 20u; i++) {
+                        lc_musashi_bus_ram_write8(state + i, 0u);
+                    }
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
+                case 0x0a19u: // Color QuickDraw _GetForeColor(rgb:l) → void
+                case 0x0a1au: { // Color QuickDraw _GetBackColor(rgb:l) → void
+                    const uint32_t rgb = lc_musashi_bus_peek_ram32(sp + 8u);
+                    lc_musashi_bus_ram_write16(rgb + 0u, 0u);
+                    lc_musashi_bus_ram_write16(rgb + 2u, 0u);
+                    lc_musashi_bus_ram_write16(rgb + 4u, 0u);
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                }
                 case 0x0884u: // QuickDraw _DrawString(str:l) → void
                 case 0x0893u: // QuickDraw _MoveTo(h:w, v:w) → void
+                case 0x0899u: // QuickDraw _SetPenState(pnState:l) → void
+                case 0x08a1u: // QuickDraw _FrameRect(rect:l) → void
+                case 0x0a14u: // Color QuickDraw _RGBForeColor(rgb:l) → void
+                case 0x0a15u: // Color QuickDraw _RGBBackColor(rgb:l) → void
                     param_bytes = 4;
                     result_bytes = 0;
                     handled = true;
@@ -5342,14 +5970,32 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x089bu: // QuickDraw _PenSize(width:w,height:w) → void
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x089eu: // QuickDraw _PenNormal() → void
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
                 case 0x088cu: // QuickDraw _StringWidth(s:l) → width:w
                     param_bytes = 4;
                     result_bytes = 2;
                     result_value = 0;
                     handled = true;
                     break;
+                case 0x08a5u: // QuickDraw _FillRect(rect:l, pattern:l) → void
                 case 0x08a8u: // QuickDraw _OffsetRect/_OffsetRgn(ptr:l, dh:w, dv:w) → void
+                case 0x08a9u: // QuickDraw _InsetRect(rect:l, dh:w, dv:w) → void
+                case 0x08b0u: // QuickDraw _FrameRoundRect(rect:l, ovalWidth:w, ovalHeight:w) → void
                     param_bytes = 8;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08b4u: // QuickDraw _FillRoundRect(rect:l, ovalWidth:w, ovalHeight:w, pattern:l) → void
+                    param_bytes = 12;
                     result_bytes = 0;
                     handled = true;
                     break;
@@ -5401,34 +6047,46 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
-                case 0x09c9u: // _HOpenResFile(vRefNum:w, dirID:l, fileName:l, perm:b→w) → refNum:w
-                    param_bytes = 12; // 2+4+4+2
-                    result_bytes = 2;
-                    result_value = 2; // refNum=2 (System file)
-                    // Set up minimal resource-file lowmem.  The host harness keeps
-                    // System.rsrc host-side and services Resource Manager traps, so
-                    // do not point guest code at a full in-RAM resource map.
-                    if (active_bus && active_bus->ram) {
-                        uint32_t map_addr = 0;
-                        uint32_t map_offset = 0;
-                        uint32_t map_handle = 0x0004F020u;
-                        lc_musashi_bus_ram_write32(map_handle, map_addr);
-                        // TopMapHndl ($A50): handle to top resource map
-                        lc_musashi_bus_ram_write32(0x0A50u, map_handle);
-                        // SysMapHndl ($A54): handle to system resource map
-                        lc_musashi_bus_ram_write32(0x0A54u, map_handle);
-                        // SysMap ($A58): refNum of system resource file
-                        lc_musashi_bus_ram_write16(0x0A58u, 2);
-                        // CurMap ($A5A): refNum of current resource file
-                        lc_musashi_bus_ram_write16(0x0A5Au, 2);
-                        ESP_LOGI(TAG, "LC _HOpenResFile: set TopMapHndl=$%08" PRIx32
-                                 " map_addr=$%08" PRIx32 " map_offset=$%08" PRIx32,
-                                 map_handle, map_addr, map_offset);
+                case 0x09c9u: // _SysError(err) on real traps; some copied-boot call sites use it as an HOpenResFile shim.
+                    if (trap_pc == 0x00bf9afeu &&
+                        lc_memory_bus_read16(active_bus, trap_pc - 4u) == 0x303cu) {
+                        // boot_3 reaches this via `MOVE.W #25,D0; _SysError`
+                        // when its heap-bound check dislikes the current BufPtr.
+                        // SysError is register-based here: do not pop a Pascal
+                        // HOpenResFile frame or RTS will return through locals.
+                        param_bytes = 0;
+                        result_bytes = 0;
+                        result_value = 0;
+                    } else {
+                        param_bytes = 12; // legacy copied-boot HOpenResFile shim: 2+4+4+2
+                        result_bytes = 2;
+                        result_value = 2; // refNum=2 (System file)
+                        // Set up minimal resource-file lowmem.  The host harness keeps
+                        // System.rsrc host-side and services Resource Manager traps, so
+                        // do not point guest code at a full in-RAM resource map.
+                        if (active_bus && active_bus->ram) {
+                            uint32_t map_addr = 0;
+                            uint32_t map_offset = 0;
+                            uint32_t map_handle = 0x0004F020u;
+                            lc_musashi_bus_ram_write32(map_handle, map_addr);
+                            // TopMapHndl ($A50): handle to top resource map
+                            lc_musashi_bus_ram_write32(0x0A50u, map_handle);
+                            // SysMapHndl ($A54): handle to system resource map
+                            lc_musashi_bus_ram_write32(0x0A54u, map_handle);
+                            // SysMap ($A58): refNum of system resource file
+                            lc_musashi_bus_ram_write16(0x0A58u, 2);
+                            // CurMap ($A5A): refNum of current resource file
+                            lc_musashi_bus_ram_write16(0x0A5Au, 2);
+                            ESP_LOGI(TAG, "LC _HOpenResFile: set TopMapHndl=$%08" PRIx32
+                                     " map_addr=$%08" PRIx32 " map_offset=$%08" PRIx32,
+                                     map_handle, map_addr, map_offset);
+                        }
                     }
                     handled = true;
                     break;
                 case 0x09a0u: // _GetResource(theType:l, theID:w) → Handle:l
-                case 0x081fu: { // _Get1Resource(theType:l, theID:w) → Handle:l
+                case 0x081fu: // _Get1Resource(theType:l, theID:w) → Handle:l
+                case 0x080cu: { // _RGetResource(theType:l, theID:w) → Handle:l
                     param_bytes = 6u;
                     result_bytes = 4;
                     // Read resource type from stack: sp + 8(frame) + 2(id) = sp+10
