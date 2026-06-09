@@ -5818,6 +5818,20 @@ void cpu_instr_callback(int pc) {
                 handled = true;
                 break;
             }
+            case 0xa02du: { // _SetApplLimit: A0=new limit
+                // copied boot_3 often carries flag/sign bits in the high byte of
+                // address registers.  The LC boot path is 24-bit here, so honor
+                // the low 24 bits rather than rejecting values like $f3364f12.
+                const uint32_t limit = m68k_get_reg(NULL, M68K_REG_A0) & 0x00fffffeu;
+                if (active_bus != NULL && active_bus->ram != NULL &&
+                    limit >= 0x00001000u && limit < active_bus->ram_size) {
+                    lc_musashi_bus_ram_write32(LC_LOWMEM_APPL_LIMIT, limit);
+                    lc_musashi_bus_ram_write16(LC_LOWMEM_MEM_ERR, 0);
+                }
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                break;
+            }
             case 0xa02cu: // _FlushCache: no-op
             case 0xa04fu: // _RmvTime: no-op
             case 0xa057u: // _SetTrapAddress: no-op (we handle traps ourselves)
@@ -6116,17 +6130,42 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
-                case 0x08b5u: // _ScriptUtil(selector:l, script:w) → long result
-                    // The copied boot_3 script/font helper reserves a long result,
-                    // pushes a long selector and a word script/code argument, and
-                    // then reads either the returned long or its low word.  Keeping
-                    // this as a two-byte result leaves the stack two bytes low and
-                    // corrupts the following TextServicesDispatch cleanup.
-                    param_bytes = 6;
-                    result_bytes = 4;
+                case 0x0852u: // _HideCursor
+                case 0x0853u: // _ShowCursor
+                    param_bytes = 0;
+                    result_bytes = 0;
                     result_value = 0;
                     handled = true;
                     break;
+                case 0x08b5u: { // _ScriptUtil variants used by copied boot_3
+                    // Most copied boot_3 ScriptUtil probes reserve a word result
+                    // and push one long selector, then caller-pop that word with
+                    // ADDQ #2,SP.  The script/font helper at copied offset $11c0
+                    // reserves a long result and passes selector+word.  Its second
+                    // call at $11d4 passes selector+two words and caller-pops the
+                    // low result word after the trap.  Keep these stack shapes
+                    // distinct; using the long-result form everywhere corrupts the
+                    // later return PC into SR-prefixed values such as $2700924e.
+                    param_bytes = 4;
+                    result_bytes = 2;
+                    static const uint32_t boot3_bases[] = {0x00bf8544u, 0x00be8934u, 0x007f8544u};
+                    for (size_t bi = 0; bi < sizeof(boot3_bases) / sizeof(boot3_bases[0]); bi++) {
+                        const uint32_t base = boot3_bases[bi];
+                        if (trap_pc >= base) {
+                            const uint32_t off = trap_pc - base;
+                            if (off == 0x11c0u) {
+                                param_bytes = 6;
+                                result_bytes = 4;
+                            } else if (off == 0x11d4u) {
+                                param_bytes = 8;
+                                result_bytes = 4;
+                            }
+                        }
+                    }
+                    result_value = 0;
+                    handled = true;
+                    break;
+                }
                 case 0x0884u: // QuickDraw _DrawString(str:l) → void
                 case 0x0893u: // QuickDraw _MoveTo(h:w, v:w) → void
                 case 0x0899u: // QuickDraw _SetPenState(pnState:l) → void
@@ -6341,6 +6380,10 @@ void cpu_instr_callback(int pc) {
                     bool skip_rsrc = (res_type == 0x67626c79u) || // 'gbly'
                                      (res_type == 0x64626578u) || // 'dbex'
                                      (res_type == 0x494e4954u) || // 'INIT' startup extensions; skip until trap/runtime model is safe
+                                     (res_type == 0x6c6d6772u) || // 'lmgr' optional Language Manager code; unsafe before MemoryDispatch/runtime model
+                                     (res_type == 0x6e646c63u) || // 'ndlc' native driver loader code; unsafe before native/runtime model
+                                     (res_type == 0x6e647276u) || // 'ndrv' native drivers; unsafe before native/runtime model
+                                     (res_type == 0x77617274u) || // 'wart' optional warm-start helper; unsafe until MemoryDispatch selector 5 is modeled
                                      (res_type == 0x50544348u) || // 'PTCH'
                                      (res_type == 0x70746368u);   // 'ptch'
                     if (result_value == 0 && !skip_rsrc &&

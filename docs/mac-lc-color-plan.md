@@ -454,6 +454,21 @@ uninitialized/absent descriptor (`A4=0`, source from low-memory vector `$48`,
 its RTS target overwrite low memory or return to low PC, so the next fix must
 model the descriptor source rather than patch the wait loop.
 
+A later slice narrowed that source further: `_ScriptUtil` is not one fixed
+signature in copied boot_3.  Most sites use a word result plus one long selector;
+only copied offsets `$11c0/$11d4` use the long-result script/font forms.  Making
+that distinction, handling `_HideCursor`/`_ShowCursor` as no-op procedures, and
+skipping optional `wart`, `lmgr`, `ndlc`, and `ndrv` code resources avoids the bad
+`$40809256` copy-helper path, preserves `GetPicture(0)=0`, and stops the long-run
+stack collapse.  The current verification logs are
+`logs/host-lc-skiplmgr-50m-20260609-205407.log` and
+`logs/host-lc-skipndlc-500m-20260609-205848.log`: both report `HOST_LC_OK`, no
+zero-RAM/monitor/zero-ROM stop, zero unknown Toolbox traps, and no `GetPicture(0)`.
+The 500M run remains a blocker for desktop because it loops near
+`0x00be9f06`/`0x00be9f08` in copied boot_3 heap-bound checking with periodic early
+illegal-instruction callbacks, but the previous low-stack failure is gone
+(`sp_after=0x00be8f8e`).
+
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 
 The host LC harness now seeds a coherent Basilisk-style video contract instead
