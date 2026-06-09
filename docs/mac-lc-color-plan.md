@@ -440,15 +440,19 @@ A follow-on TextServices slice models copied boot_3's optional selector-14 path
 more narrowly.  Gestalt now returns explicit LC/68K answers for the selectors the
 copied boot probes (`sysa`, `mach`, `cput`, `vers`, `vm  `, `pgsz`, `dply`,
 `scsi`, `hdwr`) and reports undefined optional managers instead of leaving stale
-`A0` values.  `_NMInstall`/`_NMRemove` are no-op successes.  When the ROM-side
-TextServices selector-14 code tries to walk a stale high-byte resource/ROM value
-as an ExpandMem linked-list node, the host seeds a minimal empty ExpandMem block
-and escapes only that invalid list scan.  Verification log
-`logs/host-lc-tsescape-50m-20260609-154150.log` exits the previous
-`0x408426d0..0x40842720` list-walk loop (`LC escaped invalid TextServices...`),
-keeps `GetPicture(0)=0` and zero unknown Toolbox traps, and exposes the next
-frontier: a later A-line/trap-dispatch loop around `pc=0x40800d88` / returned
-`pc=0xffffffff` with an invalid high stack (`sp_after=0x419f9730`).
+`A0` values.  `_NMInstall`/`_NMRemove` are no-op successes.  The first selector-14
+attempt wrongly treated the ROM-side list walk as an absent-manager list and
+escaped it; that advanced to a bad trap-dispatch/`pc=0xffffffff` loop.  The
+correct narrower stack finding is that copied boot_3 already caller-cleans the
+`AA54` selector-14 word+pointer frame with `ADDQ #6,SP`, so the trap shim must
+consume no Pascal parameters.  Verification log
+`logs/host-lc-aa54-clean-final-50m-20260609-194653.log` keeps `GetPicture(0)=0`,
+zero unknown Toolbox traps, and no zero-RAM/monitor/zero-ROM stop, and exposes
+the next real frontier: ROM copy helper `$40809256..$40809260` waiting on an
+uninitialized/absent descriptor (`A4=0`, source from low-memory vector `$48`,
+`A2=$0000000c`, `D2=$00fe6800`).  Attempts to force that wait complete or skip
+its RTS target overwrite low memory or return to low PC, so the next fix must
+model the descriptor source rather than patch the wait loop.
 
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 
