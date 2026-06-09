@@ -436,6 +436,20 @@ zero-filled RAM.  The current progress-loop verification log is
 serial output, so the framebuffer remains in host status-overlay mode rather
 than a Mac desktop.
 
+A follow-on TextServices slice models copied boot_3's optional selector-14 path
+more narrowly.  Gestalt now returns explicit LC/68K answers for the selectors the
+copied boot probes (`sysa`, `mach`, `cput`, `vers`, `vm  `, `pgsz`, `dply`,
+`scsi`, `hdwr`) and reports undefined optional managers instead of leaving stale
+`A0` values.  `_NMInstall`/`_NMRemove` are no-op successes.  When the ROM-side
+TextServices selector-14 code tries to walk a stale high-byte resource/ROM value
+as an ExpandMem linked-list node, the host seeds a minimal empty ExpandMem block
+and escapes only that invalid list scan.  Verification log
+`logs/host-lc-tsescape-50m-20260609-154150.log` exits the previous
+`0x408426d0..0x40842720` list-walk loop (`LC escaped invalid TextServices...`),
+keeps `GetPicture(0)=0` and zero unknown Toolbox traps, and exposes the next
+frontier: a later A-line/trap-dispatch loop around `pc=0x40800d88` / returned
+`pc=0xffffffff` with an invalid high stack (`sp_after=0x419f9730`).
+
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 
 The host LC harness now seeds a coherent Basilisk-style video contract instead

@@ -154,6 +154,7 @@ static unsigned post_reset_low_trap_ring_index;
 #define LC_LOWMEM_TOP_MAP_HNDL 0x00000a50u
 #define LC_LOWMEM_SYS_MAP_HNDL 0x00000a54u
 #define LC_LOWMEM_ROM_MAP_HNDL 0x00000b06u
+#define LC_LOWMEM_EXPAND_MEM 0x000002b6u
 #define LC_LOWMEM_WMGR_PORT 0x000009deu
 #define LC_LOWMEM_DESK_PORT 0x000009e2u
 #define LC_LOWMEM_SCRN_BASE 0x00000824u
@@ -883,6 +884,99 @@ static void lc_musashi_bus_maybe_repair_copied_boot3_bytes(uint32_t pc) {
         }
         return;
     }
+}
+
+static bool lc_musashi_bus_ram_range_valid(uint32_t addr, uint32_t bytes) {
+    return active_bus != NULL && active_bus->ram != NULL && bytes <= active_bus->ram_size &&
+           addr <= active_bus->ram_size - bytes;
+}
+
+static bool lc_musashi_bus_text_service_node_plausible(uint32_t ptr) {
+    if (ptr == 0u) {
+        return true;
+    }
+    // TextServices' ExpandMem list is a RAM linked list.  High-byte tagged
+    // resource/ROM pointers such as $FF408100 are not valid qLinks here and
+    // make the ROM scan loop forever through unmapped data.
+    return lc_musashi_bus_ram_range_valid(ptr, 0x24u);
+}
+
+static void lc_musashi_bus_seed_empty_text_services_list(const char *reason) {
+    if (active_bus == NULL || active_bus->ram == NULL) {
+        return;
+    }
+    uint32_t expand = lc_musashi_bus_peek_ram32(LC_LOWMEM_EXPAND_MEM);
+    if (!lc_musashi_bus_ram_range_valid(expand + 0x114u, 0x40u)) {
+        // In the current copied-boot path ExpandMem can still contain bytes from
+        // a trap-vector/ROM pointer pattern ($0D884080).  Model the small slice
+        // TextServices needs as a stable empty ExpandMem block rather than
+        // letting selector 14 chase that value as a linked-list root.
+        expand = 0x0000c000u;
+        if (!lc_musashi_bus_ram_range_valid(expand, 0x200u)) {
+            return;
+        }
+        for (uint32_t i = 0; i < 0x200u; i++) {
+            lc_musashi_bus_ram_write8(expand + i, 0u);
+        }
+        lc_musashi_bus_ram_write32(LC_LOWMEM_EXPAND_MEM, expand);
+        static unsigned expand_seed_logs = 0;
+        if (expand_seed_logs < 8u) {
+            ESP_LOGW(TAG,
+                     "LC seeded minimal ExpandMem for TextServices: reason=%s expand=0x%08" PRIx32,
+                     reason, expand);
+            expand_seed_logs++;
+        }
+    }
+    const uint32_t list_slot = expand + 0x110u;
+    uint32_t list = lc_musashi_bus_peek_ram32(list_slot);
+    bool repaired = false;
+    if (list == 0u || !lc_musashi_bus_ram_range_valid(list, 0x24u)) {
+        list = expand + 0x114u;
+        lc_musashi_bus_ram_write32(list_slot, list);
+        repaired = true;
+    }
+    const uint32_t head = lc_musashi_bus_peek_ram32(list);
+    if (!lc_musashi_bus_text_service_node_plausible(head)) {
+        lc_musashi_bus_ram_write32(list, 0u);
+        repaired = true;
+    }
+    // Keep the adjacent queue/index fields empty too; the ROM helper at
+    // $40843b5c clears these during manager init, but copied boot_3 can reach
+    // selector 14 before our synthetic manager has a coherent queue.
+    lc_musashi_bus_ram_write32(list + 30u, 0u);
+    lc_musashi_bus_ram_write32(list + 34u, 0u);
+    static unsigned ts_logs = 0;
+    if (repaired && ts_logs < 16u) {
+        ESP_LOGW(TAG,
+                 "LC seeded empty TextServices ExpandMem list: reason=%s expand=0x%08" PRIx32
+                 " list=0x%08" PRIx32 " old_head=0x%08" PRIx32,
+                 reason, expand, list, head);
+        ts_logs++;
+    }
+}
+
+static bool lc_musashi_bus_maybe_escape_text_services_scan(uint32_t pc) {
+    if (pc < 0x408426d0u || pc > 0x40842720u) {
+        return false;
+    }
+    const uint32_t a3 = m68k_get_reg(NULL, M68K_REG_A3);
+    if (lc_musashi_bus_text_service_node_plausible(a3)) {
+        return false;
+    }
+    // Selector 14 is walking the TextServices component list.  With no modeled
+    // TextServices manager the list must be empty; high-byte ROM/resource-tagged
+    // values here are stale data and otherwise loop through unmapped memory.
+    m68k_set_reg(M68K_REG_A3, 0u);
+    m68k_set_reg(M68K_REG_PC, 0x40842722u);
+    static unsigned escape_logs = 0;
+    if (escape_logs < 16u) {
+        ESP_LOGW(TAG,
+                 "LC escaped invalid TextServices selector-14 list scan: pc=0x%08" PRIx32
+                 " old_a3=0x%08" PRIx32,
+                 pc, a3);
+        escape_logs++;
+    }
+    return true;
 }
 
 static uint32_t lc_musashi_bus_video_unit_table(void) {
@@ -5620,6 +5714,13 @@ void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
     lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
+    if (current_instruction_pc >= 0x408426c4u && current_instruction_pc <= 0x40842722u) {
+        lc_musashi_bus_seed_empty_text_services_list("rom-selector14-scan");
+        if (lc_musashi_bus_maybe_escape_text_services_scan(current_instruction_pc)) {
+            previous_instruction_pc = current_instruction_pc;
+            return;
+        }
+    }
 
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
@@ -5741,6 +5842,64 @@ void cpu_instr_callback(int pc) {
                 break;
             case 0xa06eu: // _SlotManager: return -300 (smEmptySlot) in D0
                 m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-300);
+                handled = true;
+                break;
+            case 0xa1adu: { // _Gestalt(selector in D0) → A0=response, D0=OSErr
+                const uint32_t selector = m68k_get_reg(NULL, M68K_REG_D0);
+                uint32_t response = 0;
+                int16_t err = 0;
+                switch (selector) {
+                case 0x73797361u: // 'sysa' gestaltSystemArchitecture: 68K architecture
+                    response = 2u;
+                    break;
+                case 0x6d616368u: // 'mach' gestaltMachineType: Macintosh LC
+                    response = 19u;
+                    break;
+                case 0x63707574u: // 'cput' gestaltCPUType: 68020/68EC020 class
+                    response = 3u;
+                    break;
+                case 0x76657273u: // 'vers' gestaltSystemVersion
+                    response = 0x00000701u;
+                    break;
+                case 0x766d2020u: // 'vm  ' virtual memory attributes: present but off
+                case 0x68647772u: // 'hdwr' hardware attributes: no optional bits
+                case 0x73637369u: // 'scsi' SCSI Manager attributes: no optional bits
+                    response = 0u;
+                    break;
+                case 0x7067737au: // 'pgsz' page size
+                    response = 4096u;
+                    break;
+                case 0x64706c79u: // 'dply' Display Manager attributes
+                    response = 1u;
+                    break;
+                default:
+                    // Do not report optional managers as present with a stale A0;
+                    // copied boot_3 probes CFM/native/debug/OpenFirmware/Text
+                    // services and should skip them unless modeled explicitly.
+                    err = -5551; // gestaltUndefSelectorErr
+                    response = 0u;
+                    break;
+                }
+                m68k_set_reg(M68K_REG_A0, response);
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)err);
+                static unsigned gestalt_logs = 0;
+                if (gestalt_logs < 80u) {
+                    char s[5] = {
+                        (char)(selector >> 24), (char)(selector >> 16),
+                        (char)(selector >> 8), (char)selector, 0};
+                    for (int gi = 0; gi < 4; gi++) {
+                        if ((unsigned char)s[gi] < 32u || (unsigned char)s[gi] >= 127u) s[gi] = '.';
+                    }
+                    ESP_LOGI(TAG, "LC Gestalt('%s'/$%08" PRIx32 ") err=%d response=0x%08" PRIx32,
+                             s, selector, (int)err, response);
+                    gestalt_logs++;
+                }
+                handled = true;
+                break;
+            }
+            case 0xa05eu: // _NMInstall(qElemPtr in A0): no notification queue yet
+            case 0xa05fu: // _NMRemove(qElemPtr in A0)
+                m68k_set_reg(M68K_REG_D0, 0);
                 handled = true;
                 break;
             case 0xa029u: // _HLock: no-op, return noErr
@@ -6117,6 +6276,7 @@ void cpu_instr_callback(int pc) {
                     // boot_3 selector 14 passes a long pointer after a word cookie;
                     // the ROM-side dispatcher consumes the pointer while the caller
                     // cleans the remaining word plus its four-byte scratch record.
+                    lc_musashi_bus_seed_empty_text_services_list("aa54");
                     param_bytes = 4;
                     result_bytes = 0;
                     result_value = 0;
