@@ -400,13 +400,21 @@ Code Fragment Manager dispatch sequence.  CFM selector 3/5 calls deliberately
 return a non-zero result so copied boot_3 skips native thunk execution instead
 of jumping through uninitialized callback locals.
 
-Verification log: `logs/host-lc-init-cfm-skip-20260609-075542.log` with the
-same Basilisk-compatible 16MiB/HD200MB settings.  This removes the previous
-low-PC invalid-stack loop at `pc_after=0x00000003` and advances through the
-first copied boot_3 INIT/CFM helper into a later copied boot_3/video pass.  The
-new blocker is a later resource-manager/open-file path after `_HOpenResFile`,
-ending at zero RAM (`pc_after=0x00026738`, `sp_after=0x00be8f6e`), with the
-framebuffer still in host status-overlay mode.
+A follow-up corrected the resource/open-file split: `_HOpenResFile` is now
+handled on its real `A81A` trap, while `A9C9` is treated as register-based
+`_SysError` except at the three known copied-boot HOpen-shaped shim sites
+(`0x007f8416`, `0x00bf0f74`, `0x00be138e`).  This avoids broadly popping a fake
+12-byte HOpen frame from ordinary `SysError` checks, which had been corrupting
+later copied-boot stack frames.
+
+Verification logs use the same Basilisk-compatible 16MiB/HD200MB settings.
+`logs/host-lc-init-cfm-skip-20260609-075542.log` removed the previous low-PC
+invalid-stack loop at `pc_after=0x00000003` and advanced through the first copied
+boot_3 INIT/CFM helper into a later copied boot_3/video pass.  The current
+follow-up log, `logs/host-lc-a9c9-sites-20260609-080321.log`, reaches the later
+pass with site-specific A9C9 handling and stops after the copied-boot resource
+manager path at `pc_after=0x00be9a6e`, `sp_after=0x00be8f56`; this is still
+zero-filled RAM, so the framebuffer remains in host status-overlay mode.
 
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 

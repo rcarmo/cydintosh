@@ -6094,43 +6094,68 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
-                case 0x09c9u: // _SysError(err) on real traps; some copied-boot call sites use it as an HOpenResFile shim.
-                    if (trap_pc == 0x00bf9afeu &&
-                        lc_memory_bus_read16(active_bus, trap_pc - 4u) == 0x303cu) {
-                        // boot_3 reaches this via `MOVE.W #25,D0; _SysError`
-                        // when its heap-bound check dislikes the current BufPtr.
-                        // SysError is register-based here: do not pop a Pascal
-                        // HOpenResFile frame or RTS will return through locals.
-                        param_bytes = 0;
-                        result_bytes = 0;
-                        result_value = 0;
-                    } else {
-                        param_bytes = 12; // legacy copied-boot HOpenResFile shim: 2+4+4+2
+                case 0x081au: // _HOpenResFile(vRefNum:w, dirID:l, fileName:l, perm:b→w) → refNum:w
+                    param_bytes = 12; // 2+4+4+2 (byte arg is stack-word aligned on A7)
+                    result_bytes = 2;
+                    result_value = 2; // refNum=2 (System file)
+                    // Set up minimal resource-file lowmem.  The host harness keeps
+                    // System.rsrc host-side and services Resource Manager traps, so
+                    // do not point guest code at a full in-RAM resource map.
+                    if (active_bus && active_bus->ram) {
+                        uint32_t map_addr = 0;
+                        uint32_t map_offset = 0;
+                        uint32_t map_handle = 0x0004F020u;
+                        lc_musashi_bus_ram_write32(map_handle, map_addr);
+                        // TopMapHndl ($A50): handle to top resource map
+                        lc_musashi_bus_ram_write32(0x0A50u, map_handle);
+                        // SysMapHndl ($A54): handle to system resource map
+                        lc_musashi_bus_ram_write32(0x0A54u, map_handle);
+                        // SysMap ($A58): refNum of system resource file
+                        lc_musashi_bus_ram_write16(0x0A58u, 2);
+                        // CurMap ($A5A): refNum of current resource file
+                        lc_musashi_bus_ram_write16(0x0A5Au, 2);
+                        ESP_LOGI(TAG, "LC _HOpenResFile: set TopMapHndl=$%08" PRIx32
+                                 " map_addr=$%08" PRIx32 " map_offset=$%08" PRIx32,
+                                 map_handle, map_addr, map_offset);
+                    }
+                    handled = true;
+                    break;
+                case 0x09c9u: { // _SysError(err): register-based except known copied-boot HOpen shim sites
+                    const bool copied_hopen_shim = (trap_pc == 0x007f8416u ||
+                                                    trap_pc == 0x00bf0f74u ||
+                                                    trap_pc == 0x00be138eu);
+                    if (copied_hopen_shim) {
+                        // These copied boot_3 call sites use the A9C9 word with
+                        // an HOpenResFile-shaped Pascal frame.  Preserve the
+                        // historical resource-map bootstrap only at those sites;
+                        // all other A9C9 instances are real SysError checks.
+                        param_bytes = 12;
                         result_bytes = 2;
-                        result_value = 2; // refNum=2 (System file)
-                        // Set up minimal resource-file lowmem.  The host harness keeps
-                        // System.rsrc host-side and services Resource Manager traps, so
-                        // do not point guest code at a full in-RAM resource map.
+                        result_value = 2;
                         if (active_bus && active_bus->ram) {
                             uint32_t map_addr = 0;
                             uint32_t map_offset = 0;
                             uint32_t map_handle = 0x0004F020u;
                             lc_musashi_bus_ram_write32(map_handle, map_addr);
-                            // TopMapHndl ($A50): handle to top resource map
                             lc_musashi_bus_ram_write32(0x0A50u, map_handle);
-                            // SysMapHndl ($A54): handle to system resource map
                             lc_musashi_bus_ram_write32(0x0A54u, map_handle);
-                            // SysMap ($A58): refNum of system resource file
                             lc_musashi_bus_ram_write16(0x0A58u, 2);
-                            // CurMap ($A5A): refNum of current resource file
                             lc_musashi_bus_ram_write16(0x0A5Au, 2);
-                            ESP_LOGI(TAG, "LC _HOpenResFile: set TopMapHndl=$%08" PRIx32
+                            ESP_LOGI(TAG, "LC A9C9 HOpenResFile shim: set TopMapHndl=$%08" PRIx32
                                      " map_addr=$%08" PRIx32 " map_offset=$%08" PRIx32,
                                      map_handle, map_addr, map_offset);
                         }
+                    } else {
+                        // Treat startup SysError as a logged no-op.  The copied boot_3
+                        // code frequently reaches this on optional checks; popping a
+                        // fake HOpenResFile frame here corrupts the caller stack.
+                        param_bytes = 0;
+                        result_bytes = 0;
+                        result_value = 0;
                     }
                     handled = true;
                     break;
+                }
                 case 0x09a0u: // _GetResource(theType:l, theID:w) → Handle:l
                 case 0x081fu: // _Get1Resource(theType:l, theID:w) → Handle:l
                 case 0x080cu: { // _RGetResource(theType:l, theID:w) → Handle:l
