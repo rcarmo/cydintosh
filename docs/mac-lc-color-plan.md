@@ -143,6 +143,58 @@ temporary diagnostics to be retired behind coherent subsystems.
 
 ## Current branch status
 
+## 2026-06-10 BasiliskII oracle + early-boot patch parity
+
+Goal reframed: *port BasiliskII to the ESP32, simplified for the LC.* Stood up
+the reference BasiliskII (already built at `projects/macemu/BasiliskII/src/Unix/
+BasiliskII`, aarch64) as a **live boot oracle** using our exact ROM + disk:
+
+- Prefs `/tmp/b2-oracle-prefs`: `rom vendor/mac-lc.rom`, `disk HD200MB`,
+  `ramsize 8388608`, `modelid 14`, headless via `SDL_VIDEODRIVER=dummy`.
+- Trace env: `B2_ROM_HARNESS`, `B2_TRACE_BOOT_STAGE`, `B2_TRACE_EMULOPFLOW`.
+
+Key findings (decisive):
+
+- The reference BasiliskII **boots our exact ROM+disk to the OS** and **never**
+  visits ROM offset `0x42xxx`/`0x41xxx`. Our long-standing stuck frontier
+  `0x4084271c` (TextServices/Component walk) is a **dead path** the real boot
+  never executes — chasing it was wasted effort.
+- Real native-call boot recipe: RESET -> CLKNOMEM -> PATCH_BOOT_GLOBS ->
+  SPECIALTIES -> IRQ -> SCSI_DISPATCH -> CHECKLOAD -> DISK_PRIME -> System.
+- Our boot skipped CLKNOMEM entirely and diverged into high-ROM hardware-
+  detection paths because of **three early-boot patch gaps** vs `patch_rom_32`.
+
+Fixes landed (all mirror BasiliskII `rom_patches.cpp` exactly):
+
+1. **GetHardwareInfo / VIA-init skip** — NOP ROM `0xc2` (2 words) + `0xc6`
+   (15 words). Without it, the threaded-init `jmp 0x2f18` at `0xc2` walks into
+   the machine-id / hardware-detection dispatch the emulator can't satisfy.
+2. **ClkNoMem signature fallback** — `find_rom_trap(0xa053)` returns the
+   `jmp (a5)` thunk on ROM32; locate the real routine by signature
+   `{40 c2 00 7c 07 00 48 42}` in `0xb0000..0xb8000` before patching.
+3. **`find_rom_trap` signed-offset bug** — branch-table offsets are *signed*
+   `int16` (`((b<<8)|next)<<1`). Our port added them as unsigned, so any offset
+   with the top bit set resolved the wrong direction. This mis-resolved
+   `_ClkNoMem` to `0x4b1e4` instead of `0xb1e4` (and corrupted every trap
+   patched this way). Fixed to signed accumulation.
+
+Result: boot now follows the oracle rail RESET -> CLKNOMEM (fires 79x, was 0) and
+proceeds much further before the next divergence. Verified over 50M and 500M
+Basilisk-compat runs: `HOST_LC_OK`, illegal=0, unknown=0, getpic0=0,
+stopped_on_zero_ram/monitor/zero_rom=0, VRAM writes=4 preserved.
+Patch match improved patterns_found 18->19, missing 14->13.
+
+**Next divergence (open):** after CLKNOMEM, boot reaches `0xb27c` -> `0x15274`
+-> `0x41xxx` (post-reset memory-layout), which the oracle avoids. Continue
+porting the remaining `patch_rom_32` early-init patches (SPECIALTIES path,
+remaining hardware-skip / memory-layout patches) using the oracle diff.
+
+Methodology to reuse: run the oracle, diff its BOOT_STAGE/EMULOPFLOW + PC visits
+against our `BOOTTRACE`, fix at the *earliest* divergence rather than at the
+final stuck PC. The `lc_basilisk` `LC patch MISS ...` log lines surface every
+unmatched `patch_rom_32` signature on our ROM.
+
+
 Completed setup:
 
 - Worktree: `/workspace/projects/cydintosh-lc-color`

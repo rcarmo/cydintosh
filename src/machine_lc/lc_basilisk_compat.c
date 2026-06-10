@@ -61,6 +61,11 @@ static uint32_t find_data(const uint8_t *rom, size_t rom_size, uint32_t start,
         }
     }
     if (summary != NULL) summary->patch_patterns_missing++;
+    ESP_LOGW(TAG, "LC patch MISS find_data range=[0x%05" PRIx32 ",0x%05" PRIx32 "] len=%u bytes=%02x%02x%02x%02x%02x%02x",
+             start, end, (unsigned)data_len,
+             data_len > 0 ? data[0] : 0, data_len > 1 ? data[1] : 0,
+             data_len > 2 ? data[2] : 0, data_len > 3 ? data[3] : 0,
+             data_len > 4 ? data[4] : 0, data_len > 5 ? data[5] : 0);
     return 0;
 }
 
@@ -121,23 +126,27 @@ static uint32_t find_rom_trap(const uint8_t *rom, size_t rom_size, uint16_t trap
                 ofs = be32_at(bp);
                 bp += 4;
             } else if (b & 0x80u) {
-                const uint16_t add = (uint16_t)((b & 0x7fu) << 1u);
-                if (add == 0u) {
+                const int16_t add = (int16_t)((b & 0x7fu) << 1u);
+                if (add == 0) {
                     if (summary != NULL) summary->patch_patterns_missing++;
                     return 0;
                 }
-                ofs += add;
+                ofs = (uint32_t)(ofs + (uint32_t)(int32_t)add);
             } else {
                 if (bp >= end) {
                     if (summary != NULL) summary->patch_patterns_missing++;
                     return 0;
                 }
-                const uint16_t add = (uint16_t)(((uint16_t)b << 9u) | ((uint16_t)*bp++ << 1u));
-                if (add == 0u) {
+                // Branch-table offsets are signed (BasiliskII find_rom_trap):
+                // ((b << 8) | next) << 1 interpreted as int16, so high-bit
+                // offsets subtract.  Treating them as unsigned mis-resolves
+                // every trap whose cumulative offset has the top bit set.
+                const int16_t add = (int16_t)((((uint16_t)b << 8u) | (uint16_t)*bp++) << 1u);
+                if (add == 0) {
                     if (summary != NULL) summary->patch_patterns_missing++;
                     return 0;
                 }
-                ofs += add;
+                ofs = (uint32_t)(ofs + (uint32_t)(int32_t)add);
             }
             if (rom_trap == trap) {
                 if (!unimplemented && ofs < rom_size) {
@@ -145,6 +154,7 @@ static uint32_t find_rom_trap(const uint8_t *rom, size_t rom_size, uint16_t trap
                     return ofs;
                 }
                 if (summary != NULL) summary->patch_patterns_missing++;
+                ESP_LOGW(TAG, "LC patch MISS find_rom_trap=0x%04x (unimplemented/oob ofs=0x%05" PRIx32 ")", trap, ofs);
                 return 0;
             }
             rom_trap++;
@@ -152,6 +162,7 @@ static uint32_t find_rom_trap(const uint8_t *rom, size_t rom_size, uint16_t trap
         rom_trap = 0xa000u;
     }
     if (summary != NULL) summary->patch_patterns_missing++;
+    ESP_LOGW(TAG, "LC patch MISS find_rom_trap=0x%04x (not in table)", trap);
     return 0;
 }
 
@@ -401,6 +412,16 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
     // init that triggers uninitialized high-trap recursion.  Basilisk's
     // EMUL_OP_RESET already sets up all required low-memory state.
     patch_abs_jump(rom, rom_size, 0x008eu, LC_BASILISK_ROM_BASE_32 + 0x00bau, summary);
+    // Skip GetHardwareInfo + VIA init (ROM offset 0xc2..0xe3), exactly as
+    // BasiliskII patch_rom_32 does.  Without this, the threaded-code init at
+    // 0xc2 (jmp 0x2f18 = machine-id/hardware dispatch) walks into high-ROM
+    // hardware-detection paths the emulator never satisfies, diverging from the
+    // real boot rail (RESET -> CLKNOMEM -> PATCH_BOOT_GLOBS -> System).
+    // 0xc2: NOP NOP (Don't GetHardwareInfo).  0xc6: 15x NOP (Don't init VIAs).
+    if (0x00e4u <= rom_size && rom[0x00c2u] == 0x4eu && rom[0x00c3u] == 0xfau) {
+        patch_nops(rom, rom_size, 0x00c2u, 2u, summary);   // GetHardwareInfo jmp (2 words)
+        patch_nops(rom, rom_size, 0x00c6u, 15u, summary);  // VIA-init block (15 words)
+    }
     // Basilisk runs ROM init with targeted hardware-loop patches instead of
     // skipping all init.  Do not jump $BA->$1142 here; let ROM init run so it
     // can establish A5/BootGlobs/low-memory invariants.  Port missing Basilisk
@@ -460,6 +481,20 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
 
     base = find_rom_trap(rom, rom_size, 0xa053u, summary);
     if (base != 0u) {
+        // find_rom_trap returns the trap-table thunk.  On ROM23/26/27/32 that
+        // thunk is just `jmp (a5)` (0x4ed5); the real ClkNoMem routine lives in
+        // the 0xb0000..0xb8000 region and must be located by signature, exactly
+        // as BasiliskII patch_rom_32 does.  Without this the native CLKNOMEM
+        // EMUL_OP never replaces the routine, the real RTC/VIA clock code runs,
+        // and boot later diverges into high-ROM memory-layout paths.
+        if (base + 1u < rom_size && rom[base] == 0x4eu && rom[base + 1u] == 0xd5u) {
+            static const uint8_t clk_no_mem_dat[] = {0x40, 0xc2, 0x00, 0x7c,
+                                                     0x07, 0x00, 0x48, 0x42};
+            uint32_t real = find_data(rom, rom_size, 0xb0000u, 0xb8000u,
+                                      clk_no_mem_dat, sizeof(clk_no_mem_dat),
+                                      summary);
+            if (real != 0u) base = real;
+        }
         put16(rom, rom_size, base + 0u, LC_B2_EMUL_OP_CLKNOMEM, summary);
         put16(rom, rom_size, base + 2u, 0x4ed5u, summary); // jmp (a5)
     }
