@@ -469,6 +469,20 @@ The 500M run remains a blocker for desktop because it loops near
 illegal-instruction callbacks, but the previous low-stack failure is gone
 (`sp_after=0x00be8f8e`).
 
+The next stack/scratch relocation slice traced the apparent dynamic code at
+`0x00be8f50..0x00be8f60` to copied boot_3 local stack frames being built inside
+the same heap range as the second copied boot_3 image.  Rather than repairing the
+bytes or forcing the later zeroing loop, the host now models Basilisk's boot_3
+stack relocation contract for that second copy: when execution is inside
+`0x00be8934..0x00bf03f0` and SP still points inside the same copied-code range,
+SP is lifted just above the copied image before local frames overwrite helper
+code.  Verification logs `logs/host-lc-stacklift-50m-20260610-154108.log` and
+`logs/host-lc-stacklift-500m-20260610-154235.log` both report `HOST_LC_OK`, zero
+unknown Toolbox traps, zero illegal-instruction callbacks, `GetPicture(0)=0`,
+and the first guest VRAM writes (`writes=4`, first PC `0x40840a34`).  Desktop is
+still not reached; the new stable frontier is the ROM TextServices/component list
+walk near `0x4084271c`, with the framebuffer still in status-overlay mode.
+
 ## 2026-06-09 copied boot_3 video/GDevice contract progress
 
 The host LC harness now seeds a coherent Basilisk-style video contract instead

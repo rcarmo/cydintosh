@@ -5621,6 +5621,25 @@ void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
     lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
+    if (current_instruction_pc >= 0x00be8934u && current_instruction_pc < 0x00bf03f0u) {
+        const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+        if (sp >= 0x00be8934u && sp < 0x00bf03f0u) {
+            // copied boot_3 is executing from a heap copy while using the same
+            // range as its stack/scratch area.  Basilisk patches boot_3's stack
+            // computation; model the same contract narrowly for the second copy
+            // by moving the stack above the copied code before local frames are
+            // built over executable helper bytes.
+            m68k_set_reg(M68K_REG_SP, 0x00bf8b70u);
+            static unsigned lift_logs = 0;
+            if (lift_logs < 16u) {
+                ESP_LOGW(TAG,
+                         "LC lifted copied boot_3 stack out of code range: pc=0x%08" PRIx32
+                         " old_sp=0x%08" PRIx32 " new_sp=0x00bf8b70",
+                         current_instruction_pc, sp);
+                lift_logs++;
+            }
+        }
+    }
     // In Basilisk-compatible mode, intercept A-line trap dispatcher entry.
     if (lc_musashi_bus_basilisk_slot_rom_active()) {
         if (active_bus != NULL && active_bus->ram != NULL &&
