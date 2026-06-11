@@ -838,6 +838,26 @@ concrete investigation is to trace the oracle's caller chain into `0x9a9a` /
 that same caller, rather than the scaffolded shortcut. This is a substantial
 restructure; the fixture baseline (50M green, VRAM=4) remains the fallback.
 
+#### Localized: InitOS lives at 0x999e-0x9a90, adjacent to the intercepted dispatcher
+
+Tracing the oracle's trap-builder showed the InitOS/trap-table-build code lives
+at ROM `0x999e..0x9a90` (entered with `A0=0x9332`, `D0=0x80b520`), immediately
+**adjacent to the A-line dispatcher at `0x99b0`** that our faithful path
+intercepts wholesale in `cpu_instr_callback`. The oracle executes this whole
+region during InitOS (building the dispatch table); our boot never reaches it.
+
+This sharpens the restructure scope into two coupled requirements:
+1. **Reach InitOS**: our boot must traverse the ROM startup that calls the
+   `0x999e` InitOS routine (the scaffolded entry jumps past it). Find the caller
+   of `0x999e` in the oracle and ensure our faithful boot follows the same path.
+2. **Stop intercepting `0x99b0`**: the wholesale A-line interception sits on top
+   of the dispatcher that InitOS builds/uses; with InitOS running it must be
+   removed (let the ROM dispatcher run against the ROM-built table), keeping
+   only the EMUL_OP driver/hardware hooks.
+Both are gated behind `LC_FAITHFUL_DISK_BOOT`; the fixture baseline stays green.
+This is the concrete entry point for the boot-flow restructure.
+
+
 
 
 
