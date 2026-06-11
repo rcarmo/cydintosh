@@ -903,6 +903,32 @@ the ROM's hardware-diagnostic phase (3.2x more cycles); the remaining work is
 the hardware-probe contract for the `0x50f00000`/`0x50f14000` (VIA/RBV) devices
 that the post-InitOS scan reads. Fixture baseline stays green (50M, VRAM=4).
 
+#### The monitor is reached via a NuBus/slot scanner (0x4988e) the oracle avoids
+
+Traced the monitor entry: the boot reaches `0x4988e` — a NuBus/slot scanner whose
+entry is `lea -256(sp),sp` (`4fef ff00`), the *same signature* as BasiliskII's
+`0xb9874` scanner.  It is reached unconditionally as the last step of a
+device-record dispatch chain (`0x2450 -> 0x2488 -> 0x24fe -> 0x246e -> jmp
+0x4988e`); the scanner probes absent slot hardware and ends at the monitor poll.
+The **oracle never executes `0x4988e`/`0x49fca`/`0x4a02a`** — so our boot takes a
+divergent device/slot path the reference avoids; the divergence is *upstream* of
+the `0x2450` chain.
+
+Tried BasiliskII's scanner-skip (patch `0x4988e` entry with `JMP(A6)`): it is
+**wrong here** — `0x4988e` is the *end* of a dispatch chain (jumped to, not
+called), so `A6` is not a valid return; the skip mis-returns into a mid-`bsr`
+byte at `0x108` (illegal opcode `0x00ff`) and lands in empty staging.  Reverted.
+Without the skip the boot stops *cleanly* at the monitor (no illegal), which is
+the better state.
+
+So the right fix is NOT to skip the scanner but to address why our boot enters
+the `0x2450` device-record chain at all (the oracle doesn't) — or to give the
+scanner a graceful “no slots present” hardware contract so it completes and falls
+through to StartBoot instead of the monitor. Next: trace the caller of the
+`0x2450` chain and diff against the oracle to find the upstream device/slot
+decision that diverges.
+
+
 
 
 
