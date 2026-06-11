@@ -928,6 +928,37 @@ through to StartBoot instead of the monitor. Next: trace the caller of the
 `0x2450` chain and diff against the oracle to find the upstream device/slot
 decision that diverges.
 
+#### Divergence localized to the Slot Manager scan (0x235e / 0xa06e)
+
+Traced the jmp-to-scanner: `0x246e` is reached from `0x238a`, which is the exit
+of a **Slot Manager scan loop** at `0x235e-0x238a`:
+```
+2360: ori.b  #6,(0x6e,a2,a2.w)     ; slot flags
+2366: bne    0x2384                ; -> 0x238a -> 0x246e -> scanner 0x4988e
+2368: move.b #1,a0@(50)
+236e: moveq  #5,d0
+2370: A06E                          ; _SlotManager
+2372: movea.l a0@,a1
+2374: cmpi.w #1,a1@(32)             ; slot record check
+237a: beq    0x238e                ; slot OK -> continue
+237c: addq.w #1,d3 ; ... ; bra 0x235e   ; next slot
+```
+So the boot enumerates slots via `_SlotManager` (`0xa06e`) and, depending on the
+slot records, either continues (`a1@(32)==1`) or falls through to the scanner ->
+monitor.  Our `0xa06e` handler / slot-ROM records drive it down the scanner
+path; the oracle's slot enumeration keeps it on the boot rail (it never reaches
+`0x4988e`).
+
+We DO install a minimal slot ROM (“Basilisk minimal Slot ROM ... frame=0xa0000000
+512x384”) and seed a real `_SlotManager` handler (`0xa06e -> 0x6e16`) at RESET.
+The contract between that handler / slot-ROM record format and what this scan
+loop expects (`a1@(32)==1`, the `0x6e` slot flags) is the next thing to get
+right — so the LC's built-in video slot enumerates cleanly and the scan falls
+through to StartBoot instead of the NuBus scanner.  Next: trace the `0xa06e`
+results and `a1`/`a0@(50)` slot records here vs the oracle, and align the slot
+record the LC built-in-video slot should present.
+
+
 
 
 
