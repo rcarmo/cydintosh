@@ -555,6 +555,29 @@ stuck in the `0x142fc` traversal loop instead. Next: trace the `0x142fc` loop
 (which queue/list it walks and why it doesn't terminate) to continue toward the
 actual volume mount.
 
+#### 0x142fc loop walks a list whose head is NULL (a3=0)
+
+Traced the `0x142fc` loop (a circular list walk: `a4=a3` head, `a4=[a4]` until
+`a4==a3`, matching `+8==a2` / `+18==d2`, flags at `+26`). It is invoked from the
+MountVol chain (return address `0xf042`). The list head **`a3 = 0`**, so the
+walk dereferences `[0]=0x10 -> [0x10]=0x7f2 -> garbage -> 0xffffffff` and never
+returns to the head — an infinite walk over low memory / reset-vector bytes
+(`a2=0x001001b8`, `d2=2` are the search keys). The head should be a valid
+FS/HFS structure pointer; it is null because that structure (a queue/control
+block the File Manager expects MountVol to have populated) isn't initialized,
+which ultimately traces back to the volume header still not being read.
+
+So MountVol now gets much deeper into the real File Manager (full real OS trap
+table in place) but still hasn't issued the volume-header read; it dereferences
+a not-yet-initialized list head and loops. Next: identify which list head this
+is (which low-memory global / control-block field `a3` is loaded from in the
+caller) and why MountVol reaches this search before reading/parsing the volume —
+then close the gap so the volume-header read happens and the structure is real.
+This remains the same multi-step ROM File Manager bring-up; the boot is now
+executing real FM code rather than scaffolding, but reaching an actual mounted
+volume requires the read+VCB+catalog chain to complete.
+
+
 
 
 
