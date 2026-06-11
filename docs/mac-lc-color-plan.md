@@ -577,6 +577,35 @@ This remains the same multi-step ROM File Manager bring-up; the boot is now
 executing real FM code rather than scaffolding, but reaching an actual mounted
 volume requires the read+VCB+catalog chain to complete.
 
+#### Deepest progress yet: a VCB is allocated; FCB array (FCBSPtr) is null
+
+The `0x142fc` loop's list head `a3` is loaded from **FCBSPtr (`$034E`)** (via
+`movea.l $034e,a1; ... a3=a1`) — the File Control Block array pointer. Dumping
+the FS globals when the loop is reached:
+
+```
+FCBSPtr  ($034E) = 0x00000000   <- FCB array NOT allocated (null head -> loop)
+DefVCBPtr($0352) = 0x001001b8   <- a real VCB WAS allocated by MountVol!
+VCBQHead ($0358) = 0x00000010   <- new VCB not linked into the VCB queue
+SysZone  ($02A6) = 0x00380000
+TheZone  ($0118) = 0x00380000
+```
+
+This is the deepest real-File-Manager progress so far: **MountVol allocated a
+VCB at `0x001001b8`** (via the real Memory Manager) and set `DefVCBPtr`. The
+remaining gaps: (1) the **FCB array** was never allocated, so `FCBSPtr=0` and
+the FCB search at `0x142fc` walks a null head and loops; (2) the new VCB is not
+linked into the VCB queue (`$0358` should be `0x001001b8`, not `0x10`).
+
+FCBSPtr is normally set during InitFS/early startup by allocating the FCB array
+in the system heap (its first word is the array length). Our boot runs the real
+InitFS but the FCB-array allocation didn't happen / didn't store `$034E`. Next:
+ensure the FCB array is allocated and `FCBSPtr` set (and the VCB linked into
+`$0358`) so the FCB search terminates and MountVol proceeds to read the volume
+catalog. The Memory Manager works (the VCB alloc succeeded), so this is about
+running the specific InitFS/startup step that builds the FCB array.
+
+
 
 
 
