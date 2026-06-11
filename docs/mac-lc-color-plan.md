@@ -530,6 +530,32 @@ Macintosh DV-05 "Drive Queue Elements" and BasiliskII's AddDrive call:
 DQE/refNum, MountVol issues `_Read` (our `$A002 -> DISK_PRIME`) for the volume
 header and can build the VCB.
 
+#### Root fix: seed the FULL OS trap table with real ROM handlers
+
+The nsDrvErr turned out to be one instance of a systemic problem: the File
+Manager reaches many internal routines through **patchable OS-trap-slot
+vectors** (e.g. `0xfc6c` does `move.l $6c8,-(sp); rts`, where `$6c8` is OS trap
+slot `0xb2` = the drive-queue lookup at `0xfc72`). Our scaffolding seeded the
+whole OS trap table ($0400-$07FF) with the no-op handler `0x40800d88`, clobbering
+every one of these vectors, so the FM broke as soon as it tried to use one.
+
+Fix (gated): at RESET under `LC_FAITHFUL_DISK_BOOT`, resolve the real ROM handler
+for every OS trap via the ROM trap dispatch table (exposed
+`lc_basilisk_find_rom_trap`, using the corrected signed branch-table walk) and
+seed it — traps 0x00-0x7f through the `$0400-$0600` override window, 0x80-0xff by
+direct RAM write to `$0600-$07FF`. Unimplemented traps keep the no-op.
+
+Result: the faithful boot no longer crashes in the empty boot-2 staging area.
+It now runs **real ROM code cleanly for the full 50M cycles** (illegal=0,
+unknown=0, zero-ram=0, getpic0=0), reaching a list/queue-traversal loop at ROM
+`0x142fc` (`cmpa.l a4@(8),a2; cmpl a4@(18),d2` walking a linked structure).
+Default baseline unchanged (50M green, VRAM=4). Disk activity is still just the
+boot-block reads, so MountVol still hasn't read the volume header — it is now
+stuck in the `0x142fc` traversal loop instead. Next: trace the `0x142fc` loop
+(which queue/list it walks and why it doesn't terminate) to continue toward the
+actual volume mount.
+
+
 
 
 

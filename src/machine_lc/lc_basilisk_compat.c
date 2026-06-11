@@ -857,3 +857,11 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
              summary->patch_patterns_found, summary->patch_patterns_missing);
     return ESP_OK;
 }
+
+// Public wrapper: resolve the ROM handler offset for an A-trap via the ROM's
+// trap dispatch table (signed branch-table offsets).  Returns 0 if the trap is
+// unimplemented or out of range.  Used by the faithful-disk-boot path to seed
+// the OS trap table with real ROM handlers instead of the no-op scaffold.
+uint32_t lc_basilisk_find_rom_trap(const uint8_t *rom, size_t rom_size, uint16_t trap) {
+    return find_rom_trap(rom, rom_size, trap, NULL);
+}

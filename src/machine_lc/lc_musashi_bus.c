@@ -1804,33 +1804,32 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             // through [$0400 + (trap&0xff)*4]) runs the real InitFS/MountVol etc.
             // instead of our no-op.  Lets boot 1 actually mount the HFS volume.
             if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
-                // Route boot 1's File Manager + Memory Manager OS traps to the
-                // real ROM handlers via the override table that the OS trap-table
-                // read path ($0400-$0600) actually honors.  Raw RAM writes here
-                // are ignored because that region is a dynamic read.
-                lc_memory_set_post_reset_atrap_handler(0xa06cu, LC_BASILISK_ROM_BASE_32 + 0x0f368u); // InitFS
-                lc_memory_set_post_reset_atrap_handler(0xa00fu, LC_BASILISK_ROM_BASE_32 + 0x0f60eu); // MountVol
-                lc_memory_set_post_reset_atrap_handler(0xa00eu, LC_BASILISK_ROM_BASE_32 + 0x0fe18u); // UnmountVol
-                lc_memory_set_post_reset_atrap_handler(0xa06du, LC_BASILISK_ROM_BASE_32 + 0x022e0u); // InitEvents
-                lc_memory_set_post_reset_atrap_handler(0xa019u, LC_BASILISK_ROM_BASE_32 + 0x0cf08u); // InitZone
-                lc_memory_set_post_reset_atrap_handler(0xa02cu, LC_BASILISK_ROM_BASE_32 + 0x0cd52u); // InitApplZone
-                lc_memory_set_post_reset_atrap_handler(0xa063u, LC_BASILISK_ROM_BASE_32 + 0x0d2dcu); // MaxApplZone
-                lc_memory_set_post_reset_atrap_handler(0xa01eu, LC_BASILISK_ROM_BASE_32 + 0x0d360u); // NewPtr
-                lc_memory_set_post_reset_atrap_handler(0xa01fu, LC_BASILISK_ROM_BASE_32 + 0x0d3a0u); // DisposPtr
-                lc_memory_set_post_reset_atrap_handler(0xa022u, LC_BASILISK_ROM_BASE_32 + 0x0d448u); // NewHandle
-                lc_memory_set_post_reset_atrap_handler(0xa023u, LC_BASILISK_ROM_BASE_32 + 0x0d484u); // DisposHandle
-                lc_memory_set_post_reset_atrap_handler(0xa024u, LC_BASILISK_ROM_BASE_32 + 0x0d4d0u); // SetPtrSize
-                lc_memory_set_post_reset_atrap_handler(0xa025u, LC_BASILISK_ROM_BASE_32 + 0x0d4b4u); // SetHandleSize
-                lc_memory_set_post_reset_atrap_handler(0xa029u, LC_BASILISK_ROM_BASE_32 + 0x0d628u); // HLock
-                lc_memory_set_post_reset_atrap_handler(0xa02au, LC_BASILISK_ROM_BASE_32 + 0x0d64eu); // HUnlock
-                lc_memory_set_post_reset_atrap_handler(0xa01cu, LC_BASILISK_ROM_BASE_32 + 0x0d174u); // FreeMem
-                lc_memory_set_post_reset_atrap_handler(0xa040u, LC_BASILISK_ROM_BASE_32 + 0x0d18au); // ResrvMem
-                lc_memory_set_post_reset_atrap_handler(0xa04cu, LC_BASILISK_ROM_BASE_32 + 0x0d0a8u); // CompactMem
-                // ToExtFS ($03E2): external file-system hook. Must be 0 (no
-                // external FS) or the real MountVol worker at 0xef94 jsr's
-                // through it into garbage.  Also clear FSQueueHook ($03E2
-                // neighbours) defensively.
-                lc_musashi_bus_ram_write32(0x000003e2u, 0u); // ToExtFS = none
+                // Seed the ENTIRE OS trap table with the real ROM handlers
+                // (resolved from the ROM trap dispatch table) instead of the
+                // no-op scaffold.  The File Manager uses many OS trap slots as
+                // internal patchable-routine vectors (e.g. trap 0xb2 = the
+                // drive-queue lookup reached via `move.l $6c8,-(sp); rts`);
+                // seeding only a few leaves the rest clobbered and the FM breaks.
+                // Traps 0x00-0x7f live in the dynamic override window
+                // ($0400-$0600); 0x80-0xff are RAM-backed ($0600-$0800).
+                // Unimplemented traps keep the no-op default.
+                for (uint16_t t = 0x00u; t <= 0xffu; t++) {
+                    const uint32_t h = lc_basilisk_find_rom_trap(active_bus->rom,
+                                                                 active_bus->rom_size,
+                                                                 (uint16_t)(0xa000u | t));
+                    if (h == 0u || h >= active_bus->rom_size) {
+                        continue; // unimplemented -> leave no-op handler
+                    }
+                    const uint32_t handler = LC_BASILISK_ROM_BASE_32 + h;
+                    if (t < 0x80u) {
+                        lc_memory_set_post_reset_atrap_handler((uint16_t)(0xa000u | t), handler);
+                    } else {
+                        lc_musashi_bus_ram_write32(0x00000400u + (uint32_t)t * 4u, handler);
+                    }
+                }
+                // ToExtFS ($03E2): external file-system hook must be 0 (no
+                // external FS) or the MountVol worker jsr's through garbage.
+                lc_musashi_bus_ram_write32(0x000003e2u, 0u);
             }
 
             m68k_set_reg(M68K_REG_A6, boot_globs);

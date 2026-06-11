@@ -67,6 +67,7 @@ typedef struct {
 
 uint16_t lc_basilisk_rom_version(const uint8_t *rom, size_t rom_size);
 uint32_t lc_basilisk_find_universal_info(const uint8_t *rom, size_t rom_size);
+uint32_t lc_basilisk_find_rom_trap(const uint8_t *rom, size_t rom_size, uint16_t trap);
 esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
                                           lc_basilisk_patch_summary_t *summary);
 esp_err_t lc_basilisk_install_minimal_slot_rom(uint8_t *rom, size_t rom_size,
