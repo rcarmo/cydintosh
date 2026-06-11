@@ -321,6 +321,43 @@ walker entry (icnt ~37761). Next: forward-diff that window to find where `a3`/
 `fp` first go bogus (likely a Toolbox/Component/queue call reached with an
 uninitialized handle), and model that contract the BasiliskII way.
 
+#### ROOT CAUSE: harness boot-fixture scaffolding vs BasiliskII disk boot
+
+Forward-diffing the corruption window pinned the root cause. Tracing entry into
+the `0x840xxx` component routine (icnt ~37600) and the `0x42xxx` walker
+(icnt ~37761) shows both are reached from the **copied boot_3 image** at
+`0x00bexxxx` with `a3=0x0004ff08` (the boot_3 handle), `a1=0xf3381aec` /
+`a0=0xf3374aec` (bogus component-table pointers). Crucially, the reference
+BasiliskII **never visits `0x840xxx` or `0x842xxx`** (0 hits across 60k traced
+ROM instructions).
+
+The chain `copied boot_3 (0x00bexxxx) -> component/TextServices (0x840xxx) ->
+queue walker (0x426c4) -> 0x4084271c` originates entirely from the harness's
+**injected `boot_3.bin` fixture**. `host_load_boot_resources()` in
+`tools/host_lc_harness/host_esp_stubs.c` loads static `fixtures/boot_2.bin`
+(648B @ handle 0x4ff00) and `fixtures/boot_3.bin` (31420B @ handle 0x4ff08) into
+guest RAM, and serves System resources from a host-side fork on demand. That
+`boot_3` code resource runs Component Manager / TextServices logic that
+dead-ends because the surrounding System environment is faked, not the real
+HFS-resident System.
+
+BasiliskII does NOT do this: it lets the ROM read the real boot blocks / System
+file from the HFS volume on the disk image via the patched `.Sony`/`.Disk`
+driver (DISK_PRIME, which we already have), and the real System + Process
+Manager take over in low RAM (oracle PCs `0x0003xxxx`/`0x0007xxxx`). That is why
+the oracle never touches the `0x840xxx`/`0x842xxx` component dead path.
+
+**Architectural pivot for the next phase (faithful BasiliskII boot):** retire
+the `boot_2.bin`/`boot_3.bin` fixture injection and the on-demand host-side
+resource arena; instead drive the ROM's normal HFS boot — read boot blocks from
+the HD200MB volume via the disk driver, let the ROM load `boot 1/2/3` and the
+System file from the volume, and run the real System. The early-init port work
+landed this session (find_rom_trap, GetHardwareInfo/VIA skip, ClkNoMem+XPRAM,
+PatchHWBases, bank table) is exactly what gets the ROM to the point where it
+can do that disk boot coherently. This is the single highest-leverage next
+step and directly serves “port BasiliskII, simplified for the LC.”
+
+
 
 ### RAM-sizing probe traced to ROM 0x800a70 + 0x800aa0 (V8 bank aliasing)
 
