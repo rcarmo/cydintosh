@@ -605,6 +605,30 @@ ensure the FCB array is allocated and `FCBSPtr` set (and the VCB linked into
 catalog. The Memory Manager works (the VCB alloc succeeded), so this is about
 running the specific InitFS/startup step that builds the FCB array.
 
+#### FCB array now allocated (FSFCBLen guard) — boot 1 reaches the boot-2 handoff
+
+InitFS (`0xf368`) DOES allocate the FCB array (`NewPtr` at `0xf39c`, then
+`move.l a0,$034e`), but only when **`$03F6` (FSFCBLen) is negative**:
+`tst.w $3f6; bpl 0xf44e` skips the whole allocation when `$3F6 >= 0`. Our zeroed
+RAM left `$3F6 = 0`, so InitFS skipped the FCB allocation and `FCBSPtr` stayed
+null (causing the `0x142fc` loop). Seeding `$03F6 = 0xFFFF` (-1) under the gate
+before boot makes the first InitFS build the FCB array and set `FCBSPtr`.
+
+Result: boot 1 no longer loops in the FCB search — it completes its FS init
+(FCB array allocated, VCB created) and jumps to the boot-2 staging area
+(`0x9000d4`). Default baseline unchanged (50M green, VRAM=4).
+
+New frontier: the boot-2 staging area is still empty (`stopped_on_zero_ram`),
+because MountVol creates the VCB but **still doesn't read the volume header**
+(block 2 / the HFS MDB) — disk activity is still only the sector-0 boot-block
+reads. So boot 1 finishes FS init and tries to run boot 2, but the System file
+was never loaded (the VCB has no real catalog/extent info from disk). Next:
+find why MountVol creates the VCB without issuing the block-2 read (does it
+build a default VCB and return, or bail before the read?), and make the volume
+MDB read happen so the VCB is populated and boot 1 can open the System file and
+load the real boot 2.
+
+
 
 
 

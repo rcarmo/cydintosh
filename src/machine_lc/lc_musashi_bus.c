@@ -1830,6 +1830,12 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                 // ToExtFS ($03E2): external file-system hook must be 0 (no
                 // external FS) or the MountVol worker jsr's through garbage.
                 lc_musashi_bus_ram_write32(0x000003e2u, 0u);
+                // FSFCBLen ($03F6): InitFS (0xf368) only allocates the FCB array
+                // and sets FCBSPtr ($034E) when $3F6 is negative (tst.w; bpl
+                // skips when >=0).  Zeroed RAM leaves $3F6=0, so InitFS skips the
+                // allocation and the FCB search loops on a null FCBSPtr.  Force
+                // it negative so the first InitFS builds the FCB array.
+                lc_musashi_bus_ram_write16(0x000003f6u, 0xffffu);
             }
 
             m68k_set_reg(M68K_REG_A6, boot_globs);
