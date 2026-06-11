@@ -1797,10 +1797,28 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             // through [$0400 + (trap&0xff)*4]) runs the real InitFS/MountVol etc.
             // instead of our no-op.  Lets boot 1 actually mount the HFS volume.
             if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
-                lc_musashi_bus_ram_write32(0x00000400u + 0x6cu * 4u, LC_BASILISK_ROM_BASE_32 + 0x0f368u); // InitFS
-                lc_musashi_bus_ram_write32(0x00000400u + 0x0fu * 4u, LC_BASILISK_ROM_BASE_32 + 0x0f60eu); // MountVol
-                lc_musashi_bus_ram_write32(0x00000400u + 0x0eu * 4u, LC_BASILISK_ROM_BASE_32 + 0x0fe18u); // UnmountVol
-                lc_musashi_bus_ram_write32(0x00000400u + 0x6du * 4u, LC_BASILISK_ROM_BASE_32 + 0x022e0u); // InitEvents
+                // Route boot 1's File Manager + Memory Manager OS traps to the
+                // real ROM handlers via the override table that the OS trap-table
+                // read path ($0400-$0600) actually honors.  Raw RAM writes here
+                // are ignored because that region is a dynamic read.
+                lc_memory_set_post_reset_atrap_handler(0xa06cu, LC_BASILISK_ROM_BASE_32 + 0x0f368u); // InitFS
+                lc_memory_set_post_reset_atrap_handler(0xa00fu, LC_BASILISK_ROM_BASE_32 + 0x0f60eu); // MountVol
+                lc_memory_set_post_reset_atrap_handler(0xa00eu, LC_BASILISK_ROM_BASE_32 + 0x0fe18u); // UnmountVol
+                lc_memory_set_post_reset_atrap_handler(0xa06du, LC_BASILISK_ROM_BASE_32 + 0x022e0u); // InitEvents
+                lc_memory_set_post_reset_atrap_handler(0xa019u, LC_BASILISK_ROM_BASE_32 + 0x0cf08u); // InitZone
+                lc_memory_set_post_reset_atrap_handler(0xa02cu, LC_BASILISK_ROM_BASE_32 + 0x0cd52u); // InitApplZone
+                lc_memory_set_post_reset_atrap_handler(0xa063u, LC_BASILISK_ROM_BASE_32 + 0x0d2dcu); // MaxApplZone
+                lc_memory_set_post_reset_atrap_handler(0xa01eu, LC_BASILISK_ROM_BASE_32 + 0x0d360u); // NewPtr
+                lc_memory_set_post_reset_atrap_handler(0xa01fu, LC_BASILISK_ROM_BASE_32 + 0x0d3a0u); // DisposPtr
+                lc_memory_set_post_reset_atrap_handler(0xa022u, LC_BASILISK_ROM_BASE_32 + 0x0d448u); // NewHandle
+                lc_memory_set_post_reset_atrap_handler(0xa023u, LC_BASILISK_ROM_BASE_32 + 0x0d484u); // DisposHandle
+                lc_memory_set_post_reset_atrap_handler(0xa024u, LC_BASILISK_ROM_BASE_32 + 0x0d4d0u); // SetPtrSize
+                lc_memory_set_post_reset_atrap_handler(0xa025u, LC_BASILISK_ROM_BASE_32 + 0x0d4b4u); // SetHandleSize
+                lc_memory_set_post_reset_atrap_handler(0xa029u, LC_BASILISK_ROM_BASE_32 + 0x0d628u); // HLock
+                lc_memory_set_post_reset_atrap_handler(0xa02au, LC_BASILISK_ROM_BASE_32 + 0x0d64eu); // HUnlock
+                lc_memory_set_post_reset_atrap_handler(0xa01cu, LC_BASILISK_ROM_BASE_32 + 0x0d174u); // FreeMem
+                lc_memory_set_post_reset_atrap_handler(0xa040u, LC_BASILISK_ROM_BASE_32 + 0x0d18au); // ResrvMem
+                lc_memory_set_post_reset_atrap_handler(0xa04cu, LC_BASILISK_ROM_BASE_32 + 0x0d0a8u); // CompactMem
             }
 
             m68k_set_reg(M68K_REG_A6, boot_globs);
@@ -5767,8 +5785,12 @@ void cpu_instr_callback(int pc) {
             // instead of our stub.  We seeded their real handlers into the OS trap
             // table above; just don't intercept here.
             if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && !is_toolbox) {
-                const uint16_t os = trap_word & 0xf0ffu;
-                if (os == 0xa06cu || os == 0xa00fu || os == 0xa00eu || os == 0xa06du) {
+                const uint16_t lb = trap_word & 0x00ffu;
+                if (lb == 0x6cu || lb == 0x0fu || lb == 0x0eu || lb == 0x6du || // InitFS/MountVol/UnmountVol/InitEvents
+                    lb == 0x19u || lb == 0x2cu || lb == 0x63u ||                 // InitZone/InitApplZone/MaxApplZone
+                    lb == 0x1eu || lb == 0x1fu || lb == 0x22u || lb == 0x23u ||  // NewPtr/DisposPtr/NewHandle/DisposHandle
+                    lb == 0x24u || lb == 0x25u || lb == 0x29u || lb == 0x2au ||  // SetPtrSize/SetHandleSize/HLock/HUnlock
+                    lb == 0x1cu || lb == 0x40u || lb == 0x4cu) {                 // FreeMem/ResrvMem/CompactMem
                     return; // fall through to ROM dispatcher at 0x408099b0
                 }
             }

@@ -436,6 +436,36 @@ progressively let the ROM's real Memory Manager + zone init run (un-stub
 NewPtr/NewHandle/InitZone, seed their real handlers) so MountVol can allocate
 and actually mount the HFS volume, then read the System file.
 
+#### Real Memory Manager wired in (gated) — boot 1 advances further
+
+Key gotcha: the OS trap table region `$0400-$0600` is a **dynamic read** in
+`lc_memory.c` (returns `post_reset_atrap_table_overrides[trap]` or the default
+`0x40800d88`), so raw `ram_write32` seeds are ignored. Switched the faithful
+seeding to `lc_memory_set_post_reset_atrap_handler(trapword, handler)` which
+registers the override the read path honors, and added the Memory Manager
+handlers: InitZone `0xcf08`, InitApplZone `0xcd52`, MaxApplZone `0xd2dc`, NewPtr
+`0xd360`, DisposPtr `0xd3a0`, NewHandle `0xd448`, DisposHandle `0xd484`,
+SetPtrSize `0xd4d0`, SetHandleSize `0xd4b4`, HLock `0xd628`, HUnlock `0xd64e`,
+FreeMem `0xd174`, ResrvMem `0xd18a`, CompactMem `0xd0a8` (Sys variants share the
+low-byte slot). The dispatcher passthrough was extended to these low bytes.
+
+Progression of the faithful boot pc as the Toolbox chain is un-stubbed (all
+advances are real ROM handlers running, no crash; default baseline stays green
+at 50M, VRAM=4):
+
+- fixtures only: jumps straight to dead component path
+- + real File Manager traps: `0x900010 -> 0x900074`
+- + real Memory Manager traps: `0x900074 -> 0x9000a8`
+
+Still ends in the empty boot-2 staging area: MountVol now allocates via the real
+MM but does not yet read the HFS volume header. Remaining chain for an actual
+mount + System-file load: the **drive queue / DCE** registration (so MountVol's
+drive lookup finds the boot drive and issues volume-header reads through the
+disk driver), then **InitResources** (toolbox trap `0xa995`, handler `0x1aa32`)
+and the System-file open/`GetResource('boot',2)` path. Continue un-stubbing the
+chain behind the gate until `boot 1` loads the real `boot 2`.
+
+
 
 
 
