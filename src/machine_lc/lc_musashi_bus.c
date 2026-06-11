@@ -1431,6 +1431,12 @@ static int16_t lc_musashi_bus_basilisk_disk_prime(bool is_sony, uint32_t pb, uin
     if ((pos_mode & 0x0100u) != 0u && pb + 53u < active_bus->ram_size) {
         position = ((uint64_t)lc_musashi_bus_peek_ram32(pb + 46u) << 32u) |
                    (uint64_t)lc_musashi_bus_peek_ram32(pb + 50u);
+    } else if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && (pos_mode & 0x0003u) == 0x0001u) {
+        // Positioning mode fsFromStart (ioPosMode bits 0-1 == 1): the absolute
+        // byte offset is in ioPosOffset (pb+46).  Without this, MountVol's MDB
+        // read (fsFromStart, offset 0x400 = HFS block 2) fell through to
+        // dCtlPosition (0) and re-read the boot blocks at sector 0.
+        position = (uint64_t)lc_musashi_bus_peek_ram32(pb + 46u);
     }
     if ((length & 0x1ffu) != 0u || (position & 0x1ffu) != 0u ||
         length > 0x00100000u || buffer + length < buffer) {

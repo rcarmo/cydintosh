@@ -731,6 +731,28 @@ byte 0x400), or it loops re-reading the boot blocks. Next: trace the MDB-read
 param block / `DISK_PRIME` position so the read targets HFS block 2, populating
 the VCB from the real MDB.
 
+#### ioPosMode fix: MountVol now reads the MDB (HFS block 2)
+
+`DISK_PRIME` computed the read position from `dCtlPosition` (`dce+16`) and only
+used `ioPosOffset` (`pb+46`) when `ioPosMode & 0x100` — but the Mac positioning
+mode is in **ioPosMode bits 0-1** (`fsFromStart=1`), not bit 8. So MountVol's MDB
+read (`fsFromStart`, `ioPosOffset = 0x400` = HFS block 2) fell through to
+`dCtlPosition (0)` and re-read the boot blocks at sector 0. Fixed (gated): when
+`(ioPosMode & 3) == 1` use `ioPosOffset` as the absolute byte position.
+
+Result: disk activity now includes **`scsi-read sector=2` and `scsi-write
+sector=2`** — MountVol reads (and updates, via the RAM overlay) the real Master
+Directory Block. Default baseline unchanged (50M green, VRAM=4).
+
+New frontier: after reading the MDB, the boot still ends in the empty boot-2
+staging area (`0x900010`, `stopped_on_zero_ram`); the **catalog B-tree** reads
+(to locate/open the System file) and the System-file read haven't happened yet.
+Next: confirm the MDB read built a valid VCB (HFS signature, catalog extent),
+then trace the catalog read so boot 1 can open the System file and load the real
+boot 2. The disk-position handling may need the other ioPosMode cases
+(fsFromLEOF/fsFromMark) for the catalog/extent reads.
+
+
 
 
 
