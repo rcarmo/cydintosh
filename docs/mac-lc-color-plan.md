@@ -650,6 +650,34 @@ FCB/VCB search or a sub-step, before the catalog/MDB read.  Next: trace within
 becomes -36 and what structure it is missing, then close that so MountVol issues
 the block-2 read, populates the VCB, and boot 1 can open the System file.
 
+#### Oracle diff at 0x14224: param-block pointer (A0) differs
+
+Used the reference BasiliskII (which boots this same ROM+disk) as a register-
+level oracle at `0x14224`. It does hit `0x14224` (3x) and MountVol `0xf662`, so
+the same code path. Comparing entry state to ours:
+
+```
+            D0      D1   D2   A0         A1       A3
+oracle:  0000ffff  0    2    00400a4c   00009018 00004c1e
+ours:    0000ffff  0    2    00800000   ?        ?
+```
+
+`D0/D1/D2` MATCH. The divergence is **`A0` (the MountVol param block)**: the
+oracle's is a real System-heap allocation at `0x00400a4c`, while ours is
+`0x00800000` — a suspiciously round value that looks like leftover scaffolding /
+a mis-computed pointer rather than a real allocation. The `0x14224` worker reads
+the volume/FS request fields out of this param block, so wrong contents make it
+return `ioErr`. (`0x14224`'s internal routine at `0x1440c` is the WDCB array
+builder — `NewPtr` of `d2` working-directory control blocks — confirming this is
+FS setup, not yet the disk read.)
+
+Next: trace where the MountVol param-block pointer (`A0`) is established in our
+boot and why it is `0x800000` instead of a real heap allocation like the
+oracle's `0x400a4c`; fixing the param block (real allocation + correct fields)
+should let the `0x14224` worker succeed and MountVol proceed to the block-2 MDB
+read. The register-level oracle diff is the fast way to keep pinpointing these.
+
+
 
 
 
