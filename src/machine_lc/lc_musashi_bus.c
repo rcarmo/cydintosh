@@ -5828,6 +5828,18 @@ void cpu_instr_callback(int pc) {
                 }
             }
         }
+        // Video-default setup reaches a small SlotManager probe routine at
+        // 0x2310 that the oracle avoids, but if entered it expects the built-in
+        // video sResource contract to be present.  Model just the three
+        // SlotManager calls in that routine so selector 21 doesn't return
+        // smEmptySlot and the `a1@(32)==1` check can pass.
+        const uint32_t faithful_rom_offset = current_instruction_pc & 0x000fffffu;
+        if (faithful_rom_offset == 0x00002352u || faithful_rom_offset == 0x00002364u ||
+            faithful_rom_offset == 0x00002370u) {
+            lc_musashi_bus_maybe_stub_slot_manager_video_default(current_instruction_pc);
+            previous_instruction_pc = current_instruction_pc;
+            return;
+        }
     }
     if (current_instruction_pc >= 0x00be8934u && current_instruction_pc < 0x00bf03f0u) {
         const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);

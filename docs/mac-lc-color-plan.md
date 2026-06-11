@@ -1026,6 +1026,40 @@ Debug aid added (gated behind `LC_FAITHFUL_DISK_BOOT`, inert in fixture mode):
 trace for register-level boot forensics.  Fixture baseline re-verified green
 (HOST_LC_OK, stopped_on_*=0).
 
+#### SlotManager video-default check now passes (selector 21 / fake built-in video sResource)
+
+After the MM-dispatch fix (`e6db888`), the boot still entered the ROM routine
+`0x2310..0x238a` that the oracle avoids.  The first `_SlotManager` call in that
+routine is selector **21** at `0x2352`; the real ROM Slot Manager returned
+`0xfed4` (`smEmptySlot`), so `0x2354 bne -> 0x2386 -> 0x238a -> 0x246e` dropped
+straight into diagnostics.
+
+There was already a narrow helper for this video-default path, but it was called
+too late for this A-line path.  The fix now invokes it directly at the actual
+trap instruction PCs `0x2352`, `0x2364`, and `0x2370` under
+`LC_FAITHFUL_DISK_BOOT`:
+
+- selector 21 returns `noErr` instead of `smEmptySlot`;
+- the follow-up selector 6 succeeds;
+- selector 5 returns a tiny fake built-in-video sResource whose `+0x20` field is
+  `1`, satisfying `0x2374: cmpi.w #1,a1@(32)`;
+- execution falls through to `0x238e` and continues the setup/unpack routines
+  instead of immediately jumping to diagnostics.
+
+A/B: faithful frontier advances **180,544 -> 216,983 cycles**.  The remaining
+halt is still monitor `0x49fca` with d7 bit17, reached later via the same ROM
+video/diagnostic path.  A trace of the upstream exception/diagnostic selector
+shows low-memory `0x120=0` and `0x2ba=0`, causing the default handler `0x280e`
+path; the oracle avoids this whole `0x2310..0x2520` family, so the ideal fix is
+still upstream, but this models the LC built-in-video SlotManager contract enough
+to expose the next dependency.
+
+Validation: 50M fixture baseline remains `HOST_LC_OK` with
+`stopped_on_zero_ram=0 stopped_on_monitor=0 stopped_on_zero_rom=0`.  50M/500M
+faithful runs both stop at the new 216,983-cycle frontier.  A 500M fixture run
+returns `HOST_LC_OK` but also reaches the long-run monitor guard (pre-existing
+fixture behavior, not caused by this faithful-gated change).
+
 
 
 
