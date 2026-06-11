@@ -216,6 +216,38 @@ BasiliskII to log the `0x15274` register state / branch taken, or use
 `--break 0x815274`) so we mirror the exact V8 memory-controller contract rather
 than guessing. This is the highest-leverage next step.
 
+### Oracle PC+register diff built; CLKNOMEM XPRAM ported; RAM-sizing isolated
+
+Used the reference BasiliskII's windowed PC trace (`B2_TRACE_PC_START` /
+`B2_TRACE_PC_END` / `B2_TRACE_LIMIT`, prints full D0-D7/A0-A7 per instruction)
+as a register-level oracle. Findings:
+
+- At ROM `0x15274` our `d1` and branch decision **match** the oracle (both take
+  `bne 0x152fa`); `0x15274` is NOT the divergence.
+- The divergence is the **RAM-sizing probe**: at `0x15308` (after the threaded
+  ClkNoMem/PRAM chain at `0xb288`) the oracle has `a0=0x00800000` (top of its
+  8MB RAM) while ours has `a0=0xffffffff` (failed probe). The oracle keeps
+  `a0=decoderInfo` through the whole `0xb288` chain, so the RAM-top value is
+  computed right after the chain returns. Our run executes a *single* pass of
+  the `0x152xx` sizing loop and exits to the dead `0x41xxx` path; the oracle
+  loops it once per RAM bank.
+- Ported BasiliskII's **CLKNOMEM** emul_op faithfully: a persistent 256-byte
+  XPRAM (with BasiliskII's default signature/values), proper PRAM read/write
+  persistence, RTC time-byte reads, and result returned in `d2` only. Fixed two
+  real bugs in the old stub: it clobbered `d1` with the result (BasiliskII never
+  touches d1) and ignored PRAM writes (returning hardcoded values), so
+  write-then-read returned wrong data. Verified 50M+500M: all invariants hold
+  (HOST_LC_OK, illegal/unknown/getpic0=0, zero-ram/monitor/zero-rom=0, VRAM=4,
+  CLKNOMEM 79x). This did not by itself move `a0`, confirming the RAM-top value
+  comes from the RAM-probe logic, not the XPRAM contents.
+
+**Next:** trace the exact instruction in/after the `0x152xx` sizing loop where
+`a0` is set (widen the oracle window past the `0xb288` chain return) and model
+the V8 RAM-bank aliasing so our 16MB RAM probe computes a coherent top-of-RAM
+instead of `0xffffffff`. The `post-reset-memory-layout` watchpoint cluster in
+`lc_musashi_bus.c` (0x4167e..) maps the dead path we must avoid by sizing RAM
+correctly here.
+
 
 Completed setup:
 

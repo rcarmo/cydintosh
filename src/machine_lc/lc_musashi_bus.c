@@ -1811,33 +1811,74 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
 
     case LC_B2_EMUL_OP_CLKNOMEM: {
         lc_musashi_bus_basilisk_log_emul_op(op, "CLKNOMEM");
+        // Faithful port of BasiliskII emul_op CLKNOMEM (clock/PRAM/XPRAM).
+        // A persistent 256-byte XPRAM holds parameter RAM; the boot writes then
+        // reads it back, so non-persistent stubs corrupt the memory-config
+        // chain (RAM-size probe at ROM 0x15274 ends with a0=0xffffffff instead
+        // of the real RAM top).  The result is returned in d2 ONLY; BasiliskII
+        // never writes d0/d1 here.
+        static uint8_t lc_xpram[256];
+        static bool lc_xpram_init = false;
+        if (!lc_xpram_init) {
+            memset(lc_xpram, 0, sizeof(lc_xpram));
+            lc_xpram[0x0c] = 0x4e; lc_xpram[0x0d] = 0x75; // "NuMc" signature
+            lc_xpram[0x0e] = 0x4d; lc_xpram[0x0f] = 0x63;
+            lc_xpram[0x01] = 0x80; // InternalWaitFlags = DynWait
+            lc_xpram[0x10] = 0xa8; lc_xpram[0x11] = 0x00;
+            lc_xpram[0x12] = 0x00; lc_xpram[0x13] = 0x22;
+            lc_xpram[0x14] = 0xcc; lc_xpram[0x15] = 0x0a;
+            lc_xpram[0x16] = 0xcc; lc_xpram[0x17] = 0x0a;
+            lc_xpram[0x1c] = 0x00; lc_xpram[0x1d] = 0x02;
+            lc_xpram[0x1e] = 0x63; lc_xpram[0x1f] = 0x00;
+            lc_xpram[0x08] = 0x13; lc_xpram[0x09] = 0x88;
+            lc_xpram[0x0a] = 0x00; lc_xpram[0x0b] = 0xcc;
+            lc_xpram[0x76] = 0x00; lc_xpram[0x77] = 0x01; // OSDefault = MacOS
+            lc_xpram_init = true;
+        }
         uint32_t d1 = m68k_get_reg(NULL, M68K_REG_D1);
         uint32_t d2 = m68k_get_reg(NULL, M68K_REG_D2);
         const bool is_read = (d1 & 0x80u) != 0u;
         if ((d1 & 0x78u) == 0x38u) {
+            // XPRAM
             const uint8_t reg = (uint8_t)(((d1 << 5u) & 0xe0u) | ((d1 >> 10u) & 0x1fu));
+            const bool localtalk = !(lc_xpram[0xe0] || lc_xpram[0xe1]);
             if (is_read) {
-                d2 = 0;
-                if (reg == 0x08u) {
-                    d2 = 0x00u;
-                } else if (reg == 0x8au) {
-                    d2 = 0x05u; // 32-bit addressing enabled, matching Basilisk.
-                } else if (reg == 0xe0u || reg == 0xe2u) {
-                    d2 = 0x00u;
-                } else if (reg == 0xe1u) {
-                    d2 = 0xf1u;
-                } else if (reg == 0xe3u) {
-                    d2 = 0x0au;
+                d2 = lc_xpram[reg];
+                switch (reg) {
+                    case 0x8au: d2 |= 0x05u; break; // 32-bit mode always enabled
+                    case 0xe0u: if (localtalk) d2 = 0x00u; break;
+                    case 0xe1u: if (localtalk) d2 = 0xf1u; break;
+                    case 0xe2u: if (localtalk) d2 = 0x00u; break;
+                    case 0xe3u: if (localtalk) d2 = 0x0au; break;
+                    default: break;
                 }
+            } else {
+                if (reg == 0x8au) d2 |= 0x05u; // keep 32-bit mode enabled
+                lc_xpram[reg] = (uint8_t)d2;
             }
         } else {
+            // PRAM, RTC and other clock registers
             const uint8_t reg = (uint8_t)((d1 >> 2u) & 0x1fu);
-            if (is_read) {
-                d2 = reg < 0x08u ? 0u : 0u;
+            if (reg >= 0x10u || (reg >= 0x08u && reg < 0x0cu)) {
+                if (is_read) {
+                    d2 = lc_xpram[reg];
+                } else {
+                    lc_xpram[reg] = (uint8_t)d2;
+                }
+            } else if (reg < 0x08u && is_read) {
+                // RTC seconds since 1904-01-01 (Mac epoch).  Fixed deterministic
+                // value; only the byte selected by reg&3 is returned.
+                const uint32_t mac_secs = 0xb3c4d200u; // ~mid-2000s, stable
+                uint8_t b = (uint8_t)mac_secs;
+                switch (reg & 3u) {
+                    case 1u: b = (uint8_t)(mac_secs >> 8u); break;
+                    case 2u: b = (uint8_t)(mac_secs >> 16u); break;
+                    case 3u: b = (uint8_t)(mac_secs >> 24u); break;
+                    default: break;
+                }
+                d2 = b;
             }
         }
-        m68k_set_reg(M68K_REG_D0, 0);
-        m68k_set_reg(M68K_REG_D1, d2 & 0xffu);
         m68k_set_reg(M68K_REG_D2, d2 & 0xffu);
         return true;
     }
