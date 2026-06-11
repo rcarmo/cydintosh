@@ -273,6 +273,35 @@ not the RAM size per se. Next: step-diff the `0x152xx` loop body between oracle
 and ours to find where `d3` diverges (where the loop fails to see the
 `0xffffffff` end marker and terminate after one bank).
 
+#### Root cause + FIX: PATCH_BOOT_GLOBS clobbered the RAM bank table
+
+Step-level register trace of ROM `0x800a70..0x800ab0` plus the bank-table reads
+found the real cause (the earlier "8MB cap" theory was wrong — 8MB also showed
+`d3=1`).
+
+Our RESET builds the BootGlobs RAM bank table at `boot_globs = ram_size-0x1c`:
+`+0=base(0)`, `+4=size`, `+8=0xffffffff (end)`, `+0xc=0`. But the inline
+PATCH_BOOT_GLOBS work in RESET forced `a4 = ram_size` (top) and then wrote the
+MemTop/No-MMU fields relative to `a4`:
+
+- `a4-25 = boot_globs+3` <- No-MMU flag `|= 1` set the bank-table **base** byte3
+  to 1, so `[boot_globs] = 0x00000001` (phantom bank -> `d3=1`).
+- `a4-20 = boot_globs+8` <- MemTop write overwrote the **end marker**
+  `0xffffffff` with `ram_size` (-> `d4=ram_size`).
+
+That is exactly why the ROM RAM-walk at `0x800aa0`/`0x15274` saw `d3=1,
+d4=ram_size` instead of the oracle's `d3=0, d4=0xffffffff`, diverging the size
+computation. Fix: re-assert the four bank-table words after the PATCH_BOOT_GLOBS
+writes in RESET, so the table RESET set up survives. Verified at `0x15308`:
+now `d3=0, d4=0xffffffff, a3=0x1000000` (our 16MB; oracle's `0x800000` is just
+its 8MB), matching the oracle's bank-walk result exactly. 50M+500M green:
+HOST_LC_OK, illegal/unknown/getpic0=0, zero-ram/monitor/zero-rom=0, VRAM=4.
+
+The RAM-bank walk is now faithful to the oracle. The probe pc still ends in the
+later `0x42xxx` region after 50M/500M; the next divergence is downstream of the
+(now-correct) RAM sizing — continue the oracle PC+register diff forward from
+`0x15308` to the next point our path leaves the oracle rail.
+
 ### RAM-sizing probe traced to ROM 0x800a70 + 0x800aa0 (V8 bank aliasing)
 
 Widened the oracle register trace across the whole 0x800000-0x820000 range. The

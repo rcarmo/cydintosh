@@ -1801,6 +1801,17 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                     lc_musashi_bus_ram_write8(a4 - 26u, 0); // No MMU
                     lc_musashi_bus_ram_write8(a4 - 25u, 1u); // No MMU flag
                 }
+                // With a4 forced to ram_size (top), the No-MMU/MemTop writes
+                // above land at boot_globs+2/+3 and boot_globs+8, corrupting the
+                // RAM bank table base (-> 1) and end marker (-> ram_size).  That
+                // makes the ROM RAM-walk at 0x800aa0/0x15274 see a phantom bank
+                // (d3=1, d4=ram_size) instead of the oracle's d3=0/d4=0xffffffff,
+                // diverging the size computation.  Re-assert the bank table that
+                // RESET set up so it survives the PATCH_BOOT_GLOBS writes.
+                lc_musashi_bus_ram_write32(boot_globs + 0x00u, 0u);          // bank0 base = RAMBaseMac
+                lc_musashi_bus_ram_write32(boot_globs + 0x04u, (uint32_t)active_bus->ram_size); // bank0 size
+                lc_musashi_bus_ram_write32(boot_globs + 0x08u, 0xffffffffu); // end-of-bank-table marker
+                lc_musashi_bus_ram_write32(boot_globs + 0x0cu, 0u);
             }
             lc_musashi_bus_stage_boot_resources();
             lc_musashi_bus_seed_video_contract();
