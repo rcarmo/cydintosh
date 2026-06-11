@@ -880,6 +880,30 @@ probe skips for this path (it already has `0xb27c`/`0xba0b0`/`0xb9874`; the
 init toward StartBoot — with InitOS/trap-table now real, the MountVol FS state
 should finally be coherent.
 
+#### Step-1 frontier characterized: post-InitOS hardware scan -> serial monitor
+
+The `0x49fca` stop is the ROM **serial monitor** no-input command poll (waits
+forever for debug input) — i.e. the boot *panicked* into the monitor. Root: after
+InitOS, the real init runs a hardware/diagnostic scan that reads the actual
+hardware bases (`a2=0x50f00000`, `a3=0x50f04000`, plus `0x50f04000`/`0x50f14000`
+via our I/O stubs returning `0xff`).  At `0x49ece` it does `move.b (d16,a2),d0`
+from `0x50f00000` and the result sets **`d7` bit 17**, which routes the boot into
+the monitor at `0x49fca`.
+
+Notably the bases are the *real* `0x50fxxxxx` here, not the PatchHWBases scratch
+(`0x00f00000`) — the InitOS-driven path re-derives them from the decoderInfo, so
+our earlier scratch redirect doesn't cover this scan.  Two ways forward:
+- Make the hardware read at/around `0x49ece` (the `0x50f00000`/`0x50f14000`
+  device) return a value that does NOT set `d7` bit 17, so the diagnostic scan
+  passes instead of dropping to the monitor; or
+- Port BasiliskII's hardware/slot-probe skips for this `0x49xxx`/`0x45exx` scan
+  (it patches the NuBus/RBV probes out), so the scan is bypassed entirely.
+This is genuine forward progress: the boot now runs the real OS init and reaches
+the ROM's hardware-diagnostic phase (3.2x more cycles); the remaining work is
+the hardware-probe contract for the `0x50f00000`/`0x50f14000` (VIA/RBV) devices
+that the post-InitOS scan reads. Fixture baseline stays green (50M, VRAM=4).
+
+
 
 
 
