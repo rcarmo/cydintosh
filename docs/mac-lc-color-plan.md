@@ -752,6 +752,34 @@ then trace the catalog read so boot 1 can open the System file and load the real
 boot 2. The disk-position handling may need the other ioPosMode cases
 (fsFromLEOF/fsFromMark) for the catalog/extent reads.
 
+#### MountVol validates the MDB but the data never reaches its buffer (a5@=0)
+
+MountVol validates the MDB at `0xf706`: `cmpi.w #0x4244,a5@` (HFS 'BD') else
+`-57 extFSErr` -> dispose VCB -> fail -> the whole boot retries in a loop (trap
+sequence repeats). Tracing `a5` at `0xf706` shows **`a5@ = 0x00000000`** — the
+MDB data never reached MountVol's validation buffer (`a5 = 0x00101a88`).
+`0xf702 jsr 0x1447c` is *not* the read — it is yet another patchable FS
+trampoline (`move.l $070c,-(sp); rts` = trap 0xc3, body `0x14482`, a flag-setter
+for `d1=2`). The worker's earlier `_Read` (`0x1469a`, sector 2) should have
+filled `a5`, but its buffer (`ioBuffer` = `pb+32`) and MountVol's `a5` don't
+match, and on the failing pass the worker never reached the read at all.
+
+**This is now the FOURTH instance of the same systemic pattern** — trap 0xb2
+(`$06c8`), trap 0xc1 (`$0704`), trap 0xc3 (`$070c`), plus the MDB buffer/param
+block — all FS-internal vectors/buffers the ROM's InitFS sets up as a coherent
+whole, which our scaffolding + per-item retrofit cannot reproduce consistently.
+The piecemeal File Manager bring-up has reached its practical limit.
+
+**Decision: the next meaningful step is the structural pivot** — let the ROM's
+*complete* InitOS/InitFS run for the faithful path (unwind the scaffolding:
+faked SysZone/trap-table/FS-globals/drive-queue) so every FS vector, buffer,
+queue and the heap zone are internally consistent by construction, matching the
+oracle. Then MountVol's MDB read lands in the buffer it validates, the catalog
+reads follow, and the System file loads — instead of chasing each divergent FS
+vector individually. The fixture baseline (50M green, VRAM=4) stays as the
+fallback while this is built behind `LC_FAITHFUL_DISK_BOOT`.
+
+
 
 
 
