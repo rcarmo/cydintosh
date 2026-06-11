@@ -979,6 +979,54 @@ advance; the boot now runs real Mac OS init and the remaining frontier is this
 Slot Manager record contract before StartBoot. Fixture baseline green (50M,
 VRAM=4); all gated behind `LC_FAITHFUL_DISK_BOOT`.
 
+#### ROOT CAUSE: slot scanner is downstream of a CPU exception (rts-to-0x40)
+
+Back-walked the EXACT divergence chain instead of treating the slot scanner as
+the frontier.  The scanner / serial monitor is reached only because our boot
+takes an **unexpected CPU exception** the oracle never hits.  Chain (each link
+confirmed by register-level trace + oracle diff):
+
+```
+serial monitor 0x49fca
+  <- scanner 0x4988e
+  <- 0x246e (SysError dispatch)
+  <- 0x2740: cmpi.w #13,d0 ; bne   (our d0=3 = vector index, != expected 13)
+  <- exception dispatch table 0x26f0 (row of `bsr 0x26a0`); 0x26a0 computes
+     d0 = (return-0x26f0)/2 = vector index 3, stacks faulting PC = 0x108
+  <- ILLEGAL INSTRUCTION executing low memory: pc walked 0x40 -> 0x108
+  <- 0xd8a rts returned to 0x40 (garbage); oracle's same rts returns to 0x104a
+  <- trampoline 0xd360: `move.l #0x40,-(sp); move.l (0x1ee8),-(sp); rts`
+     -> jumps through (0x1ee8), leaving 0x40 as the return address
+  <- (0x1ee8) = 0x40800d88 = the null stub `moveq #0,d0; rts` (WRONG)
+  <- trap dispatched via InitOS 0x9a22 `jsr [table+d2*4]` -> handler 0xd360
+```
+
+**The real bug:** the entire OS dispatch region `0x1e00..0x1f00` (incl. the
+sub-vectors `0x1ee0/0x1ee4/0x1ee8`) is **default-filled with the null stub
+0xd88**.  ROM routine **`0xcc60`** (entry pointer at ROM offset 0x54 =
+`0x0000cc60`) is what should build the real, ROMBase-relocated dispatch table at
+`0x1e00`/`0x1f00` (40 entries each, `add.l (0x2ae),...`) AND install the real
+OS-utility handlers `0x1ee0=0xdce4, 0x1ee4=0xdc2e, 0x1ee8=0xdd1e`
+(`0xccbc/c4/cc`).  `0xcc60` reads XPRAM (`_ReadXPRam` 0xa051), writes reset
+vectors `0x0`/`0x4`, then installs those handlers.  **Our faithful boot never
+runs `0xcc60`**, so when a trap dispatches to the `0xd360` trampoline it jumps
+through the uninitialized `0x1ee8` stub, returns into the exception-vector table,
+and faults.
+
+The trap handler entry `0xd360` itself IS correctly installed (by the InitOS
+trap-builder enabled in `3edc921`); only the `0xcc60`-owned sub-vectors are
+missing.  Same class as the original InitOS gap: an early-init step is still
+skipped under faithful mode.  Next: find `0xcc60`'s caller (ROM-header entry
+0x54) and why our boot doesn't run it (likely a surgical IWM/SCSI/SCC/VIA RTS or
+an early-init NOP cuts the path), then let it run so the dispatch table +
+`0x1ee0/4/8` handlers are built before any trap dispatches through them.
+
+Debug aid added (gated behind `LC_FAITHFUL_DISK_BOOT`, inert in fixture mode):
+`LC_TRACE_PC_START`/`LC_TRACE_PC_END`/`LC_TRACE_PC_LIMIT` env-driven PC-window
+trace for register-level boot forensics.  Fixture baseline re-verified green
+(HOST_LC_OK, stopped_on_*=0).
+
+
 
 
 

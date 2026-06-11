@@ -5783,6 +5783,31 @@ void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
     lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
+    if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
+        const char *ws = getenv("LC_TRACE_PC_START");
+        const char *we = getenv("LC_TRACE_PC_END");
+        if (ws != NULL && we != NULL) {
+            uint32_t rel = current_instruction_pc - 0x40800000u;
+            uint32_t lo = (uint32_t)strtoul(ws, NULL, 0);
+            uint32_t hi = (uint32_t)strtoul(we, NULL, 0);
+            if (rel >= lo && rel < hi) {
+                static unsigned tw = 0;
+                unsigned lim = 80u;
+                const char *wl = getenv("LC_TRACE_PC_LIMIT");
+                if (wl != NULL) lim = (unsigned)strtoul(wl, NULL, 0);
+                if (tw < lim) {
+                    ESP_LOGW(TAG, "PCWIN pc=0x%05x prev=0x%05x d0=%08x a0=%08x a1=%08x sp=%08x icnt=%lu",
+                             (unsigned)rel, (unsigned)(previous_instruction_pc - 0x40800000u),
+                             (unsigned)m68k_get_reg(NULL, M68K_REG_D0),
+                             (unsigned)m68k_get_reg(NULL, M68K_REG_A0),
+                             (unsigned)m68k_get_reg(NULL, M68K_REG_A1),
+                             (unsigned)m68k_get_reg(NULL, M68K_REG_SP),
+                             (unsigned long)instruction_callback_count);
+                    tw++;
+                }
+            }
+        }
+    }
     if (current_instruction_pc >= 0x00be8934u && current_instruction_pc < 0x00bf03f0u) {
         const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
         if (sp >= 0x00be8934u && sp < 0x00bf03f0u) {
