@@ -465,6 +465,27 @@ disk driver), then **InitResources** (toolbox trap `0xa995`, handler `0x1aa32`)
 and the System-file open/`GetResource('boot',2)` path. Continue un-stubbing the
 chain behind the gate until `boot 1` loads the real `boot 2`.
 
+#### ToExtFS hook fixed — faithful boot runs cleanly past the mount worker
+
+Traced the real MountVol (`0xf60e`) -> mount worker (`0xef94`): at `0xef94` it
+reads `[$03E2]` (ToExtFS, the external file-system hook) and `jsr`s through it
+when nonzero. Our scaffolding left garbage there, so the worker jumped into
+garbage. Seeding `ToExtFS ($03E2) = 0` (no external FS, gated) fixes it: the
+faithful boot no longer crashes in the empty boot-2 staging area — it now runs
+the full 50M cycles **cleanly** (illegal=0, unknown=0, zero-ram=0, getpic0=0)
+along the real boot path and reaches `0x426d0`. Default baseline unchanged
+(VRAM=4).
+
+Status: the mount worker proceeds, but the volume header is still not read (1
+disk read = boot blocks only), so the System is not yet loaded; boot falls into
+the ROM component/queue walker at `0x426d0` (VRAM=0). The next blocker is the
+**drive queue / DCE registration**: MountVol's worker needs the boot drive in
+the drive queue (`DrvQHdr $0308`, normally populated by the disk driver's
+Open/`AddDrive`) so its drive lookup issues volume-header reads through the disk
+driver. Bring up the drive-queue entry (drive #, driver refNum, FSID) so
+MountVol reads the HFS volume header and builds the VCB, then opens the System.
+
+
 
 
 

@@ -1819,6 +1819,11 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                 lc_memory_set_post_reset_atrap_handler(0xa01cu, LC_BASILISK_ROM_BASE_32 + 0x0d174u); // FreeMem
                 lc_memory_set_post_reset_atrap_handler(0xa040u, LC_BASILISK_ROM_BASE_32 + 0x0d18au); // ResrvMem
                 lc_memory_set_post_reset_atrap_handler(0xa04cu, LC_BASILISK_ROM_BASE_32 + 0x0d0a8u); // CompactMem
+                // ToExtFS ($03E2): external file-system hook. Must be 0 (no
+                // external FS) or the real MountVol worker at 0xef94 jsr's
+                // through it into garbage.  Also clear FSQueueHook ($03E2
+                // neighbours) defensively.
+                lc_musashi_bus_ram_write32(0x000003e2u, 0u); // ToExtFS = none
             }
 
             m68k_set_reg(M68K_REG_A6, boot_globs);
