@@ -248,6 +248,36 @@ instead of `0xffffffff`. The `post-reset-memory-layout` watchpoint cluster in
 `lc_musashi_bus.c` (0x4167e..) maps the dead path we must avoid by sizing RAM
 correctly here.
 
+### RAM-sizing probe traced to ROM 0x800a70 + 0x800aa0 (V8 bank aliasing)
+
+Widened the oracle register trace across the whole 0x800000-0x820000 range. The
+RAM top the boot uses comes from a probe, not the `0x15274` loop:
+
+- Oracle: `d4=0x00800000` (its 8MB RAM) is established by step ~3694 at ROM
+  `0x800a82`; then `a3/a0 = 0x00800000` at `0x800aa0` (`movem.l fp@,d3-d4/a3-a4;
+  exg d4,a3`). It reaches `0x15308` with `a0=0x00800000` via the `0x1300 ->
+  0x1306` path (called from the main boot `bsr 0x1300` at `0x10a`).
+- The routine at ROM `0xa70` (`bsr 0xa70` from boot `0x106`) *caps* the size:
+  `d3 = fp@(4) >> 1`; if `fp@ == 0` load `d4 = 0x00800000` (8MB max) and
+  `d3 = min(d3, d4)`. So 0x800000 is an 8MB ceiling; the real per-bank probe
+  result arrives via the `fp` parameter block from upstream.
+- Ours instead reaches `0x15308` via `0xb288 -> 0x15300` with `a0=0xffffffff`
+  (failed probe), does a single sizing pass, and exits to the dead 0x41xxx path.
+
+The upstream probe writes/reads RAM-bank boundaries and relies on **V8 memory-
+controller bank aliasing** (a write past populated RAM wraps/aliases) to detect
+size. Our flat 16MB RAM with no aliasing makes the probe return -1. Next step:
+identify the exact probe loop (just before `0x800a70`/`fp` setup) and either
+model V8 bank aliasing in `lc_memory.c` so a 16MB (or LC-typical 2/4/10MB) probe
+resolves coherently, or inject the size the BasiliskII way.
+
+**Also revisit:** our `0x490` CompBootStack patch (CompBootStack + FIX_MEMSIZE,
+the BasiliskII RAM-size override) is currently clobbered by a later
+`moveq #0,d0; rts` NOP-out (an old anti-recursion workaround in
+`lc_basilisk_compat.c`). With the find_rom_trap fix and early patches now in
+place, re-evaluate whether that workaround is still needed; restoring real
+CompBootStack/FIX_MEMSIZE may be required once the probe reaches it.
+
 
 Completed setup:
 
