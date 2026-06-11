@@ -380,6 +380,38 @@ path that `boot 1` loads and jumps into the real `boot 2`, then `boot 3` +
 System, instead of the empty staging area. Iterate behind the env gate so the
 baseline stays green until the faithful path overtakes it.
 
+#### boot 1 trap sequence traced (HFS volume bring-up)
+
+Under `LC_FAITHFUL_DISK_BOOT=1`, the real `boot 1` code (boot blocks at `$800`,
+entered from ROM `0x11c8`) executes this trap sequence before jumping to the
+boot-2 staging area `0x900000`:
+
+| trap | name | role |
+|---|---|---|
+| `0xa02e` x3 | BlockMove | copy System/Finder/debugger names from boot blocks |
+| `0xa06d` | InitEvents | init Event Manager |
+| `0xa06c` | **InitFS** | init File System |
+| `0xa00f` | **MountVol** | mount the HFS boot volume |
+| `0xa207` | **HGetVInfo** | get volume info |
+| `0xa995` | **InitResources** | init Resource Manager |
+| `0xa00e` | UnmountVol | |
+
+The critical four (InitFS / MountVol / HGetVInfo / InitResources) must run the
+ROM's REAL File Manager / Resource Manager so the HFS volume is mounted and the
+System file is readable. Today our A-trap dispatcher (installed wholesale at the
+A-line vector `0x408099b0`) **stubs** these (e.g. `0xa06c` is even misidentified
+as `_FreeMem` at lc_musashi_bus.c:5813; `InitResources` stubbed at :6561), so
+the volume is never really mounted and `boot 1` jumps to an empty staging area.
+
+**Architectural shift for faithful boot:** stop intercepting the A-line vector
+wholesale. Let the ROM's own A-trap dispatcher + File/Resource Manager run
+(reading the HFS volume through the patched `.Sony`/`.Disk` driver = DISK_PRIME,
+which already works), and only keep native EMUL_OP hooks for the specific
+driver/hardware traps BasiliskII patches. That is exactly BasiliskII's model and
+the last big structural change before a real System load. Stage it behind
+`LC_FAITHFUL_DISK_BOOT` so the fixture baseline stays green during bring-up.
+
+
 
 
 
