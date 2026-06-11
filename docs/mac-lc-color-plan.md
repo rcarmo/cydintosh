@@ -302,6 +302,26 @@ later `0x42xxx` region after 50M/500M; the next divergence is downstream of the
 (now-correct) RAM sizing — continue the oracle PC+register diff forward from
 `0x15308` to the next point our path leaves the oracle rail.
 
+#### Forward diff status (post bank-table fix)
+
+With the bank table fixed, the boot init cascade at ROM `0x100..0x176`
+(`bsr 0x910/0xa30/0x9c0/0x9a0` etc.) proceeds healthily and matches the oracle's
+flow (registers `d0/a3/sp` sane throughout). Note: our Musashi instr-callback
+fires at a finer granularity than the oracle's UAE dispatch, so apparent
+"mid-instruction" PCs like `0x122` in our trace are callback-granularity
+artifacts, not real divergences.
+
+The dead linked-list walker at `0x426c4..0x42722` (`a3 = [a3]` until `a3==0`,
+checking node+28 bit3 / node+24 / node+22 — a Toolbox queue walk) is now reached
+much later (icnt ~37761, after correct RAM sizing) with **bogus state**:
+`a3=0xffffffff`, `fp=0x41edfe70` (not a valid RAM/ROM address), and garbage
+return addresses on the stack. The oracle never executes `0x42xxx`. So the
+upstream corruption happens between the healthy cascade (icnt ~4000) and the
+walker entry (icnt ~37761). Next: forward-diff that window to find where `a3`/
+`fp` first go bogus (likely a Toolbox/Component/queue call reached with an
+uninitialized handle), and model that contract the BasiliskII way.
+
+
 ### RAM-sizing probe traced to ROM 0x800a70 + 0x800aa0 (V8 bank aliasing)
 
 Widened the oracle register trace across the whole 0x800000-0x820000 range. The
