@@ -1792,6 +1792,17 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                 lc_musashi_bus_ram_write32(addr, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
 
+            // Faithful-disk-boot experiment: point boot 1's OS File Manager traps
+            // at their REAL ROM handlers so the ROM A-trap dispatcher (which jsr's
+            // through [$0400 + (trap&0xff)*4]) runs the real InitFS/MountVol etc.
+            // instead of our no-op.  Lets boot 1 actually mount the HFS volume.
+            if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
+                lc_musashi_bus_ram_write32(0x00000400u + 0x6cu * 4u, LC_BASILISK_ROM_BASE_32 + 0x0f368u); // InitFS
+                lc_musashi_bus_ram_write32(0x00000400u + 0x0fu * 4u, LC_BASILISK_ROM_BASE_32 + 0x0f60eu); // MountVol
+                lc_musashi_bus_ram_write32(0x00000400u + 0x0eu * 4u, LC_BASILISK_ROM_BASE_32 + 0x0fe18u); // UnmountVol
+                lc_musashi_bus_ram_write32(0x00000400u + 0x6du * 4u, LC_BASILISK_ROM_BASE_32 + 0x022e0u); // InitEvents
+            }
+
             m68k_set_reg(M68K_REG_A6, boot_globs);
             m68k_set_reg(M68K_REG_A4, (uint32_t)active_bus->ram_size); // BootGlobs A4 for PATCH_BOOT_GLOBS
             // Do PATCH_BOOT_GLOBS work here since we skip $10e entirely:
@@ -5749,6 +5760,18 @@ void cpu_instr_callback(int pc) {
             uint16_t trap_num = trap_word & 0x00ffu; // OS trap number (low 8 bits)
             bool is_toolbox = (trap_word & 0x0800u) != 0u;
             if (is_toolbox) trap_num = trap_word & 0x03ffu; // toolbox: low 10 bits
+
+            // Faithful-disk-boot: let the ROM's own A-trap dispatcher run boot 1's
+            // File Manager OS traps (InitFS/MountVol/UnmountVol/InitEvents) so the
+            // real ROM File Manager mounts the HFS volume via the disk driver,
+            // instead of our stub.  We seeded their real handlers into the OS trap
+            // table above; just don't intercept here.
+            if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && !is_toolbox) {
+                const uint16_t os = trap_word & 0xf0ffu;
+                if (os == 0xa06cu || os == 0xa00fu || os == 0xa00eu || os == 0xa06du) {
+                    return; // fall through to ROM dispatcher at 0x408099b0
+                }
+            }
 
             if (!is_toolbox) {
             switch (trap_word & 0xf0ffu) { // mask out flag bits for OS traps

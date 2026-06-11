@@ -411,6 +411,32 @@ driver/hardware traps BasiliskII patches. That is exactly BasiliskII's model and
 the last big structural change before a real System load. Stage it behind
 `LC_FAITHFUL_DISK_BOOT` so the fixture baseline stays green during bring-up.
 
+#### Real ROM dispatcher path for File Manager traps (gated) + dependency found
+
+Disassembled the ROM A-trap dispatcher at `0x99b0`: OS traps without the
+auto-pop bit `jsr` through `[$0400 + (trap&0xff)*4]`; our no-op trap-table seed
+matches that layout. ROM handler offsets (via the corrected signed
+find_rom_trap): InitFS `0xf368`, MountVol `0xf60e`, UnmountVol `0xfe18`,
+InitEvents `0x22e0`, InitResources `0x1aa32` (toolbox), HGetVInfo unimplemented.
+
+Under `LC_FAITHFUL_DISK_BOOT` we now (a) seed those real OS handler addresses
+into the trap table and (b) stop intercepting InitFS/MountVol/UnmountVol/
+InitEvents in our dispatcher, letting the ROM dispatcher `jsr` the real handlers.
+Result: boot 1's File Manager traps run the REAL ROM code without crashing and
+advance the boot pc from `0x900010` to `0x900074` (still the empty boot-2
+staging area). Default baseline unchanged (50M green, VRAM=4).
+
+**Dependency confirmed:** MountVol ran but did NOT read the volume header (only
+the boot-block reads happened), because the real File Manager needs the real
+**Memory Manager** (NewHandle/NewPtr building the VCB and disk buffers) and the
+real heap (InitZone/SysZone) — which our scaffolding fakes. So faithful boot is
+all-or-mostly: the ROM's real OS init (InitZone -> InitMem -> InitFS -> MountVol
+-> InitResources) must run as a chain, not piecemeal. Next: under the gate,
+progressively let the ROM's real Memory Manager + zone init run (un-stub
+NewPtr/NewHandle/InitZone, seed their real handlers) so MountVol can allocate
+and actually mount the HFS volume, then read the System file.
+
+
 
 
 
