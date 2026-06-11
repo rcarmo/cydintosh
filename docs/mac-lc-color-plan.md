@@ -628,6 +628,29 @@ build a default VCB and return, or bail before the read?), and make the volume
 MDB read happen so the VCB is populated and boot 1 can open the System file and
 load the real boot 2.
 
+#### MountVol now does drive lookup + VCB alloc; FS worker 0x14224 returns ioErr
+
+With the FCB array allocated, MountVol (`0xf60e`) gets much further:
+
+- `0xfc6c` drive-queue lookup now returns 0 (drive found) — the FCBSPtr fix also
+  unblocked the lookup chain.
+- `0xf690` allocates a real 178-byte VCB at `0x00104070` (via the real MM).
+- `0xf6f6` `jsr 0x14224` (the FS mount worker, called with `d0=-1, d1=0, d2=2`).
+
+`0x14224` is itself a patchable-trap trampoline (`move.l $XXX,-(sp); rts` ->
+`0x14230`).  With `d0=-1` it takes the `blt 0x142d6` path into the FCB/VCB queue
+search (`a4=a3`, `a4=[a4]`), which now terminates (FCB array is real).  But the
+worker returns **`ioErr (-36)`** to MountVol (`0xf6fa bne 0xf97e` bails), so the
+volume mount fails before the block-2 MDB read ever reaches the disk driver
+(still only the sector-0 boot-block reads).
+
+So the remaining blocker is *inside* `0x14224`: it returns ioErr from the
+FCB/VCB search or a sub-step, before the catalog/MDB read.  Next: trace within
+`0x14224` (and its sub-calls `0x11f0e` / `0x14620`) to find exactly where `d0`
+becomes -36 and what structure it is missing, then close that so MountVol issues
+the block-2 read, populates the VCB, and boot 1 can open the System file.
+
+
 
 
 
