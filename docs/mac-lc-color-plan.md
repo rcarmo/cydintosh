@@ -194,6 +194,28 @@ against our `BOOTTRACE`, fix at the *earliest* divergence rather than at the
 final stuck PC. The `lc_basilisk` `LC patch MISS ...` log lines surface every
 unmatched `patch_rom_32` signature on our ROM.
 
+### PatchHWBases ported (hardware bases -> scratch RAM)
+
+The ROM decoderInfo (at offset 0x348c, reached via UniversalInfo+rel) holds the
+hardware register base addresses (VIA/IWM/SCC/ASC/SCSI...) at 0x50fxxxxx. Walk
+the table at ROM 0x94a (pairs of offset/4 + lowMem-global, terminated by 0xffff)
+and rewrite every slot (except the ASC base, lmg 0xcc0) to scratch RAM
+`0x00f00000`, exactly like `patch_rom_32` PatchHWBases. This corrects the
+post-CLKNOMEM `a1` from `0x50f00000` (unmapped hardware) to `0x00f00000`
+(backed scratch), matching the oracle. Verified 50M+500M: all invariants hold
+(HOST_LC_OK, illegal/unknown/getpic0=0, zero-ram/monitor/zero-rom=0, VRAM=4),
+CLKNOMEM fires 79x.
+
+**Open limb (next):** boot still reaches the dead high-ROM `post-reset-memory-
+layout` path (0x41xxx) via the V8 memory-controller detection routine at ROM
+`0x15274` (called from `0xb27c`, itself from the threaded-init stage at `0xf2`).
+That routine reads `a0@(8)` (a decoderInfo slot) and branches on `d1 & 0x70 ==
+0x20`; with scratch hardware returning 0, `d1` likely mis-selects the RAM-config
+path. Cracking this needs a PC-level oracle diff (instrument the reference
+BasiliskII to log the `0x15274` register state / branch taken, or use
+`--break 0x815274`) so we mirror the exact V8 memory-controller contract rather
+than guessing. This is the highest-leverage next step.
+
 
 Completed setup:
 

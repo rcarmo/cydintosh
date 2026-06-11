@@ -9,6 +9,10 @@
 #define LC_BASILISK_ROM_VERSION_32 0x067cu
 #define LC_BASILISK_ROM_BASE_32 0x40800000u
 #define LC_BASILISK_FRAME_BASE_MAC 0xa0000000u
+// Scratch RAM base that PatchHWBases redirects all ROM hardware-register bases
+// to (matches the existing VIA low-memory-global seed at 0x1d4).  Must be backed
+// guest RAM, clear of boot code/stack/heap; hardware probes span < 0x30000.
+#define LC_BASILISK_HW_SCRATCH_BASE 0x00f00000u
 
 #define LC_B2_M68K_NOP 0x4e71u
 #define LC_B2_M68K_RTS 0x4e75u

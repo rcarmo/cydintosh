@@ -402,6 +402,35 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
         rom[summary->universal_info_offset + 18u] = 14u; // Mac II-ish model ID, matches Basilisk prefs path.
         rom[summary->universal_info_offset + 22u] = 4u;  // FPU optional when no FPU is emulated.
         summary->patches_applied += 2u;
+
+        // PatchHWBases: BasiliskII redirects every hardware base address in the
+        // ROM decoderInfo to a scratch RAM region so the ROM's I/O probes hit
+        // harmless backed memory instead of unmapped 0x50fxxxxx hardware.
+        // Without this, post-CLKNOMEM init reads garbage from 0x50f00000 and
+        // diverges into the high-ROM memory-layout dead path; interrupts are
+        // delivered through EMUL_OP_IRQ instead.  The walk table at ROM 0x94a
+        // holds (offset/4, lowMemGlobal) pairs terminated by 0xffff; the ASC
+        // base (lmg 0xcc0) is intentionally left alone, matching patch_rom_32.
+        {
+            const uint32_t ui = summary->universal_info_offset;
+            const int32_t dec_rel = (int32_t)be32_at(&rom[ui]);
+            const uint32_t decoder = (uint32_t)((int32_t)ui + dec_rel);
+            uint32_t t = 0x094au;
+            unsigned hw_patched = 0u;
+            while (t + 4u <= rom_size && be16_at(&rom[t]) != 0xffffu) {
+                const int16_t ofs = (int16_t)be16_at(&rom[t]);
+                const uint16_t lmg = be16_at(&rom[t + 2u]);
+                const uint32_t slot = (uint32_t)((int32_t)decoder + (int32_t)ofs * 4);
+                if (lmg != 0x0cc0u && slot + 3u < rom_size) {
+                    put32(rom, rom_size, slot, LC_BASILISK_HW_SCRATCH_BASE, summary);
+                    hw_patched++;
+                }
+                t += 4u;
+            }
+            ESP_LOGW(TAG, "LC PatchHWBases: decoderInfo=0x%05" PRIx32
+                     " redirected %u hardware bases to scratch 0x%08x",
+                     decoder, hw_patched, LC_BASILISK_HW_SCRATCH_BASE);
+        }
     } else {
         summary->patch_patterns_missing++;
     }
