@@ -814,6 +814,31 @@ Each step is testable in isolation behind `LC_FAITHFUL_DISK_BOOT`; expect early
 regressions (the boot will re-derive state the ROM way) that converge toward the
 oracle. This replaces the unbounded per-vector retrofit with one coherent init.
 
+#### Definitive: our boot bypasses the ENTIRE ROM OS-init phase
+
+Verified by oracle diff (reference BasiliskII, same ROM+disk):
+- Oracle runs **InitZone (`0xcf08`) 3x** and the **trap-table builder (`0x9a9a`)
+  1x** during startup.
+- Our faithful boot runs **neither** (only InitEvents `0x22e0`, called by boot 1).
+
+Steps (a) and the `0x586->0x1142` shortcut were both tried and are **inert** —
+gating the dispatch magic or that jump changed nothing (identical 55685-cycle
+run, same `0x900010`), and `0x586` is never even executed. The reason: our boot
+*enters the boot flow downstream of the OS-init phase entirely* — it never
+traverses the ROM code that would call InitMemMgr/InitOS/InitZone/trap-builder.
+So individual scaffolding levers have no effect; the boot path itself is the
+scaffold.
+
+Implication: the pivot is not a few flag flips but a **boot-flow restructure** —
+the faithful path must enter the ROM's normal startup so it runs InitMemMgr ->
+InitOS (trap build) -> InitZone -> ... -> StartBoot, the way the oracle does,
+instead of our scaffolded “seed fake OS state, jump to boot 1” entry. The next
+concrete investigation is to trace the oracle's caller chain into `0x9a9a` /
+`0xcf08` (who calls the OS-init, from where) and make our faithful boot reach
+that same caller, rather than the scaffolded shortcut. This is a substantial
+restructure; the fixture baseline (50M green, VRAM=4) remains the fallback.
+
+
 
 
 
