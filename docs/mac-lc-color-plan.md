@@ -677,6 +677,35 @@ oracle's `0x400a4c`; fixing the param block (real allocation + correct fields)
 should let the `0x14224` worker succeed and MountVol proceed to the block-2 MDB
 read. The register-level oracle diff is the fast way to keep pinpointing these.
 
+#### Control-flow diff: trap-0xc1 FS vector ($0704) resolves differently
+
+Deeper oracle diff: `0x14224` is a self-patching trampoline
+(`move.l $0704,-(sp); rts`), where `$0704` is OS trap slot `0xc1`. The ROM
+*patches* `[$0704]` at runtime (InitFS-era), so the seeded value is overwritten:
+
+- `find_rom_trap(0xa0c1)` (our seed) = `0x1422a`
+- our runtime `[$0704]` -> `0x14230` (FCB-search entry)
+- oracle runtime `[$0704]` -> `0x1440c` (WDCB-builder entry)
+
+So at this point our boot dispatches trap 0xc1 to a *different FS operation*
+than the oracle (FCB search vs WDCB build), which is why the worker returns
+ioErr. The trap vector itself is fine; the divergence is upstream state that
+drives the ROM's runtime patch of `[$0704]` (and the param block `A0`).
+
+**Strategic assessment.** We have reached the point of diminishing returns with
+the piecemeal retrofit: each fix (FS globals, FCB array, trap table, ToExtFS,
+etc.) corrects one structure but the ROM's real InitFS/InitOS sets up *many*
+interdependent structures (trap vectors, FCB/VCB/WDCB queues, the heap zone) as
+a coherent whole, and our scaffolding + per-item seeding keeps producing subtly
+different state than a real InitOS run. The structurally correct next step is to
+let the ROM's **complete** OS init run for the faithful path (rather than
+faking globals and retrofitting), so all FS state is internally consistent —
+then the MountVol chain (param block, trap-0xc1 dispatch, volume read) matches
+the oracle by construction. That is a larger change (unwinding the scaffolding
+behind the gate) but avoids the unbounded vector-by-vector chase. The fixture
+baseline stays green (50M, VRAM=4) throughout; all faithful work remains gated.
+
+
 
 
 
