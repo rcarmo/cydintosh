@@ -357,6 +357,30 @@ PatchHWBases, bank table) is exactly what gets the ROM to the point where it
 can do that disk boot coherently. This is the single highest-leverage next
 step and directly serves “port BasiliskII, simplified for the LC.”
 
+#### Faithful-disk-boot scaffold (env-gated) + first result
+
+Added `LC_FAITHFUL_DISK_BOOT` env gate in `lc_musashi_bus.c` that skips all three
+`lc_musashi_bus_stage_boot_resources()` calls (RESET, INSTALL_DRIVERS, and the
+post-boot-block DISK_PRIME hook) and the `$0dbc` boot_2 trampoline. Default
+(unset) preserves the working baseline exactly (50M green: HOST_LC_OK,
+illegal/getpic0/zero-ram=0, VRAM=4, ends in the dead walker `0x426d0`).
+
+With `LC_FAITHFUL_DISK_BOOT=1` the ROM now runs the **real boot path**: it reads
+the real boot blocks from the HFS volume via DISK_PRIME (`$800=0x4c4b` 'LK'
+signature), executes the real `boot 1` code, and jumps to the boot-2 staging
+area `0x900000` — which is empty because we no longer inject `boot_2.bin`, so it
+stops at `pc=0x900010` (`stopped_on_zero_ram`). This is the real boot reaching
+the point where `boot 1` must load `boot 2`/the System file from the HFS volume.
+
+**Next:** make `boot 1`'s System-file load work over the HFS volume — i.e., the
+ROM's File Manager / Resource Manager reading the System file via the disk
+driver (BasiliskII relies on the real ROM Toolbox for this, reading the volume
+through the patched `.Sony`/`.Disk` driver). Bring up enough of the HFS read
+path that `boot 1` loads and jumps into the real `boot 2`, then `boot 3` +
+System, instead of the empty staging area. Iterate behind the env gate so the
+baseline stays green until the faithful path overtakes it.
+
+
 
 
 ### RAM-sizing probe traced to ROM 0x800a70 + 0x800aa0 (V8 bank aliasing)

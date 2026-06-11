@@ -12,6 +12,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "lc_musashi_bus";
@@ -1813,7 +1814,9 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                 lc_musashi_bus_ram_write32(boot_globs + 0x08u, 0xffffffffu); // end-of-bank-table marker
                 lc_musashi_bus_ram_write32(boot_globs + 0x0cu, 0u);
             }
-            lc_musashi_bus_stage_boot_resources();
+            if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
+                lc_musashi_bus_stage_boot_resources();
+            }
             lc_musashi_bus_seed_video_contract();
             m68k_set_reg(M68K_REG_SP, 0x00010000u);
         }
@@ -1949,6 +1952,7 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
         lc_musashi_bus_basilisk_install_drivers(m68k_get_reg(NULL, M68K_REG_A0));
         // Stage boot/System resources and set up handles.
         {
+            if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
             lc_musashi_bus_stage_boot_resources();
             // Boot continuation trampoline: ROM calls through $DBC to start boot_2.
             // Must be set HERE (after lc_memory seed which overwrites $DBC).
@@ -1959,6 +1963,9 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             lc_musashi_bus_ram_write32(tramp + 2u, 0x0004ff00u); // boot_2 handle
             lc_musashi_bus_ram_write16(tramp + 6u, 0x4ef9u); // JMP abs.L
             lc_musashi_bus_ram_write32(tramp + 8u, 0x00900000u); // boot_2 code addr
+            } else {
+                ESP_LOGW(TAG, "LC FAITHFUL_DISK_BOOT: skipping boot fixture trampoline at INSTALL_DRIVERS");
+            }
         }
         m68k_set_reg(M68K_REG_D0, 0);
         return true;
@@ -2033,7 +2040,11 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
                 // ROM-init path now has valid boot blocks and is about to enter
                 // the boot_2 staging area. Stage boot_2/boot_3/System.rsrc here
                 // instead of relying on the old skipped-init INSTALL_DRIVERS hook.
-                lc_musashi_bus_stage_boot_resources();
+                if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
+                    lc_musashi_bus_stage_boot_resources();
+                } else {
+                    ESP_LOGW(TAG, "LC FAITHFUL_DISK_BOOT: boot blocks read ($800=0x4c4b); letting ROM boot 1 run (no fixtures)");
+                }
             }
             m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)prime_result);
         }
