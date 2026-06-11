@@ -857,6 +857,30 @@ This sharpens the restructure scope into two coupled requirements:
 Both are gated behind `LC_FAITHFUL_DISK_BOOT`; the fixture baseline stays green.
 This is the concrete entry point for the boot-flow restructure.
 
+#### Restructure step 1 LANDED: InitOS now runs (un-NOP the $160 dispatch init)
+
+Found the exact skip: our compat NOPs the whole `$0160-$01d3` block (“dispatch/
+SCC/VIA init”), which also removes the call that runs the trap-dispatch build
+(InitOS at `0x999e` / builder `0x9a9a`).  BasiliskII instead lets that block run
+and surgically RTS's only the hardware routines (IWM `0x9c0`, SCSI `0x9a0`, SCC
+`0xa30`, VIA NOPs).  Gating the `$0160` NOP off under `LC_FAITHFUL_DISK_BOOT`
+(keeping the surgical hardware RTS's) makes the ROM run its real OS init:
+
+- `0x999e` (InitOS entry) and `0x9a9a` (trap-table builder) now execute.
+- Boot advances from ~55,685 cycles to **~177,970**, reaching ROM `0x49fca`
+  (the NuBus/slot probe — `btst #17,d7`) and stopping on the ROM monitor
+  (no NuBus hardware), `stopped_on_zero_ram=0`.
+- Default baseline unchanged (50M green, VRAM=4).
+
+So the ROM now builds its **real** trap table instead of our seed — the
+foundation for coherent FS state. New frontier: the NuBus/slot init at `0x49fca`
+panics into the ROM monitor with no slot hardware. Next: port BasiliskII's slot
+probe skips for this path (it already has `0xb27c`/`0xba0b0`/`0xb9874`; the
+`0x49fxx` slot scanner needs the same treatment), then continue down the real
+init toward StartBoot — with InitOS/trap-table now real, the MountVol FS state
+should finally be coherent.
+
+
 
 
 

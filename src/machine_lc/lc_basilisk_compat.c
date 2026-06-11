@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "lc_basilisk";
@@ -540,7 +541,15 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
     put16(rom, rom_size, 0x09a0u, LC_B2_M68K_RTS, summary); // Don't init SCSI.
     put16(rom, rom_size, 0x0a30u, LC_B2_M68K_RTS, summary); // Don't init SCC.
     patch_nops(rom, rom_size, 0x014cu, 2u, summary);       // Don't clear trap table ($1292 clears $100-$2000).
-    patch_nops(rom, rom_size, 0x0160u, 58u, summary);      // Skip all dispatch/SCC/VIA init ($160-$1d3).
+    // The $160-$1d3 block is the dispatch/SCC/VIA init.  Our default scaffold
+    // NOPs the whole thing, which also skips the trap-dispatch build (InitOS at
+    // 0x999e / 0x9a9a) — so the ROM never builds its real trap table.  Under
+    // faithful disk boot, let this block run (the surgical hardware RTS's above
+    // — IWM/SCSI/SCC/VIA — keep the hardware bits inert) so InitOS builds the
+    // real dispatch table, the way BasiliskII does.
+    if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
+        patch_nops(rom, rom_size, 0x0160u, 58u, summary);  // Skip all dispatch/SCC/VIA init ($160-$1d3).
+    }
     // NOP $11e (memory test bit): 2 words.
     patch_nops(rom, rom_size, 0x011eu, 2u, summary);
     put16(rom, rom_size, 0x9f4cu, LC_B2_M68K_RTS, summary); // Don't DisableIntSources.
