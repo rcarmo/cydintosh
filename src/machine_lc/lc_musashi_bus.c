@@ -5784,6 +5784,27 @@ void cpu_instr_callback(int pc) {
     current_instruction_pc = (uint32_t)pc;
     lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
     if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
+        // Faithful MM-dispatch install: ROM routine 0xcc60 (header ptr [0x54])
+        // installs the Memory Manager core handlers at 0x1ee0/0x1ee4/0x1ee8
+        // (0xdce4/0xdc2e/0xdd1e, relocated by ROMBase) before the first
+        // _NewPtr.  Our faithful boot reaches the _NewPtr trap trampoline at
+        // 0xd360 before 0xcc60 has run, so 0x1ee8 is still the uninitialized
+        // null stub (0xd88) and the trampoline rts's into the exception-vector
+        // table.  Install the exact ROM handlers here, once, just before the
+        // trampoline reads them.
+        static bool mm_dispatch_installed = false;
+        if (!mm_dispatch_installed && current_instruction_pc == 0x4080d360u) {
+            uint32_t rombase = 0x40800000u;
+            uint32_t v1ee8 = lc_musashi_bus_peek_ram32(0x1ee8u);
+            if (v1ee8 == rombase + 0x0d88u) {
+                lc_musashi_bus_ram_write32(0x1ee0u, rombase + 0x0dce4u);
+                lc_musashi_bus_ram_write32(0x1ee4u, rombase + 0x0dc2eu);
+                lc_musashi_bus_ram_write32(0x1ee8u, rombase + 0x0dd1eu);
+                mm_dispatch_installed = true;
+                ESP_LOGW(TAG, "LC FAITHFUL: installed MM dispatch handlers 0x1ee0/4/8 (0xdce4/0xdc2e/0xdd1e) before first _NewPtr at icnt=%lu",
+                         (unsigned long)instruction_callback_count);
+            }
+        }
         const char *ws = getenv("LC_TRACE_PC_START");
         const char *we = getenv("LC_TRACE_PC_END");
         if (ws != NULL && we != NULL) {
