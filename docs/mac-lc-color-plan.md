@@ -779,6 +779,42 @@ reads follow, and the System file loads — instead of chasing each divergent FS
 vector individually. The fixture baseline (50M green, VRAM=4) stays as the
 fallback while this is built behind `LC_FAITHFUL_DISK_BOOT`.
 
+#### Confirmed: the ROM's InitOS/InitZone/trap-builder never run (suppressed)
+
+Instrumented the faithful boot for the ROM init routines. Only **InitEvents**
+(`0x22e0`) runs (called by boot 1 at icnt ~4177). **InitZone (`0xcf08`),
+InitApplZone (`0xcd52`), and the trap-table builder (`0x9a9a`) never execute.**
+So the real heap zone and trap table are never built by the ROM — our
+scaffolding fakes them, which is the root of the cumulative FS-state divergence
+(the four patchable FS vectors, the MDB buffer, etc.).
+
+Why they are suppressed (the interlocked scaffolding, with
+`LC_ENABLE_RAM_OWNED_LOW_MEMORY`):
+1. **Dispatch magic** `$0DB0 = 0x5A932BC7` is RAM-seeded (lc_memory.c:691/807).
+   The ROM's dispatch setup reads it and, seeing the “table initialized” cookie,
+   skips InitOS / the trap-table builder.
+2. **Trap table** `$0400-$0600` is a *dynamic read* (override table or the
+   `0x40800d88` no-op default), so even if the ROM built a table its writes
+   there would be ignored.
+3. **Wholesale A-line interception** at `0x408099b0` handles every A-trap in our
+   switch, bypassing the ROM's own dispatcher (which would consult the table).
+4. **Faked SysZone/ApplZone globals** stand in for InitMemMgr/InitZone.
+
+**Concrete pivot plan (gated, staged, baseline kept green):**
+- (a) Under the gate, stop seeding the dispatch magic and let `$0DB0` read 0 so
+  the ROM runs InitOS and its trap-table builder (`0x9a9a`).
+- (b) Make `$0400-$0600` a normal RAM region (drop the dynamic-read override) so
+  the ROM-built trap table persists and is what the dispatcher reads.
+- (c) Stop intercepting at `0x408099b0`; let the ROM's real A-trap dispatcher
+  run against the ROM-built table, keeping only the EMUL_OP hooks for the
+  specific driver/hardware traps BasiliskII patches (Sony/Disk/SCSI/IRQ/etc.).
+- (d) Let InitMemMgr/InitZone build the real SysZone instead of the faked
+  globals (or call them explicitly), so NewPtr/NewHandle operate on a real zone.
+Each step is testable in isolation behind `LC_FAITHFUL_DISK_BOOT`; expect early
+regressions (the boot will re-derive state the ROM way) that converge toward the
+oracle. This replaces the unbounded per-vector retrofit with one coherent init.
+
+
 
 
 
