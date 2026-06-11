@@ -511,6 +511,26 @@ the volume header). After that: build VCB, open System file,
 ROM-OS-init bring-up; each scaffolding global we stop faking moves boot 1 closer
 to the real System-load rail, with the fixture baseline staying green.
 
+#### FS dispatch reaches real ROM; drive lookup returns nsDrvErr (-57)
+
+With FS globals intact, the mount worker's FS dispatch at `0xf01e`
+(`a0=[$0362]=0x800000`, `a1=[a0+8]=0x4080f662`, `jsr a1`) now calls a **real ROM
+FS routine** (`0xf662`) instead of garbage. That routine does the drive-queue
+lookup and returns `d0 = -57 (nsDrvErr, "no such drive")`, so MountVol bails
+before issuing the volume-header read.
+
+We already seed a drive-queue entry (DQE at `$8A40`: drive 1, refNum -63, in
+`DrvQHdr $0308`) and `BootDrive ($0210)=1`, but the ROM's lookup still fails.
+Next: make the drive lookup succeed — verify the requested drive number
+(`MountVol` param block `ioVRefNum`/drive at `a0@(22)`) matches `dQDrive`, the
+DQE field layout/`dQDrvSz` word order, and the `DrvQHdr` qHead/qTail linkage are
+exactly what the ROM's `0xf662` traversal expects (cross-check against Inside
+Macintosh DV-05 "Drive Queue Elements" and BasiliskII's AddDrive call:
+`d0=(num<<16)|refNum`, `a0=status+dsQLink`). Once the lookup returns the right
+DQE/refNum, MountVol issues `_Read` (our `$A002 -> DISK_PRIME`) for the volume
+header and can build the VCB.
+
+
 
 
 
