@@ -1736,6 +1736,13 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             // The A-line vector ($28), bus-error ($08), address-error ($0C),
             // illegal ($10) are overwritten below.
             for (uint32_t i = 0x02u; i < 0x100u; i++) {
+                // Under faithful disk boot, do NOT seed past 0x100 (addr 0x400):
+                // 68k exception vectors are 0x00-0xFF (addr 0-0xFC); 0x100-0x3FF
+                // are Mac OS low-memory globals (FSQHead $0362, etc.).  Seeding
+                // the no-op handler over them corrupts the File Manager.
+                if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && i >= 0x40u) {
+                    break;
+                }
                 lc_musashi_bus_ram_write32(i * 4u, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
             // Now write exception vectors OVER the SYS table entries:
@@ -7066,10 +7073,15 @@ void cpu_instr_callback(int pc) {
     current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
     lc_musashi_bus_maybe_allow_post_reset_slot_init_handoff(current_instruction_pc);
     current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
-    lc_musashi_bus_maybe_capture_post_reset_event_wait_record(current_instruction_pc);
-    lc_musashi_bus_maybe_skip_repeated_post_reset_event_wait_loop(current_instruction_pc);
-    current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
-    lc_musashi_bus_maybe_complete_post_reset_event_wait(current_instruction_pc);
+    if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
+        // These scaffolding interceptors key off ROM offsets 0xef98/0xefa2/0xefd8
+        // which in the real boot are the MountVol worker (not an Event Manager
+        // wait loop); under faithful disk boot they corrupt FS globals ($0362).
+        lc_musashi_bus_maybe_capture_post_reset_event_wait_record(current_instruction_pc);
+        lc_musashi_bus_maybe_skip_repeated_post_reset_event_wait_loop(current_instruction_pc);
+        current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
+        lc_musashi_bus_maybe_complete_post_reset_event_wait(current_instruction_pc);
+    }
     if (lc_musashi_bus_maybe_rescue_post_reset_low_dispatch_fallthrough(current_instruction_pc)) {
         current_instruction_pc = m68k_get_reg(NULL, M68K_REG_PC);
     }

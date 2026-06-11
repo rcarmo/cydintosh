@@ -485,6 +485,33 @@ Open/`AddDrive`) so its drive lookup issues volume-header reads through the disk
 driver. Bring up the drive-queue entry (drive #, driver refNum, FSID) so
 MountVol reads the HFS volume header and builds the VCB, then opens the System.
 
+#### FS low-memory globals were being clobbered by SYS-table seeding
+
+Traced the mount worker further: at `0xf01e` it does `movea.l $0362,a0; movea.l
+a0@(8),a1; jsr (a1)` — dispatching via FSQHead (`$0362`). We saw `[$0362] =
+0x0d884080`, which is the **misaligned overlap of `0x40800d88`**: our RESET
+SYS-table seed ran `for i in 0x02..0x100: [i*4] = ROM+0x0d88`, writing the no-op
+handler across `$08-$3FC`. But 68k exception vectors are only `$00-$FF`
+(`$00-$FC`); `$100-$3FF` are Mac OS **low-memory globals** (FSQHead `$0362`,
+etc.). The seed was clobbering the File Manager globals. Under the faithful gate
+the seed now stops at vector `0x40` (`$100`), leaving `$100-$3FF` for the ROM.
+
+With FS globals no longer clobbered, boot 1 returns to the **correct rail**: it
+mounts (worker no longer jumps through a garbage FSQHead) and jumps to the
+boot-2 staging area `0x900000` expecting `boot 2` — instead of falling into the
+dead component walker. Staging is still empty (`boot 2` not loaded), so it stops
+there; disk activity is still only the boot-block reads (sector 0 x2 across boot
+1's two passes). Default baseline unchanged (50M green, VRAM=4).
+
+Remaining to actually mount + load: MountVol still doesn't issue the volume-
+header read (block 2) — the **drive queue / DCE** is still the gap (the boot
+drive must be registered so the worker's drive lookup calls the disk driver for
+the volume header). After that: build VCB, open System file,
+`GetResource('boot',2)`, jump to the real boot 2. This remains a multi-step
+ROM-OS-init bring-up; each scaffolding global we stop faking moves boot 1 closer
+to the real System-load rail, with the fixture baseline staying green.
+
+
 
 
 
