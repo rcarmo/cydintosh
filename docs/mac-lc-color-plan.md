@@ -958,6 +958,28 @@ through to StartBoot instead of the NuBus scanner.  Next: trace the `0xa06e`
 results and `a1`/`a0@(50)` slot records here vs the oracle, and align the slot
 record the LC built-in-video slot should present.
 
+#### Oracle never runs the slot scan (confirmed); two options
+
+Confirmed at harness 2000: the oracle **never executes `0x235e`/`0x2360`** (the
+slot scan loop) — so our boot diverges into it from upstream; the reference takes
+a slot path that bypasses this loop entirely. Two ways to converge:
+
+1. **Targeted (likely simplest):** the loop continues (avoids the scanner) when
+   the slot record satisfies `a1@(32) == 1` at `0x2374` (`a1 = [a0]`, `a0` from
+   `_SlotManager`). Make our built-in-video slot record present that field so
+   the scan loop falls through to `0x238e` (continue) instead of `0x2384` ->
+   scanner -> monitor. Requires getting our slot-ROM record / `_SlotManager`
+   (`0xa06e`) output to match the `0x6e`/`+32` fields this loop reads.
+2. **Upstream:** find why our boot enters this slot-scan routine at all when the
+   oracle's slot init avoids it (likely a different sResource/board-sResource
+   record or PRAM slot-config the LC presents), and match that.
+
+The InitOS restructure (real ROM trap table) stands as the session's key
+advance; the boot now runs real Mac OS init and the remaining frontier is this
+Slot Manager record contract before StartBoot. Fixture baseline green (50M,
+VRAM=4); all gated behind `LC_FAITHFUL_DISK_BOOT`.
+
+
 
 
 
