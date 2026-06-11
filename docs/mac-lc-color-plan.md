@@ -248,6 +248,31 @@ instead of `0xffffffff`. The `post-reset-memory-layout` watchpoint cluster in
 `lc_musashi_bus.c` (0x4167e..) maps the dead path we must avoid by sizing RAM
 correctly here.
 
+#### Correction: 0x4168e is a trampoline, not a dead path; RAM table flows via BootGlobs
+
+Further oracle register tracing corrected two earlier assumptions:
+
+- ROM `0x4168e` (the `post-reset-memory-layout-entry` watchpoint) is NOT a dead
+  path. It is a `4efb` computed-jump trampoline: `0x1306 (jmp base+0x4038e) ->
+  0x4168e -> 0x15308`. The oracle passes through it too. The watchpoint cluster
+  names in `lc_musashi_bus.c` are misleading; that region is normal boot.
+- The RAM size is NOT read from a hardware probe. BasiliskII's RESET emul_op
+  builds a RAM **bank table** at BootGlobs (`RAMBaseMac+RAMSize-0x1c`):
+  `+0=bank0 base (0)`, `+4=bank0 size (RAMSize)`, `+8=0xffffffff (end marker)`,
+  `+0xc=0`. The boot reads it at `0x800aa0` (`movem.l fp@,d3-d4/a3-a4; exg
+  d4,a3`). Our RESET already writes this table correctly, and our boot reaches
+  `0x800a70 -> 0x801300 -> 0x4168e -> 0x15308` just like the oracle.
+
+The remaining divergence is in the **per-bank RAM-walk loop** around
+`0x15274/0x152fa/0x15308`. At `0x15308` the oracle has `d3=0, d4=0xffffffff`
+(bank-table end marker reached) while ours has `d3=1, d4=RAMSize` (still mid-walk
+with a phantom extra bank). Setting our harness RAM to 8MB to match the oracle
+did NOT help — it regressed to `stopped_on_zero_ram=1` at low PC `0x88a` — so the
+bug is in the bank-walk loop state (the `d3` bank counter / loop termination),
+not the RAM size per se. Next: step-diff the `0x152xx` loop body between oracle
+and ours to find where `d3` diverges (where the loop fails to see the
+`0xffffffff` end marker and terminate after one bank).
+
 ### RAM-sizing probe traced to ROM 0x800a70 + 0x800aa0 (V8 bank aliasing)
 
 Widened the oracle register trace across the whole 0x800000-0x820000 range. The
