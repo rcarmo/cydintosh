@@ -705,6 +705,33 @@ the oracle by construction. That is a larger change (unwinding the scaffolding
 behind the gate) but avoids the unbounded vector-by-vector chase. The fixture
 baseline stays green (50M, VRAM=4) throughout; all faithful work remains gated.
 
+#### ROOT of the ioErr: read-only disk -> wPrErr on MountVol's mount write
+
+The `0x14224` worker's ioErr was a mapped error: the FS-dispatch epilogue at
+`0x146f4` takes the real operation result `d0`, and if it is not 0 or -65 it
+returns ioErr. Tracing the real `d0` at `0x146e6` gave **`-44` (wPrErr,
+write-protect)**. MountVol issues a **write** during mount (updating the volume
+bitmap / MDB to mark the volume mounted), and our `DISK_PRIME` rejected all
+writes on the read-only image with wPrErr — which the FS turned into ioErr and
+bailed. BasiliskII's disk is writable, so its mount write succeeds; this was a
+genuine read-only-disk parity gap, not a micro-divergence.
+
+Fix (gated): added a sparse **RAM copy-on-write overlay** to `DISK_PRIME` —
+under `LC_FAITHFUL_DISK_BOOT`, writes go to RAM (512-byte sectors, lazily
+allocated, up to 8192 sectors) and reads check the overlay before the read-only
+image. The volume now looks writable without modifying the disk file. Result:
+the mount write succeeds, MountVol no longer fails with ioErr, and the boot
+advances to a new state (spinning near `0x11c6`, `stopped_on_zero_ram=0`).
+Default baseline unchanged (50M green, VRAM=4, no wPrErr).
+
+New frontier: MountVol still does not read the **MDB (block 2)** — disk activity
+is read/write of **sector 0** only, then a spin near `0x11c6`. So MountVol's
+MDB read targets the wrong sector (position computed as 0 instead of block 2 /
+byte 0x400), or it loops re-reading the boot blocks. Next: trace the MDB-read
+param block / `DISK_PRIME` position so the read targets HFS block 2, populating
+the VCB from the real MDB.
+
+
 
 
 

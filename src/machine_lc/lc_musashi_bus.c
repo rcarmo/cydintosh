@@ -1391,6 +1391,34 @@ static void lc_musashi_bus_basilisk_install_drivers(uint32_t pb) {
              pb, unit_table, sony_driver, disk_driver, asc_regs, (int)LC_VIDEO_REFNUM);
 }
 
+// RAM copy-on-write overlay for the faithful disk-boot path: written 512-byte
+// sectors are kept in RAM so the read-only disk image looks writable (MountVol
+// updates the volume bitmap/MDB during mount).  Sparse + lazily allocated.
+#define LC_DISK_OVERLAY_MAX 8192u
+static uint32_t *lc_disk_overlay_pos = NULL;   // 512-aligned byte position
+static uint8_t (*lc_disk_overlay_data)[512] = NULL;
+static unsigned lc_disk_overlay_count = 0;
+
+static uint8_t *lc_disk_overlay_find(uint32_t pos, bool create) {
+    if (lc_disk_overlay_pos == NULL) {
+        if (!create) return NULL;
+        lc_disk_overlay_pos = (uint32_t *)malloc(LC_DISK_OVERLAY_MAX * sizeof(uint32_t));
+        lc_disk_overlay_data = malloc(LC_DISK_OVERLAY_MAX * 512u);
+        if (lc_disk_overlay_pos == NULL || lc_disk_overlay_data == NULL) {
+            free(lc_disk_overlay_pos); lc_disk_overlay_pos = NULL;
+            free(lc_disk_overlay_data); lc_disk_overlay_data = NULL;
+            return NULL;
+        }
+        lc_disk_overlay_count = 0;
+    }
+    for (unsigned i = 0; i < lc_disk_overlay_count; i++) {
+        if (lc_disk_overlay_pos[i] == pos) return lc_disk_overlay_data[i];
+    }
+    if (!create || lc_disk_overlay_count >= LC_DISK_OVERLAY_MAX) return NULL;
+    lc_disk_overlay_pos[lc_disk_overlay_count] = pos;
+    return lc_disk_overlay_data[lc_disk_overlay_count++];
+}
+
 static int16_t lc_musashi_bus_basilisk_disk_prime(bool is_sony, uint32_t pb, uint32_t dce) {
     if (active_bus == NULL || active_bus->ram == NULL || pb + 49u >= active_bus->ram_size ||
         dce + 19u >= active_bus->ram_size) {
@@ -1411,7 +1439,8 @@ static int16_t lc_musashi_bus_basilisk_disk_prime(bool is_sony, uint32_t pb, uin
     }
 
     const bool read_op = (lc_musashi_bus_peek_ram16(pb + 6u) & 0xffu) == 2u; // aRdCmd
-    if (!read_op && !lc_disk_write_allowed()) {
+    const bool faithful = getenv("LC_FAITHFUL_DISK_BOOT") != NULL;
+    if (!read_op && !lc_disk_write_allowed() && !faithful) {
         lc_musashi_bus_ram_write32(pb + 40u, 0u);
         lc_disk_trace_io(is_sony ? LC_DISK_CMD_SWIM_WRITE_SECTOR : LC_DISK_CMD_SCSI_WRITE,
                          position / 512u, length, true, ESP_ERR_NOT_ALLOWED);
@@ -1429,29 +1458,47 @@ static int16_t lc_musashi_bus_basilisk_disk_prime(bool is_sony, uint32_t pb, uin
     uint32_t done = 0;
     while (done < length) {
         const uint32_t chunk = (length - done) > sizeof(scratch) ? sizeof(scratch) : (length - done);
+        const uint64_t chunk_pos = position + done;
         esp_err_t err = ESP_OK;
         if (read_op) {
-            err = esp_partition_read(disk, (size_t)(position + done), scratch, chunk);
-            if (err != ESP_OK) {
-                lc_musashi_bus_ram_write32(pb + 40u, done);
-                lc_disk_trace_io(is_sony ? LC_DISK_CMD_SWIM_READ_SECTOR : LC_DISK_CMD_SCSI_READ,
-                                 (position + done) / 512u, chunk, false, err);
-                return -19; // readErr
+            // Faithful disk boot: serve from the RAM copy-on-write overlay first
+            // (so the volume looks writable: MountVol's bitmap/MDB updates persist
+            // for subsequent reads) and fall back to the read-only image.
+            uint8_t *ovl = faithful ? lc_disk_overlay_find((uint32_t)chunk_pos, false) : NULL;
+            if (ovl != NULL) {
+                memcpy(scratch, ovl, chunk);
+            } else {
+                err = esp_partition_read(disk, (size_t)chunk_pos, scratch, chunk);
+                if (err != ESP_OK) {
+                    lc_musashi_bus_ram_write32(pb + 40u, done);
+                    lc_disk_trace_io(is_sony ? LC_DISK_CMD_SWIM_READ_SECTOR : LC_DISK_CMD_SCSI_READ,
+                                     (uint32_t)(chunk_pos / 512u), chunk, false, err);
+                    return -19; // readErr
+                }
             }
             for (uint32_t i = 0; i < chunk; i++) {
                 (void)lc_memory_bus_write8(active_bus, buffer + done + i, scratch[i]);
             }
-        } else {
-            for (uint32_t i = 0; i < chunk; i++) {
-                scratch[i] = (uint8_t)lc_memory_bus_read8(active_bus, buffer + done + i);
+        } else if (faithful) {
+            // Copy-on-write: store the written sector into the RAM overlay.
+            uint8_t *ovl = lc_disk_overlay_find((uint32_t)chunk_pos, true);
+            if (ovl == NULL) {
+                lc_musashi_bus_ram_write32(pb + 40u, done);
+                return -34; // dskFulErr (overlay exhausted)
             }
+            for (uint32_t i = 0; i < chunk; i++) {
+                ovl[i] = (uint8_t)lc_memory_bus_read8(active_bus, buffer + done + i);
+            }
+            lc_disk_trace_io(is_sony ? LC_DISK_CMD_SWIM_WRITE_SECTOR : LC_DISK_CMD_SCSI_WRITE,
+                             (uint32_t)(chunk_pos / 512u), chunk, true, ESP_OK);
+        } else {
             // Host/firmware disk writes remain intentionally blocked unless the
             // project is built with LC_DISK_IMAGE_READ_ONLY=0 and esp_partition
             // write support is added for the active platform.
             err = ESP_FAIL;
             lc_musashi_bus_ram_write32(pb + 40u, done);
             lc_disk_trace_io(is_sony ? LC_DISK_CMD_SWIM_WRITE_SECTOR : LC_DISK_CMD_SCSI_WRITE,
-                             (position + done) / 512u, chunk, true, err);
+                             (uint32_t)(chunk_pos / 512u), chunk, true, err);
             return -20; // writErr
         }
         done += chunk;
