@@ -1220,11 +1220,16 @@ or must be reconstructed as true allocator invariants rather than copied bytes.
 Static review of the current scaffold also found a direct obstacle to using the
 oracle's `SysZone=0x2000`: the boot scaffold pre-populated the toolbox trap table
 over `0x0e00..0x2e00`, which collides with a low SysZone at `0x2000` and with the
-MM dispatch tables at `0x1e00/0x1f00`. This has now been cleaned up under
-`LC_FAITHFUL_DISK_BOOT`: toolbox prefill stops at `0x1e00` in faithful mode, while
-non-faithful fixture behavior still fills to `0x2e00`. However, a faithful
-low-SysZone implementation still has to move several other scaffolds out of the
-oracle allocation band. Known oracle allocation addresses vs current static
+MM dispatch tables at `0x1e00/0x1f00`. The Musashi-side setup now caps faithful
+toolbox prefill at `0x1e00`, while non-faithful fixture behavior still fills to
+`0x2e00`. A matching cap in the lower-level RAM-owned low-memory seeder was
+tested and **reverted** (`c9c330b`): it prevented the old `0x1ee8=d88` stub state
+that our lazy MM installer used as a trigger, and faithful boot regressed to the
+monitor/zero-RAM family (`0x49fca` / `0x100`) even after trying a zero-or-stub
+installer condition. Therefore the RAM-owned seed layer remains part of the
+current MM bootstrap dependency. A faithful low-SysZone implementation still has
+to make both setup layers coherent, not just cap the later Musashi-side fill, and
+move several other scaffolds out of the oracle allocation band. Known oracle allocation addresses vs current static
 scaffold ranges:
 
 ```
@@ -1237,11 +1242,10 @@ scaffold ranges:
 0x9468: CLEARED by relocating faithful SRT records to 0x1e000..0x1e0dc
 ```
 
-So the trap-table cap is necessary but not sufficient: the faithful low heap also
-requires keeping the remaining low range free or choosing a deliberately modeled
-layout that does not pretend to match the oracle's exact low addresses. Three
-collisions are now
-cleared under `LC_FAITHFUL_DISK_BOOT`: the ROM resource master-pointer scratch
+So the Musashi-side trap-table cap is necessary but not sufficient: the faithful
+low heap also requires keeping the remaining low range free or choosing a
+deliberately modeled layout that does not pretend to match the oracle's exact
+low addresses. Three collisions are now cleared under `LC_FAITHFUL_DISK_BOOT`: the ROM resource master-pointer scratch
 slab moves from `0x8400..0x8700` to `0x1c000..0x1c300`, the post-reset probe
 dispatch/ProductInfo tables move from `0x9000..0x9120` to `0x1d000..0x1d120`,
 and the synthetic SRT records move from `0x9400..0x94c0` to
@@ -1254,9 +1258,10 @@ layout fixes:
 - 500M faithful: `HOST_LC_OK`, `cycles=502308543`, `pc_after=0x408142f2`, all
   stop flags 0.
 
-This does not solve `_InitFS` allocation by itself, but it removes a real
-scaffold collision and is a prerequisite for any coherent low-SysZone/MM-table
-work.
+This does not solve `_InitFS` allocation by itself, but it removes real scaffold
+collisions. The reverted RAM-owned prefill-cap experiment proves a coherent
+low-SysZone/MM-table layout must be applied consistently across both low-memory
+seed layers and the lazy MM-table installer.
 
 
 
