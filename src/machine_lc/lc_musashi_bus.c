@@ -5927,6 +5927,32 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
             ESP_LOGW(TAG, "LC FAITHFUL: repaired post-MDB helper CCR at 0xf758");
         }
+        if ((current_instruction_pc & 0x000fffffu) == 0x0000fc18u) {
+            // InitFS has not built the FCB array, but MountVol reaches the ROM
+            // helper that allocates FCB slots from it. Model this helper's
+            // successful subroutine result directly: seed a tiny FCB array on
+            // first use, mark the selected entry busy, return D1=entry offset
+            // and D0=noErr to the caller's BSR return address.
+            static uint16_t fm_fcb_next = 0x0060u;
+            const uint32_t fcb = 0x0001f800u;
+            if (lc_musashi_bus_peek_ram32(0x034eu) == 0u) {
+                for (uint32_t i = 0; i < 0x2000u; i++) lc_musashi_bus_ram_write8(fcb + i, 0);
+                lc_musashi_bus_ram_write16(fcb + 0u, 0x0eb2u);
+                lc_musashi_bus_ram_write32(0x034eu, fcb);
+            }
+            const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+            const uint32_t ret = lc_musashi_bus_peek_ram32(sp);
+            lc_musashi_bus_ram_write32(fcb + fm_fcb_next, 0xffffffffu);
+            m68k_set_reg(M68K_REG_A1, fcb);
+            m68k_set_reg(M68K_REG_D1, fm_fcb_next);
+            m68k_set_reg(M68K_REG_D0, 0);
+            m68k_set_reg(M68K_REG_SP, sp + 4u);
+            m68k_set_reg(M68K_REG_PC, ret);
+            ESP_LOGW(TAG, "LC FAITHFUL: modeled FCB allocation off=0x%04x ret=0x%08" PRIx32, fm_fcb_next, ret);
+            fm_fcb_next = (uint16_t)(fm_fcb_next + 0x005eu);
+            previous_instruction_pc = current_instruction_pc;
+            return;
+        }
         const char *ws = getenv("LC_TRACE_PC_START");
         const char *we = getenv("LC_TRACE_PC_END");
         if (ws != NULL && we != NULL) {
