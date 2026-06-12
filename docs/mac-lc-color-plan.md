@@ -1154,8 +1154,15 @@ one **existing matching node** (`node+8 = current A2/VCB`, `node+18 = current
 D2/key`, free bit clear), then set `A3/A1` to that head. This makes the ROM take
 the existing-entry branch (`0x143d4`) instead of walking lowmem 0 or allocating a
 new node. The worker epilogue at `0x1440a` then leaves a saved `0xffffffff`
-sentinel above the real ROM return address (`0x4080f042`); a narrow frame repair
-skips exactly that sentinel+ROM-PC shape.
+sentinel above the outer File Manager callback return (`0x4080f042`); the
+committed narrow frame repair skips exactly that sentinel+ROM-PC shape, producing
+the current stable `0xefe2` I/O-wait frontier. A tempting alternate repair was
+tested: rewrite the sentinel to the immediate MountVol callsite return
+(`0xf6fa`), then similarly repair the next trampoline return to `0xf706`. That
+path reaches deeper MountVol code, but it loops boot-block sector-0 reads and
+repeats the modeled MountVol path hundreds of times by 50M, never reaching the
+MDB. So keep the committed `0xf042` return-shape repair; do **not** switch to the
+`0xf6fa/0xf706` repair without fixing broader MountVol/boot-block state.
 
 Validation:
 
