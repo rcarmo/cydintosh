@@ -1165,6 +1165,15 @@ error/monitor path. This strongly suggests the missing contract is the **complet
 classic Memory Manager zone/free-block format**, not just the low-memory zone
 pointers.
 
+One more rejected shortcut: replaying the oracle's observed low allocation
+addresses for the InitFS/File Manager `NewPtr` sites (`0xf39c -> 0x7734`,
+`0xf3b2 -> 0x85f4`, `0xf3da -> 0x8884`, `0xf3e8 -> 0x8da0`, `0x14426 ->
+0x8de4/0x9018`) gets the early InitFS sequence moving, but it still regresses
+back into the video-default/diagnostic family by longer runs. Those addresses
+also overlap current scaffolded low-memory areas such as the boot DCE/DQE, so
+hard-coding them is not safe. Use the oracle addresses as evidence for low
+SysZone behavior, not as a committed allocation table.
+
 
 
 
