@@ -1255,6 +1255,16 @@ The frontier remains the same cleanup/search helper around `0x144de/0x144e0`,
 but `D0` is now `0` instead of `-42`; next work should explain why the cleanup
 list still loops/repeats and what boot-resource state is missing.
 
+Follow-up branch trace: if the `0xfc18` helper also returns with Z set, MountVol
+gets through both FCB allocations (`0xf790` and `0xf7b4`) and reaches the next
+stage (`0xf7d4..`). It then stores `$0378` and `$0380` into the VCB, calls
+`0xfc38`, and requires `$0380`/working-list semantics for that helper:
+`0xfc38` fills the selected FCB entry and calls `0x135fe` with `A0=A3` (callbacks
+like `0x12630`/`0x12fa2`) and `A1` still carrying the list pointer. With the
+current state `$0380`/`A1` is zero/malformed, so the deeper branch falls back to
+monitor. Thus the next exact dependency after FCB allocation is the `$0380`
+working-list / `0xfc38` insertion semantics, not the FCB slot alone.
+
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
 so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the
