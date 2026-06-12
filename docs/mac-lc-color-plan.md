@@ -1263,7 +1263,11 @@ stage (`0xf7d4..`). It then stores `$0378` and `$0380` into the VCB, calls
 like `0x12630`/`0x12fa2`) and `A1` still carrying the list pointer. With the
 current state `$0380`/`A1` is zero/malformed, so the deeper branch falls back to
 monitor. Thus the next exact dependency after FCB allocation is the `$0380`
-working-list / `0xfc38` insertion semantics, not the FCB slot alone.
+working-list / `0xfc38` insertion semantics, not the FCB slot alone. A temporary
+attempt to provide a free `$0380` work list and model `0x13612` `NewPtr(54)` let
+`0x135fe` run, but only looped back into boot/`_InitFS` repeatedly (FCB offsets
+grew without progress), so it is not commit-worthy; the `$0380` model must be
+coherent with the full surrounding File Manager state.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
