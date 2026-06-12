@@ -1175,8 +1175,12 @@ Rejected shortcut: forcing only the current `ioResult` (`a0+16`) to `0` at the
 `0xefe2` wait loop is not sufficient. Completing once moves from `0xefe2` back to
 `0xefde`, but the ROM immediately reposts/re-enters; completing every 1024 hits
 produced hundreds of completions and still ended at `0xefde` by 50M with no MDB
-read. The real missing piece is queue/operation semantics behind `0xf000` and
-`0x360/0x362`, not just the wait-loop status word.
+read. A second experiment completed the queued PB at the callback-return point
+(`0xf042`) by copying callback `D0` into `[$0362]+16` and clearing bit0 of
+`$0360`; this avoided the wait-loop symptom, but the boot then hit the monitor at
+215,899 cycles. The real missing piece is queue/operation semantics behind
+`0xf000` and `0x360/0x362` plus the follow-on boot-block/resource state, not just
+completion of the wait-loop status word.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
