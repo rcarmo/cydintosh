@@ -1171,6 +1171,13 @@ operation through the FS queue globals (`0x360/0x362`); `0xefe2` polls
 is issued yet. Next: model/repair the FS I/O queue/completion path so the
 operation completes and MountVol proceeds to the MDB/System-file path.
 
+Rejected shortcut: forcing only the current `ioResult` (`a0+16`) to `0` at the
+`0xefe2` wait loop is not sufficient. Completing once moves from `0xefe2` back to
+`0xefde`, but the ROM immediately reposts/re-enters; completing every 1024 hits
+produced hundreds of completions and still ended at `0xefde` by 50M with no MDB
+read. The real missing piece is queue/operation semantics behind `0xf000` and
+`0x360/0x362`, not just the wait-loop status word.
+
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
 so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the
