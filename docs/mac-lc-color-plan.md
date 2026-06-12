@@ -1200,6 +1200,33 @@ This did make `A0=0x00400a4c` at `0xef94`, but it still ended at the same
 `0xefe2` frontier by 12M/50M. So the known PB pointer divergence is not by
 itself sufficient; the FS queue operation semantics remain the blocker.
 
+#### MountVol reaches post-MDB path; new frontier at 0x144de/0x144e0
+
+A validated deeper repair now supersedes the old `0xefe2` wait frontier. The
+committed model still seeds the matching `0x142e0` work-list node, but also
+preloads that node's data area with the real HFS MDB sector (block 2). Instead of
+returning directly to the outer `0xf042` callback return, the worker-frame repair
+now restores the immediate MountVol continuations:
+
+- `0x1440a -> 0xf6fa`, restoring `A2` to the VCB pointer;
+- `0x144cc -> 0xf706`, so MountVol validates the MDB buffer.
+
+Two narrow follow-up repairs match the oracle path enough to continue past the
+MDB validation sequence: skip the exact `A005` status trap at `0xf748` as `noErr`,
+and set Z at `0xf758` when the helper returns `D0=0xffffff00` (the oracle has Z
+set there despite the nonzero D0 value). With those in place, MountVol proceeds
+through `0xf75c..0xf790` and reaches a new stable frontier:
+
+- 50M faithful: `HOST_LC_OK`, `cycles=50536541`, `pc_after=0x408144e0`, all stop
+  flags 0.
+- 500M faithful: `HOST_LC_OK`, `cycles=505370523`, `pc_after=0x408144de`, all
+  stop flags 0.
+- 50M fixture: `HOST_LC_OK`, all stop flags 0.
+
+The new frontier is the list clean-up/search helper around `0x144d4..0x144fa`,
+ending at `0x144de/0x144e0` with `D0=-42`. This is beyond the MDB signature
+validation and no longer the `0xefe2` wait loop.
+
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
 so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the

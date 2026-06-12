@@ -5855,6 +5855,9 @@ void cpu_instr_callback(int pc) {
             // worker is looking for: one circular list node whose VCB pointer
             // and key match the current MountVol request, so the search takes
             // the 0x143d4 existing-entry path instead of walking low memory.
+            // The node data area is the buffer MountVol validates at 0xf706;
+            // preload it with the MDB sector so the later HFS 'BD' check sees
+            // the same class of data the real FS queue read would have supplied.
             const uint32_t head = 0x0001f000u;
             const uint32_t node = head + 12u;
             const uint32_t vcb = m68k_get_reg(NULL, M68K_REG_A2);
@@ -5869,24 +5872,60 @@ void cpu_instr_callback(int pc) {
             lc_musashi_bus_ram_write32(node + 8u, vcb);
             lc_musashi_bus_ram_write32(node + 18u, d2v);
             lc_musashi_bus_ram_write8(node + 26u, 0u);
+            {
+                const uint32_t tmp_pb = 0x0001f400u;
+                for (uint32_t i = 0; i < 64u; i++) lc_musashi_bus_ram_write8(tmp_pb + i, 0);
+                lc_musashi_bus_ram_write16(tmp_pb + 6u, 2u);
+                lc_musashi_bus_ram_write16(tmp_pb + 24u, (uint16_t)(int16_t)-63);
+                lc_musashi_bus_ram_write32(tmp_pb + 32u, node + 28u);
+                lc_musashi_bus_ram_write32(tmp_pb + 36u, 512u);
+                lc_musashi_bus_ram_write16(tmp_pb + 44u, 1u);
+                lc_musashi_bus_ram_write32(tmp_pb + 46u, 0x400u);
+                (void)lc_musashi_bus_basilisk_disk_prime(false, tmp_pb, 0x00008a40u);
+            }
             m68k_set_reg(M68K_REG_A3, head);
             m68k_set_reg(M68K_REG_A1, head);
-            ESP_LOGW(TAG, "LC FAITHFUL: modeled FM work-list match head=0x%08x node=0x%08x vcb=0x%08x key=0x%08x",
+            ESP_LOGW(TAG, "LC FAITHFUL: modeled FM work-list/MDB buffer head=0x%08x node=0x%08x vcb=0x%08x key=0x%08x",
                      head, node, vcb, d2v);
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x0001440au) {
             // The 0x14224 worker epilogue can leave the saved D0 sentinel on
             // top of the RTS return slot for this modeled existing-entry path.
-            // The real return address is immediately below it; skip only this
-            // exact sentinel+ROM-PC shape.
+            // Restore the immediate MountVol continuation (0xf6fa) and A2/VCB
+            // only for the exact sentinel + outer-callback-return shape.
             const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
             const uint32_t top = lc_musashi_bus_peek_ram32(sp + 0u);
             const uint32_t next = lc_musashi_bus_peek_ram32(sp + 4u);
-            if (top == 0xffffffffu && next >= LC_BASILISK_ROM_BASE_32 && next < LC_BASILISK_ROM_BASE_32 + 0x80000u) {
-                m68k_set_reg(M68K_REG_SP, sp + 4u);
-                ESP_LOGW(TAG, "LC repaired FM worker return frame: pc=0x%08" PRIx32 " old_sp=0x%08" PRIx32 " return=0x%08" PRIx32,
+            if (top == 0xffffffffu && next == LC_BASILISK_ROM_BASE_32 + 0x0000f042u) {
+                lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0000f6fau);
+                m68k_set_reg(M68K_REG_A2, lc_musashi_bus_peek_ram32(0x0001f00cu + 8u));
+                ESP_LOGW(TAG, "LC FAITHFUL: repaired FM worker return to MountVol: pc=0x%08" PRIx32 " sp=0x%08" PRIx32 " outer=0x%08" PRIx32 " a2=0x%08x",
+                         current_instruction_pc, sp, next, m68k_get_reg(NULL, M68K_REG_A2));
+            }
+        }
+        if ((current_instruction_pc & 0x000fffffu) == 0x000144ccu) {
+            const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+            const uint32_t top = lc_musashi_bus_peek_ram32(sp + 0u);
+            const uint32_t next = lc_musashi_bus_peek_ram32(sp + 4u);
+            if (top == 0xffffffffu && next == LC_BASILISK_ROM_BASE_32 + 0x0000f042u) {
+                lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0000f706u);
+                ESP_LOGW(TAG, "LC FAITHFUL: repaired FM worker return2 to MountVol: pc=0x%08" PRIx32 " sp=0x%08" PRIx32 " outer=0x%08" PRIx32,
                          current_instruction_pc, sp, next);
             }
+        }
+        if ((current_instruction_pc & 0x000fffffu) == 0x0000f748u) {
+            // Oracle A005 status trap returns noErr here; skip only this exact call.
+            m68k_set_reg(M68K_REG_D0, 0);
+            m68k_set_reg(M68K_REG_PC, current_instruction_pc + 2u);
+        }
+        if ((current_instruction_pc & 0x000fffffu) == 0x0000f758u &&
+            m68k_get_reg(NULL, M68K_REG_D0) == 0xffffff00u) {
+            // Oracle's helper at 0x117ea returns here with Z set even though D0
+            // is 0xffffff00; preserve that branch condition so MountVol follows
+            // the normal MDB-valid path after the A005 status call.
+            const uint32_t sr = m68k_get_reg(NULL, M68K_REG_SR);
+            m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
+            ESP_LOGW(TAG, "LC FAITHFUL: repaired post-MDB helper CCR at 0xf758");
         }
         const char *ws = getenv("LC_TRACE_PC_START");
         const char *we = getenv("LC_TRACE_PC_END");
