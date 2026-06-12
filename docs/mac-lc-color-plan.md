@@ -1232,8 +1232,9 @@ progress), so do **not** commit that shortcut. Targeted FCBSPtr-only
 experiments at `0xfc18` made the FCB scan find/mark entries, but still fell into
 the monitor at ~213,899 cycles: both an artificial array (`$034e=0x1f800`, first
 word `0x0eb2`, zeroed entries) and the oracle FCB address (`$034e=0x7734`) were
-tested. So the FCB array alone is insufficient; the broader File
-Manager/boot-resource state must also match.
+tested. A combined FCB + empty cleanup-list seed for `$0378/$037c/$0380` also
+still fell into the same monitor path. So the FCB/list heads alone are
+insufficient; the broader File Manager/boot-resource state must also match.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
