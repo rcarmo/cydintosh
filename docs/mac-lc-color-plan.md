@@ -1225,9 +1225,11 @@ toolbox prefill at `0x1e00`, while non-faithful fixture behavior still fills to
 `0x2e00`. A matching cap in the lower-level RAM-owned low-memory seeder was
 tested and **reverted** (`c9c330b`): it prevented the old `0x1ee8=d88` stub state
 that our lazy MM installer used as a trigger, and faithful boot regressed to the
-monitor/zero-RAM family (`0x49fca` / `0x100`) even after trying a zero-or-stub
-installer condition. Therefore the RAM-owned seed layer remains part of the
-current MM bootstrap dependency. A faithful low-SysZone implementation still has
+monitor/zero-RAM family (`0x49fca` / `0x100`). A later stronger experiment capped
+both lower-level fill loops and made the lazy MM installer accept either zero or
+the old stub at `0x1ee8`; it still regressed to the 215,404-cycle monitor path.
+Therefore the RAM-owned seed layer remains part of the current MM bootstrap
+dependency. A faithful low-SysZone implementation still has
 to make both setup layers coherent, not just cap the later Musashi-side fill, and
 move several other scaffolds out of the oracle allocation band. Known oracle allocation addresses vs current static
 scaffold ranges:
