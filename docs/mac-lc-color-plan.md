@@ -1145,6 +1145,15 @@ for real InitFS allocations, or narrowly model the InitFS-created structures wit
 all verified frame/list invariants (not just head links), then re-test
 MountVol's `0x142e0` scan.
 
+Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
+`0x00380000`, but the zone header there is zero in the current validated code,
+so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the
+ROM validation fields at `zone+0x38`/`zone+0x3c` gets past the first validator
+(`0xdbf8`) but still falls into a later MM error/monitor path during allocation.
+So a partial zone header is not enough; the real fix needs the full block/free
+list invariants the ROM allocator expects, or a deliberately complete modeled
+InitFS structure set.
+
 
 
 
