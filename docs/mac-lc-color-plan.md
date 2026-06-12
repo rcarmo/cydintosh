@@ -1060,6 +1060,50 @@ faithful runs both stop at the new 216,983-cycle frontier.  A 500M fixture run
 returns `HOST_LC_OK` but also reaches the long-run monitor guard (pre-existing
 fixture behavior, not caused by this faithful-gated change).
 
+#### Boot-block loop escapes monitor/zero-RAM; current frontier is real MountVol `-113`
+
+Next upstream trace showed the ROM diagnostic path came from low-memory boot-code
+at `0x902..0x98e`, not from the oracle rail (the oracle never executes
+`0x900..0x940`).  The specific fault chain was:
+
+- boot code called trap `A06D` at `0x926` (this path expects our MaxMem-style
+  stub semantics, not the real ROM handler);
+- before the call, the next words were valid boot code
+  (`303a ff50 a06c 2047 ...`);
+- after the real ROM handler returned, `0x928` had been overwritten with garbage
+  (`cfc5 00af 5f93 ... fdef`), causing a bogus F-line trap into
+  `0x2702 -> 0x280e -> 0x2310..` diagnostics.
+
+Because this path is already non-oracle/synthetic, stop letting the real `A06D`
+handler run here under faithful mode; the generic `_MaxMem` trap intercept now
+returns to `0x928` without clobbering the boot-code area.  Also gate the old
+fixture-only boot-block re-entry shortcut (`0x88a -> boot_2 at 0x00900000`) off
+under `LC_FAITHFUL_DISK_BOOT`; otherwise, once the diagnostic crash is fixed, the
+faithful boot is redirected into the dead fixture staging area.
+
+The MM fix was also made more faithful: instead of only installing sub-vectors
+`0x1ee0/4/8`, the lazy `0xcc60` model now copies/relocates the full 40-entry
+`0x1e00` and `0x1f00` dispatch tables from ROM table `0xcb20`, then installs
+`0x1ee0=0xdce4`, `0x1ee4=0xdc2e`, `0x1ee8=0xdd1e`.
+
+Result: faithful boot now reaches the cycle budget rather than monitor/zero-RAM:
+
+- 50M faithful: `HOST_LC_OK`, `cycles=50275866`, `pc_after=0x40809ac0`, all
+  stop flags 0.
+- 500M faithful: `HOST_LC_OK`, `cycles=502755944`, `pc_after=0x40809abc`, all
+  stop flags 0.
+- 50M fixture baseline unchanged: `HOST_LC_OK`, all stop flags 0.
+- 500M fixture baseline unchanged: `HOST_LC_OK`, reaches the pre-existing
+  long-run monitor guard.
+
+The new real frontier is the boot-block retry loop around `_MountVol`: real
+`_MountVol` at `0x936` returns `d0=0xffffff8f` (`-113`), so the boot block
+branches to `0x98e` and retries, shrinking the stack by 2 each time.  A temporary
+experiment forcing this particular `_MountVol` call to `noErr` showed the next
+boot-block failure is `fnfErr (43)` after `_InitResources`/resource lookup, so do
+not commit a MountVol success stub; fix the real MountVol/VCB/System-file state
+instead.
+
 
 
 

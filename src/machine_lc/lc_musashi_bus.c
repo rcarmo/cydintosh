@@ -5797,11 +5797,18 @@ void cpu_instr_callback(int pc) {
             uint32_t rombase = 0x40800000u;
             uint32_t v1ee8 = lc_musashi_bus_peek_ram32(0x1ee8u);
             if (v1ee8 == rombase + 0x0d88u) {
+                for (uint32_t i = 0; i < 40u; i++) {
+                    const uint32_t src = rombase + 0x0cb20u + i * 8u;
+                    const uint32_t t1e = lc_memory_bus_read32(active_bus, src + 0u) + rombase;
+                    const uint32_t t1f = lc_memory_bus_read32(active_bus, src + 4u) + rombase;
+                    lc_musashi_bus_ram_write32(0x1e00u + i * 4u, t1e);
+                    lc_musashi_bus_ram_write32(0x1f00u + i * 4u, t1f);
+                }
                 lc_musashi_bus_ram_write32(0x1ee0u, rombase + 0x0dce4u);
                 lc_musashi_bus_ram_write32(0x1ee4u, rombase + 0x0dc2eu);
                 lc_musashi_bus_ram_write32(0x1ee8u, rombase + 0x0dd1eu);
                 mm_dispatch_installed = true;
-                ESP_LOGW(TAG, "LC FAITHFUL: installed MM dispatch handlers 0x1ee0/4/8 (0xdce4/0xdc2e/0xdd1e) before first _NewPtr at icnt=%lu",
+                ESP_LOGW(TAG, "LC FAITHFUL: installed MM dispatch tables 0x1e00/0x1f00 and handlers 0x1ee0/4/8 before first _NewPtr at icnt=%lu",
                          (unsigned long)instruction_callback_count);
             }
         }
@@ -5908,13 +5915,15 @@ void cpu_instr_callback(int pc) {
             if (is_toolbox) trap_num = trap_word & 0x03ffu; // toolbox: low 10 bits
 
             // Faithful-disk-boot: let the ROM's own A-trap dispatcher run boot 1's
-            // File Manager OS traps (InitFS/MountVol/UnmountVol/InitEvents) so the
-            // real ROM File Manager mounts the HFS volume via the disk driver,
-            // instead of our stub.  We seeded their real handlers into the OS trap
-            // table above; just don't intercept here.
+            // File Manager OS traps (InitFS/MountVol/UnmountVol) so the real ROM
+            // File Manager mounts the HFS volume via the disk driver, instead of
+            // our stub.  Keep A06D (_MaxMem in this boot-block path) intercepted:
+            // letting the real handler run here clobbers the low-memory boot code
+            // immediately after the trap site.  We seeded the real FM handlers
+            // into the OS trap table above; just don't intercept those here.
             if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && !is_toolbox) {
                 const uint16_t lb = trap_word & 0x00ffu;
-                if (lb == 0x6cu || lb == 0x0fu || lb == 0x0eu || lb == 0x6du || // InitFS/MountVol/UnmountVol/InitEvents
+                if (lb == 0x6cu || lb == 0x0fu || lb == 0x0eu ||                 // InitFS/MountVol/UnmountVol
                     lb == 0x19u || lb == 0x2cu || lb == 0x63u ||                 // InitZone/InitApplZone/MaxApplZone
                     lb == 0x1eu || lb == 0x1fu || lb == 0x22u || lb == 0x23u ||  // NewPtr/DisposPtr/NewHandle/DisposHandle
                     lb == 0x24u || lb == 0x25u || lb == 0x29u || lb == 0x2au ||  // SetPtrSize/SetHandleSize/HLock/HUnlock
@@ -7042,7 +7051,7 @@ void cpu_instr_callback(int pc) {
             }
         }
         // Intercept boot block re-entry: on second+ call, redirect to boot_2.
-        if (current_instruction_pc == 0x0000088au) {
+        if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL && current_instruction_pc == 0x0000088au) {
             static unsigned bb_entry_count = 0;
             bb_entry_count++;
             if (bb_entry_count >= 2u) {
