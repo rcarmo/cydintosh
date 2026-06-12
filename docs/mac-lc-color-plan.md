@@ -1221,10 +1221,8 @@ Static review of the current scaffold also found a direct obstacle to using the
 oracle's `SysZone=0x2000`: the boot scaffold pre-populated the toolbox trap table
 over `0x0e00..0x2e00`, which collides with a low SysZone at `0x2000` and with the
 MM dispatch tables at `0x1e00/0x1f00`. This has now been cleaned up under
-`LC_FAITHFUL_DISK_BOOT` in both setup layers: the Musashi-side prefill and the
-lower-level RAM-owned low-memory seeder both stop toolbox prefill at `0x1e00` in
-faithful mode, while non-faithful fixture behavior still fills to `0x2e00`.
-However, a faithful
+`LC_FAITHFUL_DISK_BOOT`: toolbox prefill stops at `0x1e00` in faithful mode, while
+non-faithful fixture behavior still fills to `0x2e00`. However, a faithful
 low-SysZone implementation still has to move several other scaffolds out of the
 oracle allocation band. Known oracle allocation addresses vs current static
 scaffold ranges:
@@ -1256,8 +1254,9 @@ layout fixes:
 - 500M faithful: `HOST_LC_OK`, `cycles=502308543`, `pc_after=0x408142f2`, all
   stop flags 0.
 
-This does not solve `_InitFS` allocation by itself, but it removes real scaffold
-collisions and is a prerequisite for any coherent low-SysZone/MM-table work.
+This does not solve `_InitFS` allocation by itself, but it removes a real
+scaffold collision and is a prerequisite for any coherent low-SysZone/MM-table
+work.
 
 
 
