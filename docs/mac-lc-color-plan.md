@@ -1182,6 +1182,12 @@ same `0xd8a RTS -> lowmem vector table (0x44/0xEA)` bad-return family. So the
 structure model must include the exact ROM calling-frame/list side effects, not
 just plausible list contents.
 
+A dynamic safe-low bump allocator for the same InitFS/File Manager `NewPtr`
+sites (starting at `0x0000b000` to avoid the oracle-address/scaffold overlap)
+was also rejected: like fixed-address replay, it moves the early InitFS sequence
+but regresses back toward the `0x280e` video-default/diagnostic family by 50M.
+That rules out simple “allocate the right sizes somewhere low” as sufficient.
+
 
 
 
