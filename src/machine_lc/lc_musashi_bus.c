@@ -5849,6 +5849,45 @@ void cpu_instr_callback(int pc) {
                          (unsigned long)instruction_callback_count);
             }
         }
+        if (current_instruction_pc == 0x408142e0u && m68k_get_reg(NULL, M68K_REG_A3) == 0u) {
+            // InitFS has not yet built the File Manager work-list head used by
+            // the MountVol worker.  Model the minimal existing-node case the
+            // worker is looking for: one circular list node whose VCB pointer
+            // and key match the current MountVol request, so the search takes
+            // the 0x143d4 existing-entry path instead of walking low memory.
+            const uint32_t head = 0x0001f000u;
+            const uint32_t node = head + 12u;
+            const uint32_t vcb = m68k_get_reg(NULL, M68K_REG_A2);
+            const uint32_t d2v = m68k_get_reg(NULL, M68K_REG_D2);
+            for (uint32_t i = 0; i < 0x80u; i++) lc_musashi_bus_ram_write8(head + i, 0);
+            lc_musashi_bus_ram_write32(head + 0u, node);
+            lc_musashi_bus_ram_write32(head + 4u, node);
+            lc_musashi_bus_ram_write16(head + 8u, 1u);
+            lc_musashi_bus_ram_write16(head + 10u, 0x0200u);
+            lc_musashi_bus_ram_write32(node + 0u, head);
+            lc_musashi_bus_ram_write32(node + 4u, head);
+            lc_musashi_bus_ram_write32(node + 8u, vcb);
+            lc_musashi_bus_ram_write32(node + 18u, d2v);
+            lc_musashi_bus_ram_write8(node + 26u, 0u);
+            m68k_set_reg(M68K_REG_A3, head);
+            m68k_set_reg(M68K_REG_A1, head);
+            ESP_LOGW(TAG, "LC FAITHFUL: modeled FM work-list match head=0x%08x node=0x%08x vcb=0x%08x key=0x%08x",
+                     head, node, vcb, d2v);
+        }
+        if ((current_instruction_pc & 0x000fffffu) == 0x0001440au) {
+            // The 0x14224 worker epilogue can leave the saved D0 sentinel on
+            // top of the RTS return slot for this modeled existing-entry path.
+            // The real return address is immediately below it; skip only this
+            // exact sentinel+ROM-PC shape.
+            const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+            const uint32_t top = lc_musashi_bus_peek_ram32(sp + 0u);
+            const uint32_t next = lc_musashi_bus_peek_ram32(sp + 4u);
+            if (top == 0xffffffffu && next >= LC_BASILISK_ROM_BASE_32 && next < LC_BASILISK_ROM_BASE_32 + 0x80000u) {
+                m68k_set_reg(M68K_REG_SP, sp + 4u);
+                ESP_LOGW(TAG, "LC repaired FM worker return frame: pc=0x%08" PRIx32 " old_sp=0x%08" PRIx32 " return=0x%08" PRIx32,
+                         current_instruction_pc, sp, next);
+            }
+        }
         const char *ws = getenv("LC_TRACE_PC_START");
         const char *we = getenv("LC_TRACE_PC_END");
         if (ws != NULL && we != NULL) {

@@ -1145,6 +1145,32 @@ for real InitFS allocations, or narrowly model the InitFS-created structures wit
 all verified frame/list invariants (not just head links), then re-test
 MountVol's `0x142e0` scan.
 
+#### File Manager list-scan frontier cleared with existing-entry + frame repair
+
+A narrower structure model finally moved past the `0x142e0..0x14402` spin without
+replaying broad InitFS allocations: at `0x142e0`, if the worker enters with
+`A3=0`, seed a minimal circular File Manager work-list at `0x1f000` containing
+one **existing matching node** (`node+8 = current A2/VCB`, `node+18 = current
+D2/key`, free bit clear), then set `A3/A1` to that head. This makes the ROM take
+the existing-entry branch (`0x143d4`) instead of walking lowmem 0 or allocating a
+new node. The worker epilogue at `0x1440a` then leaves a saved `0xffffffff`
+sentinel above the real ROM return address (`0x4080f042`); a narrow frame repair
+skips exactly that sentinel+ROM-PC shape.
+
+Validation:
+
+- 50M fixture: `HOST_LC_OK`, all stop flags 0.
+- 50M faithful: `HOST_LC_OK`, `cycles=50000951`, `pc_after=0x4080efe2`, all stop
+  flags 0.
+- 500M faithful: `HOST_LC_OK`, `cycles=500000951`, `pc_after=0x4080efe2`, all
+  stop flags 0.
+
+New frontier: `0xefe2` is the real File Manager I/O wait loop. `0xf000` posts an
+operation through the FS queue globals (`0x360/0x362`); `0xefe2` polls
+`a0@(16)` (`ioResult`) while it remains positive (`1`). No MDB sector-2 disk read
+is issued yet. Next: model/repair the FS I/O queue/completion path so the
+operation completes and MountVol proceeds to the MDB/System-file path.
+
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
 so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the
