@@ -1187,9 +1187,12 @@ read. A second experiment completed the queued PB at the callback-return point
 `$0360`; this avoided the wait-loop symptom, but the boot then hit the monitor at
 215,899 cycles. Tracing that path showed the next callback target was `0xfe1c`
 with `D0=0x2b` (`fnfErr`, file not found), so the system still lacks the
-follow-on System/resource state. The real missing piece is queue/operation
-semantics behind `0xf000` and `0x360/0x362` plus the follow-on boot-block/resource
-state, not just completion of the wait-loop status word.
+follow-on System/resource state. Oracle trace confirms that by `0xf042` it has
+`$0360=0`, `$0362=0`, and `PB+16=0`, but also has a real PB at `0x00400a4c` and
+continues through additional File Manager callbacks without falling into
+`fnfErr`. The real missing piece is queue/operation semantics behind `0xf000` and
+`0x360/0x362` plus the follow-on boot-block/resource state, not just completion
+of the wait-loop status word.
 
 Another targeted experiment forced the boot-block MountVol parameter block/D7 to
 the oracle-like `0x00400a4c` after the boot code's `move.l sp,d7` at `0x8be`.
