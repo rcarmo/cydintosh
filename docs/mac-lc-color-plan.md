@@ -1228,10 +1228,11 @@ ending at `0x144de/0x144e0` with `D0=-42`. This is beyond the MDB signature
 validation and no longer the `0xefe2` wait loop. A null-list no-op at `0x144d4`
 was tested because the helper enters with `A1=0`; it avoids the immediate lowmem
 walk but just repeats the boot/MountVol path thousands of times by 500M (no MDB
-progress), so do **not** commit that shortcut. A targeted FCBSPtr-only
-experiment at `0xfc18` (`$034e = 0x1f800`, first word `0x0eb2`, zeroed entries)
-made the FCB scan find/mark entries, but still fell into the monitor at ~213,899
-cycles. So the FCB array alone is insufficient; the broader File
+progress), so do **not** commit that shortcut. Targeted FCBSPtr-only
+experiments at `0xfc18` made the FCB scan find/mark entries, but still fell into
+the monitor at ~213,899 cycles: both an artificial array (`$034e=0x1f800`, first
+word `0x0eb2`, zeroed entries) and the oracle FCB address (`$034e=0x7734`) were
+tested. So the FCB array alone is insufficient; the broader File
 Manager/boot-resource state must also match.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
