@@ -1218,12 +1218,22 @@ spans the zone band plus low globals/trap/MM-table/frame state below `0x2000`,
 or must be reconstructed as true allocator invariants rather than copied bytes.
 
 Static review of the current scaffold also found a direct obstacle to using the
-oracle's `SysZone=0x2000`: the validated boot scaffold still pre-populates the
-toolbox trap table over `0x0e00..0x2e00`, which collides with a low SysZone at
-`0x2000`. Any future low-SysZone experiment must first make the trap-table/MM
-layout coherent (e.g. toolbox traps ending before the MM/SysZone region, and
-`0x1e00/0x1f00` reserved for MM dispatch tables), otherwise the scaffold itself
-will overwrite the zone before `_InitFS`.
+oracle's `SysZone=0x2000`: the boot scaffold pre-populated the toolbox trap table
+over `0x0e00..0x2e00`, which collides with a low SysZone at `0x2000` and with the
+MM dispatch tables at `0x1e00/0x1f00`. This has now been cleaned up under
+`LC_FAITHFUL_DISK_BOOT`: toolbox prefill stops at `0x1e00` in faithful mode, while
+non-faithful fixture behavior still fills to `0x2e00`. Validation after the
+layout fix:
+
+- 50M fixture: `HOST_LC_OK`, all stop flags 0.
+- 50M faithful: `HOST_LC_OK`, `cycles=50231129`, `pc_after=0x4081431a`, all stop
+  flags 0.
+- 500M faithful: `HOST_LC_OK`, `cycles=502308543`, `pc_after=0x408142f2`, all
+  stop flags 0.
+
+This does not solve `_InitFS` allocation by itself, but it removes a real
+scaffold collision and is a prerequisite for any coherent low-SysZone/MM-table
+work.
 
 
 

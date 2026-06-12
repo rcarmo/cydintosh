@@ -1847,8 +1847,13 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             for (uint32_t i = 0; i < 0x100u; i++) {
                 lc_musashi_bus_ram_write32(0x00000400u + i * 4u, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
-            // Pre-populate toolbox trap table ($0E00-$2E00)
-            for (uint32_t addr = 0x00000e00u; addr < 0x00002e00u; addr += 4u) {
+            // Pre-populate toolbox trap table. In faithful mode, stop before
+            // $1E00: $1E00/$1F00 are Memory Manager dispatch tables, and the
+            // oracle-style low SysZone starts at $2000. Filling through $2E00
+            // clobbers both and prevents a coherent classic MM layout.
+            const uint32_t toolbox_trap_limit = getenv("LC_FAITHFUL_DISK_BOOT") != NULL
+                                                    ? 0x00001e00u : 0x00002e00u;
+            for (uint32_t addr = 0x00000e00u; addr < toolbox_trap_limit; addr += 4u) {
                 lc_musashi_bus_ram_write32(addr, LC_BASILISK_ROM_BASE_32 + 0x0d88u);
             }
 
