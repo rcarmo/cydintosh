@@ -1202,6 +1202,11 @@ zone+38 = 0x0000010c   zone+3c = 0x00002000
 
 After allocation, oracle has `a0=0x00007734`, `zone+0c=0x00007130`,
 `zone+30=0x00007728`, and `[0x7728]=0x40000002/[0x772c]=0x00000ec0`.
+The parsed before/after mutation also shows the free-list growth/split:
+`[0x2078] 0x00007d8c -> 0x0000a254` and the new allocated 12-byte block header
+at `0x7728`, with user pointer `0x7734`. This confirms the first InitFS
+allocation is not merely a bump pointer; the ROM allocator updates multiple
+free-list/rover fields around the low SysZone.
 Replaying this visible SysZone snapshot late at `0xf39c` still falls into the
 monitor before `NewPtr` returns, so the snapshot is incomplete: the ROM allocator
 also depends on hidden/surrounding block/link state, not just the visible zone
