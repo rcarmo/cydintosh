@@ -1188,6 +1188,26 @@ was also rejected: like fixed-address replay, it moves the early InitFS sequence
 but regresses back toward the `0x280e` video-default/diagnostic family by 50M.
 That rules out simple “allocate the right sizes somewhere low” as sufficient.
 
+Temporary oracle instrumentation captured the real SysZone at the same `0xf39c`
+allocation:
+
+```
+TheZone/SysZone/ApplZone = 0x00002000
+zone+00 = 0x00011be0   zone+08 = 0x00002074   zone+0c = 0x00007fec
+zone+20 = 0x00001f00   zone+30 = 0x00007564   zone+34 = 0x40000000
+zone+38 = 0x0000010c   zone+3c = 0x00002000
+[0x2074] = 0x00002070  [0x2078] = 0x00007d8c
+[0x7564] = 0x40000000  [0x7568] = 0x000001c4
+```
+
+After allocation, oracle has `a0=0x00007734`, `zone+0c=0x00007130`,
+`zone+30=0x00007728`, and `[0x7728]=0x40000002/[0x772c]=0x00000ec0`.
+Replaying this visible SysZone snapshot late at `0xf39c` still falls into the
+monitor before `NewPtr` returns, so the snapshot is incomplete: the ROM allocator
+also depends on hidden/surrounding block/link state, not just the visible zone
+header and two block headers. Future work should dump a wider low-memory band or
+reconstruct the full block chain, not only the zone header.
+
 
 
 
