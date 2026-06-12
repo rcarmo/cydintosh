@@ -1222,8 +1222,25 @@ oracle's `SysZone=0x2000`: the boot scaffold pre-populated the toolbox trap tabl
 over `0x0e00..0x2e00`, which collides with a low SysZone at `0x2000` and with the
 MM dispatch tables at `0x1e00/0x1f00`. This has now been cleaned up under
 `LC_FAITHFUL_DISK_BOOT`: toolbox prefill stops at `0x1e00` in faithful mode, while
-non-faithful fixture behavior still fills to `0x2e00`. Validation after the
-layout fix:
+non-faithful fixture behavior still fills to `0x2e00`. However, a faithful
+low-SysZone implementation still has to move several other scaffolds out of the
+oracle allocation band. Known oracle allocation addresses vs current static
+scaffold ranges:
+
+```
+0x7734: free by static ranges
+0x85f4: overlaps RESOURCE_ROM_MASTER_PTR 0x8400..0x8700
+0x8884: overlaps boot disk param/DQE area 0x8800..0x8c00
+0x8da0: free by static ranges
+0x8de4: free by static ranges
+0x9018: overlaps post-reset dispatch/probe tables 0x9000..0x9120
+0x9468: overlaps SRT 0x9400..0x94c0
+```
+
+So the trap-table cap is necessary but not sufficient: the faithful low heap also
+requires relocating or eliminating scaffold allocations in the `0x8400..0x9500`
+region, or choosing a deliberately modeled layout that does not pretend to match
+the oracle's exact low addresses. Validation after the trap-table layout fix:
 
 - 50M fixture: `HOST_LC_OK`, all stop flags 0.
 - 50M faithful: `HOST_LC_OK`, `cycles=50231129`, `pc_after=0x4081431a`, all stop
