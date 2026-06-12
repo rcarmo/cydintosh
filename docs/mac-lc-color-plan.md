@@ -1189,6 +1189,12 @@ read. A second experiment completed the queued PB at the callback-return point
 `0xf000` and `0x360/0x362` plus the follow-on boot-block/resource state, not just
 completion of the wait-loop status word.
 
+Another targeted experiment forced the boot-block MountVol parameter block/D7 to
+the oracle-like `0x00400a4c` after the boot code's `move.l sp,d7` at `0x8be`.
+This did make `A0=0x00400a4c` at `0xef94`, but it still ended at the same
+`0xefe2` frontier by 12M/50M. So the known PB pointer divergence is not by
+itself sufficient; the FS queue operation semantics remain the blocker.
+
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
 so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the
