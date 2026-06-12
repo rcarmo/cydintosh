@@ -189,6 +189,8 @@ static unsigned post_reset_low_trap_ring_index;
 #define LC_RESOURCE_ROM_MASTER_PTR_LIMIT 0x00008700u
 #define LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_BASE 0x0001c000u
 #define LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_LIMIT 0x0001c300u
+#define LC_POST_RESET_PROBE_TABLE_BASE 0x00009000u
+#define LC_FAITHFUL_POST_RESET_PROBE_TABLE_BASE 0x0001d000u
 
 static uint32_t lc_musashi_bus_resource_rom_master_ptr_base(void) {
     return getenv("LC_FAITHFUL_DISK_BOOT") != NULL
@@ -200,6 +202,12 @@ static uint32_t lc_musashi_bus_resource_rom_master_ptr_limit(void) {
     return getenv("LC_FAITHFUL_DISK_BOOT") != NULL
                ? LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_LIMIT
                : LC_RESOURCE_ROM_MASTER_PTR_LIMIT;
+}
+
+static uint32_t lc_musashi_bus_post_reset_probe_table_base(void) {
+    return getenv("LC_FAITHFUL_DISK_BOOT") != NULL
+               ? LC_FAITHFUL_POST_RESET_PROBE_TABLE_BASE
+               : LC_POST_RESET_PROBE_TABLE_BASE;
 }
 
 #define LC_POST_RESET_MASTER_PTR_BASE 0x00002800u
@@ -3754,21 +3762,23 @@ static void lc_musashi_bus_maybe_skip_post_reset_slot_dispatch_rebuild(uint32_t 
     if (rom_offset != 0x00006d60u || active_bus == NULL || active_bus->ram == NULL) {
         return;
     }
+    const uint32_t probe_base = lc_musashi_bus_post_reset_probe_table_base();
     const uint32_t low_db8 = lc_musashi_bus_peek_ram32(0x00000db8u);
-    if (low_db8 != 0x00009000u && !post_reset_probe_tables_seeded) {
+    if (low_db8 != probe_base && !post_reset_probe_tables_seeded) {
         return;
     }
-    lc_musashi_bus_ram_write32(0x00000db8u, 0x00009000u);
-    lc_musashi_bus_ram_write32(0x000090e8u, 0x40800d88u);
-    lc_musashi_bus_ram_write32(0x000090ecu, 0x40800d88u);
+    lc_musashi_bus_ram_write32(0x00000db8u, probe_base);
+    lc_musashi_bus_ram_write32(probe_base + 0x0e8u, 0x40800d88u);
+    lc_musashi_bus_ram_write32(probe_base + 0x0ecu, 0x40800d88u);
     m68k_set_reg(M68K_REG_D0, 0);
     m68k_set_reg(M68K_REG_PC, 0x40806d96u);
     if (!post_reset_slot_dispatch_rebuild_skip_logged) {
         post_reset_slot_dispatch_rebuild_skip_logged = true;
         ESP_LOGW(TAG,
                  "LC skipped repeated post-reset Slot Manager dispatch-table rebuild: pc=0x%08" PRIx32
-                 " old_0db8=0x%08" PRIx32 " new_pc=0x40806d96",
-                 pc, low_db8);
+                 " old_0db8=0x%08" PRIx32 " new_0db8=0x%08" PRIx32
+                 " new_pc=0x40806d96",
+                 pc, low_db8, probe_base);
     }
 }
 
@@ -4107,9 +4117,10 @@ static void lc_musashi_bus_maybe_handle_post_reset_slotmanager_opcode(uint32_t p
     // Slot Manager globals are built, route that deferred callback through a
     // harmless ROM RTS and keep the event chain head empty so Event Manager
     // walks do not chase RAM-fill pointers.
-    lc_musashi_bus_ram_write32(0x00000db8u, 0x00009000u);
-    lc_musashi_bus_ram_write32(0x000090e8u, 0x40800d88u);
-    lc_musashi_bus_ram_write32(0x000090ecu, 0x40800d88u);
+    const uint32_t probe_base = lc_musashi_bus_post_reset_probe_table_base();
+    lc_musashi_bus_ram_write32(0x00000db8u, probe_base);
+    lc_musashi_bus_ram_write32(probe_base + 0x0e8u, 0x40800d88u);
+    lc_musashi_bus_ram_write32(probe_base + 0x0ecu, 0x40800d88u);
     lc_musashi_bus_ram_write32(0x00000358u, 0x00000000u);
     lc_musashi_bus_ram_write32(0x0000035cu, 0x00000000u);
     // Selector 0x000c is used by the ROM's per-slot verifier after SGetSRsrc.
@@ -5182,8 +5193,9 @@ static void lc_musashi_bus_maybe_capture_post_reset_univ_info(uint32_t pc) {
 
 static void lc_musashi_bus_maybe_seed_post_reset_probe_tables(uint32_t pc) {
     const uint32_t rom_offset = pc & 0x000fffffu;
+    const uint32_t probe_base = lc_musashi_bus_post_reset_probe_table_base();
     if (post_reset_probe_tables_seeded || rom_offset != 0x00005e48u ||
-        active_bus == NULL || active_bus->ram == NULL || active_bus->ram_size <= 0x00009120u) {
+        active_bus == NULL || active_bus->ram == NULL || active_bus->ram_size <= probe_base + 0x120u) {
         return;
     }
     post_reset_probe_tables_seeded = true;
@@ -5192,13 +5204,9 @@ static void lc_musashi_bus_maybe_seed_post_reset_probe_tables(uint32_t pc) {
     // that allocates the low-memory dispatch table at $0DB8.  Seed only the two
     // fault-probe trampoline entries consumed by 0x40805e6e/0x40805e9e.  Each
     // entry points at the ROM "moveq #0,d0; rts" helper so the helper consumes
-    // the continuation already pushed by the ROM probe code.  Seed $0DD8 to a
-    // tiny zero descriptor so the probe's bitmap base is RAM-owned instead of
-    // RAM-fill pattern bytes.  Non-zero ProductInfo.DefaultRSRCs values were
-    // tested separately and currently drive the direct probe into diagnostic
-    // monitor paths before the surrounding ProductInfo/ROM resource structures
-    // are complete.
-    lc_musashi_bus_ram_write32(0x00000db8u, 0x00009000u);
+    // the continuation already pushed by the ROM probe code.  Under faithful
+    // mode, keep this synthetic table out of the oracle low-heap allocation band.
+    lc_musashi_bus_ram_write32(0x00000db8u, probe_base);
     const uint32_t old_univ_info = lc_musashi_bus_peek_ram32(0x00000dd8u);
     const bool old_univ_info_plausible =
         lc_musashi_bus_post_reset_plausible_univ_info(old_univ_info);
@@ -5215,29 +5223,29 @@ static void lc_musashi_bus_maybe_seed_post_reset_probe_tables(uint32_t pc) {
             active_univ_info = LC_BASILISK_ROM_BASE_32 + univ;
             lc_musashi_bus_ram_write32(0x00000dd8u, active_univ_info);
         } else {
-            active_univ_info = 0x00009100u;
+            active_univ_info = probe_base + 0x100u;
             lc_musashi_bus_ram_write32(0x00000dd8u, active_univ_info);
         }
     } else {
-        active_univ_info = 0x00009100u;
+        active_univ_info = probe_base + 0x100u;
         lc_musashi_bus_ram_write32(0x00000dd8u, active_univ_info);
     }
-    for (uint32_t addr = 0x00009000u; addr < 0x000090f4u; addr += 4u) {
+    for (uint32_t addr = probe_base; addr < probe_base + 0x0f4u; addr += 4u) {
         lc_musashi_bus_ram_write32(addr, 0x40800d88u);
     }
-    if (active_univ_info == 0x00009100u) {
-        for (uint32_t addr = 0x00009100u; addr < 0x00009120u; addr += 4u) {
+    if (active_univ_info == probe_base + 0x100u) {
+        for (uint32_t addr = probe_base + 0x100u; addr < probe_base + 0x120u; addr += 4u) {
             lc_musashi_bus_ram_write32(addr, 0x00000000u);
         }
-        lc_musashi_bus_ram_write8(0x00009116u, (uint8_t)LC_PRODUCTINFO_DEFAULT_RSRCS);
-        lc_musashi_bus_ram_write8(0x00009117u, 0x01u); // ProductInfoVersion.
+        lc_musashi_bus_ram_write8(probe_base + 0x116u, (uint8_t)LC_PRODUCTINFO_DEFAULT_RSRCS);
+        lc_musashi_bus_ram_write8(probe_base + 0x117u, 0x01u); // ProductInfoVersion.
     }
     ESP_LOGW(TAG,
              "LC seeded post-reset probe low-memory tables: pc=0x%08" PRIx32
-             " dispatch_0db8=0x00009000 old_0dd8=0x%08" PRIx32
+             " dispatch_0db8=0x%08" PRIx32 " old_0dd8=0x%08" PRIx32
              " observed_0dd8=0x%08" PRIx32 " active_0dd8=0x%08" PRIx32
              " product_default_rsrcs=%u basilisk_rom_univ=%u trampoline=0x40800d88",
-             pc, old_univ_info, post_reset_univ_info_observed,
+             pc, probe_base, old_univ_info, post_reset_univ_info_observed,
              lc_musashi_bus_peek_ram32(0x00000dd8u),
              (unsigned)LC_PRODUCTINFO_DEFAULT_RSRCS,
              active_univ_info >= LC_BASILISK_ROM_BASE_32 && active_univ_info < LC_BASILISK_ROM_BASE_32 + 0x80000u);
