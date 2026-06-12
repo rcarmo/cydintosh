@@ -1225,7 +1225,11 @@ through `0xf75c..0xf790` and reaches a new stable frontier:
 
 The new frontier is the list clean-up/search helper around `0x144d4..0x144fa`,
 ending at `0x144de/0x144e0` with `D0=-42`. This is beyond the MDB signature
-validation and no longer the `0xefe2` wait loop.
+validation and no longer the `0xefe2` wait loop. A targeted FCBSPtr-only
+experiment at `0xfc18` (`$034e = 0x1f800`, first word `0x0eb2`, zeroed entries)
+made the FCB scan find/mark entries, but still fell into the monitor at ~213,899
+cycles. So the FCB array alone is insufficient; the broader File
+Manager/boot-resource state must also match.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
