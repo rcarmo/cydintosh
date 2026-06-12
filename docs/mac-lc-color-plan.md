@@ -1124,6 +1124,21 @@ zero-RAM.  Next: identify which FCB/VCB/list header this scan is walking and
 populate/repair the real structure so MountVol proceeds to the MDB/System-file
 path instead of spinning in the list scan.
 
+Follow-up trace of the list scan showed the immediate structural bug:
+`0x14224` dispatches to a worker that does `movea.l a1,a3` at `0x14232`, and
+`a3` is **zero** at entry. The scan then treats low memory address 0 as a
+circular list header and walks exception-vector/table contents as list nodes
+(`0x10 -> 0x26f4 -> 0x40800d88 -> 0x70004e75 -> ...`). The missing list head is
+not created because real `_InitFS` is still incomplete: `_InitFS` should set
+`0x37c` at `0xf42c`, but it fails much earlier at its first `_NewPtr` call
+(`0xf39c`, size `0x0eb2`) with `d0=-113`, so it exits before initializing the
+FCB/list globals (`0x34e`, `0x372`, `0x37c`, `0x380`). A temporary broad model
+for all InitFS `NewPtr` sites reached `0xf42c` but later fell back to the monitor
+path by 50M, so do **not** commit that broad allocation shortcut. The next clean
+fix should either faithfully initialize enough Memory Manager zone state for
+real InitFS allocations or narrowly model the InitFS-created list structures with
+verified invariants, then re-test MountVol's `0x142e0` scan.
+
 
 
 
