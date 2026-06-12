@@ -1233,7 +1233,10 @@ experiments at `0xfc18` made the FCB scan find/mark entries, but still fell into
 the monitor at ~213,899 cycles: both an artificial array (`$034e=0x1f800`, first
 word `0x0eb2`, zeroed entries) and the oracle FCB address (`$034e=0x7734`) were
 tested. A combined FCB + empty cleanup-list seed for `$0378/$037c/$0380` also
-still fell into the same monitor path. So static FCB/list heads alone are
+still fell into the same monitor path. Wiring `$0378/$037c/$0380` to the modeled
+matching work-list node avoids the immediate cleanup-loop symptom, but just
+repeats boot/MountVol/FCB allocation hundreds of times by 50M (sector-0 reads
+only), so do **not** commit that either. Static FCB/list heads alone are
 insufficient; the broader File Manager/boot-resource state must also match.
 
 A narrower, valid FCB model now handles the `0xfc18` helper itself instead of
