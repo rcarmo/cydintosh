@@ -1241,33 +1241,35 @@ insufficient; the broader File Manager/boot-resource state must also match.
 
 A narrower, valid FCB model now handles the `0xfc18` helper itself instead of
 only seeding globals: on entry, seed a synthetic FCB array if needed, mark the
-next FCB slot busy, return `D1=slotOffset` and `D0=noErr`, and pop the helper's
-BSR return address. This matches the helper's success contract closely enough to
-let MountVol proceed past the `-42` FCB allocation failure. Validation:
+next FCB slot busy, return `D1=slotOffset` and `D0=noErr`, set Z for the caller's
+`bne`, and pop the helper's BSR return address. This lets MountVol complete both
+FCB allocations (`0xf790` and `0xf7b4`). The subsequent `0xfc38 -> 0x135fe` path
+needs a small local File Manager record allocation at `0x13612`; model only that
+`NewPtr(54)` site, not broad InitFS allocation.
+
+Validation:
 
 - 50M fixture: `HOST_LC_OK`, all stop flags 0.
-- 50M faithful: `HOST_LC_OK`, `cycles=50536537`, `pc_after=0x408144e0`, all stop
+- 50M faithful: `HOST_LC_OK`, `cycles=50536523`, `pc_after=0x40814250`, all stop
   flags 0.
-- 500M faithful: `HOST_LC_OK`, `cycles=505370519`, `pc_after=0x408144de`, all
+- 500M faithful: `HOST_LC_OK`, `cycles=505370513`, `pc_after=0x40814250`, all
   stop flags 0.
 
-The frontier remains the same cleanup/search helper around `0x144de/0x144e0`,
-but `D0` is now `0` instead of `-42`; next work should explain why the cleanup
-list still loops/repeats and what boot-resource state is missing.
+The new frontier moves back into the `0x14224` File Manager worker scan, ending
+around `0x14250/0x14254`. This is after both FCB allocations and the `0x135fe`
+record allocation, and replaces the earlier `0x144de/0x144e0` cleanup-loop
+frontier.
 
-Follow-up branch trace: if the `0xfc18` helper also returns with Z set, MountVol
-gets through both FCB allocations (`0xf790` and `0xf7b4`) and reaches the next
-stage (`0xf7d4..`). It then stores `$0378` and `$0380` into the VCB, calls
-`0xfc38`, and requires `$0380`/working-list semantics for that helper:
-`0xfc38` fills the selected FCB entry and calls `0x135fe` with `A0=A3` (callbacks
-like `0x12630`/`0x12fa2`) and `A1` still carrying the list pointer. With the
-current state `$0380`/`A1` is zero/malformed, so the deeper branch falls back to
-monitor. Thus the next exact dependency after FCB allocation is the `$0380`
-working-list / `0xfc38` insertion semantics, not the FCB slot alone. A temporary
-attempt to provide a free `$0380` work list and model `0x13612` `NewPtr(54)` let
-`0x135fe` run, but only looped back into boot/`_InitFS` repeatedly (FCB offsets
-grew without progress), so it is not commit-worthy; the `$0380` model must be
-coherent with the full surrounding File Manager state.
+Branch trace after the FCB helper Z fix: MountVol gets through both FCB
+allocations (`0xf790` and `0xf7b4`) and reaches `0xf7d4..`. It stores `$0378`
+and `$0380` into the VCB, calls `0xfc38`, and enters `0x135fe`, which fills the
+selected FCB entry and calls the `0x14224` worker with `A0=A3` and `A1` as the
+working-list pointer. A local model for only the `0x13612` `NewPtr(54)` inside
+`0x135fe` is now committed, which lets this path reach the current `0x14250`
+frontier. A broader attempt to provide a standalone free `$0380` work list was
+rejected because it looped back into boot/`_InitFS` repeatedly, consuming
+synthetic FCB offsets. The remaining `$0380/0xfc38/0x135fe` model must therefore
+be coherent with the full surrounding File Manager state.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,

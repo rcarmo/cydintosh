@@ -5927,6 +5927,26 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
             ESP_LOGW(TAG, "LC FAITHFUL: repaired post-MDB helper CCR at 0xf758");
         }
+        if ((current_instruction_pc & 0x000fffffu) == 0x00013612u) {
+            // The 0xfc38 insertion path calls NewPtr(54) to create a small
+            // File Manager working record before recursing through 0x14224.
+            // Model just this local allocation; broader InitFS NewPtr shortcuts
+            // were tested separately and regressed.
+            static uint32_t small_alloc = 0x0001f600u;
+            uint32_t size = (m68k_get_reg(NULL, M68K_REG_D0) + 3u) & ~3u;
+            if (size == 0u) size = 4u;
+            const uint32_t ptr = small_alloc;
+            small_alloc += size;
+            for (uint32_t i = 0; i < size; i++) lc_musashi_bus_ram_write8(ptr + i, 0);
+            m68k_set_reg(M68K_REG_A0, ptr);
+            m68k_set_reg(M68K_REG_D0, 0);
+            const uint32_t sr = m68k_get_reg(NULL, M68K_REG_SR);
+            m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
+            m68k_set_reg(M68K_REG_PC, current_instruction_pc + 2u);
+            ESP_LOGW(TAG, "LC FAITHFUL: modeled 0x13612 FM record allocation size=0x%08x ptr=0x%08x", size, ptr);
+            previous_instruction_pc = current_instruction_pc;
+            return;
+        }
         if ((current_instruction_pc & 0x000fffffu) == 0x0000fc18u) {
             // InitFS has not built the FCB array, but MountVol reaches the ROM
             // helper that allocates FCB slots from it. Model this helper's
@@ -5946,6 +5966,10 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_A1, fcb);
             m68k_set_reg(M68K_REG_D1, fm_fcb_next);
             m68k_set_reg(M68K_REG_D0, 0);
+            {
+                const uint32_t sr = m68k_get_reg(NULL, M68K_REG_SR);
+                m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
+            }
             m68k_set_reg(M68K_REG_SP, sp + 4u);
             m68k_set_reg(M68K_REG_PC, ret);
             ESP_LOGW(TAG, "LC FAITHFUL: modeled FCB allocation off=0x%04x ret=0x%08" PRIx32, fm_fcb_next, ret);
