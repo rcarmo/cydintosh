@@ -1174,6 +1174,14 @@ also overlap current scaffolded low-memory areas such as the boot DCE/DQE, so
 hard-coding them is not safe. Use the oracle addresses as evidence for low
 SysZone behavior, not as a committed allocation table.
 
+A complete-structure seed experiment (manual FCB array plus `0x372/0x378/0x37c/
+0x380/0x386/0x3ea` structures in a safe low-memory range) also failed: it made
+the File Manager worker consume the synthetic free node and reach the I/O helper,
+but the control-frame/return convention still corrupted the stack, ending in the
+same `0xd8a RTS -> lowmem vector table (0x44/0xEA)` bad-return family. So the
+structure model must include the exact ROM calling-frame/list side effects, not
+just plausible list contents.
+
 
 
 
