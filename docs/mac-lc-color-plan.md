@@ -1205,8 +1205,12 @@ After allocation, oracle has `a0=0x00007734`, `zone+0c=0x00007130`,
 Replaying this visible SysZone snapshot late at `0xf39c` still falls into the
 monitor before `NewPtr` returns, so the snapshot is incomplete: the ROM allocator
 also depends on hidden/surrounding block/link state, not just the visible zone
-header and two block headers. Future work should dump a wider low-memory band or
-reconstruct the full block chain, not only the zone header.
+header and two block headers. A wider replay experiment copied the oracle's
+`0x2000..0x12000` band before our `0xf39c`; it still returned `-113`. Replaying
+all `0x0000..0x12000` immediately clobbered the active A-line/vector/trap state
+and jumped into zero RAM, so it is not a valid test. The missing contract likely
+spans the zone band plus low globals/trap/MM-table/frame state below `0x2000`,
+or must be reconstructed as true allocator invariants rather than copied bytes.
 
 
 
