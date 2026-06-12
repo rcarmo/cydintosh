@@ -1096,13 +1096,33 @@ Result: faithful boot now reaches the cycle budget rather than monitor/zero-RAM:
 - 500M fixture baseline unchanged: `HOST_LC_OK`, reaches the pre-existing
   long-run monitor guard.
 
-The new real frontier is the boot-block retry loop around `_MountVol`: real
-`_MountVol` at `0x936` returns `d0=0xffffff8f` (`-113`), so the boot block
-branches to `0x98e` and retries, shrinking the stack by 2 each time.  A temporary
-experiment forcing this particular `_MountVol` call to `noErr` showed the next
-boot-block failure is `fnfErr (43)` after `_InitResources`/resource lookup, so do
-not commit a MountVol success stub; fix the real MountVol/VCB/System-file state
-instead.
+The next real frontier was the boot-block retry loop around `_MountVol`: real
+`_MountVol` at `0x936` returned `d0=0xffffff8f` (`-113`), so the boot block
+branched to `0x98e` and retried, shrinking the stack by 2 each time.  A trace of
+`MountVol` showed the error came from its internal `_NewPtr(178)` at `0xf690`
+(the VCB allocation): the real MM handler is present, but the fully initialized
+zone state still is not, so it returned `-113` before any MDB/VCB work could
+complete.
+
+A narrow faithful model now handles only that `0xf690` `_NewPtr` with a small
+zeroed bump allocation.  This lets the real MountVol path progress past VCB
+allocation and into the File Manager worker.  A temporary experiment forcing the
+whole `_MountVol` call to `noErr` showed the following boot-block failure would
+be `fnfErr (43)` after `_InitResources`/resource lookup, so do not stub MountVol
+success; keep fixing the real MountVol/VCB/System-file state.
+
+With the narrow `0xf690` allocation model:
+
+- 50M faithful: `HOST_LC_OK`, `cycles=50231129`, `pc_after=0x4081431a`, all stop
+  flags 0.
+- 500M faithful: `HOST_LC_OK`, `cycles=502308543`, `pc_after=0x408142f2`, all
+  stop flags 0.
+
+The new current frontier is the File Manager linked-list scan at
+`0x142e0..0x14402`; 50M/500M end around `0x1431a`/`0x142f2` with no monitor or
+zero-RAM.  Next: identify which FCB/VCB/list header this scan is walking and
+populate/repair the real structure so MountVol proceeds to the MDB/System-file
+path instead of spinning in the list scan.
 
 
 

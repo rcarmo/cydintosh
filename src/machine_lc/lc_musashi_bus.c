@@ -5914,6 +5914,42 @@ void cpu_instr_callback(int pc) {
             bool is_toolbox = (trap_word & 0x0800u) != 0u;
             if (is_toolbox) trap_num = trap_word & 0x03ffu; // toolbox: low 10 bits
 
+            if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL &&
+                (trap_word & 0xf0ffu) == 0xa01eu &&
+                (trap_pc & 0x000fffffu) == 0x0000f690u) {
+                // MountVol allocates its VCB with _NewPtr(178) at 0xf690.
+                // The real MM dispatch handler is present now, but the fully
+                // initialized zone state still is not; the real handler returns
+                // -113 here and the boot block retries forever.  Model just this
+                // File Manager allocation so the real MountVol path can progress
+                // to its next structural dependency.
+                static uint32_t mountvol_heap_ptr = 0x00100000u;
+                uint32_t size = m68k_get_reg(NULL, M68K_REG_D0);
+                if (size == 0u) size = 4u;
+                size = (size + 3u) & ~3u;
+                const uint32_t ptr = mountvol_heap_ptr;
+                mountvol_heap_ptr += size;
+                if (active_bus != NULL && mountvol_heap_ptr >= active_bus->ram_size - 0x10000u) {
+                    m68k_set_reg(M68K_REG_A0, 0);
+                    m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-108);
+                } else {
+                    for (uint32_t i = 0; i < size; i++) lc_memory_bus_write8(active_bus, ptr + i, 0);
+                    m68k_set_reg(M68K_REG_A0, ptr);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                }
+                m68k_set_reg(M68K_REG_PC, return_pc);
+                m68k_set_reg(M68K_REG_SP, sp + 8u);
+                {
+                    const uint16_t d0w = (uint16_t)m68k_get_reg(NULL, M68K_REG_D0);
+                    uint16_t new_sr = saved_sr & 0xfff0u;
+                    if (d0w == 0u) new_sr |= 0x0004u;
+                    if ((d0w & 0x8000u) != 0u) new_sr |= 0x0008u;
+                    m68k_set_reg(M68K_REG_SR, new_sr);
+                }
+                previous_instruction_pc = current_instruction_pc;
+                return;
+            }
+
             // Faithful-disk-boot: let the ROM's own A-trap dispatcher run boot 1's
             // File Manager OS traps (InitFS/MountVol/UnmountVol) so the real ROM
             // File Manager mounts the HFS volume via the disk driver, instead of
