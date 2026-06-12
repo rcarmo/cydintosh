@@ -10,6 +10,7 @@
 #include "esp_log.h"
 
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "lc_memory";
@@ -800,7 +801,9 @@ static void lc_memory_seed_ram_owned_low_memory(lc_memory_bus_t *bus) {
     for (uint32_t addr = 0x00000400u; addr < 0x00000600u; addr += 4u) {
         lc_memory_seed32(bus, addr, default_trap_handler);
     }
-    for (uint32_t addr = 0x00000e00u; addr < 0x00002e00u; addr += 4u) {
+    const uint32_t toolbox_trap_limit = getenv("LC_FAITHFUL_DISK_BOOT") != NULL
+                                            ? 0x00001e00u : 0x00002e00u;
+    for (uint32_t addr = 0x00000e00u; addr < toolbox_trap_limit; addr += 4u) {
         lc_memory_seed32(bus, addr, default_trap_handler);
     }
 
