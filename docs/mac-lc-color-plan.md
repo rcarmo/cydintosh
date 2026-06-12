@@ -1134,10 +1134,16 @@ not created because real `_InitFS` is still incomplete: `_InitFS` should set
 (`0xf39c`, size `0x0eb2`) with `d0=-113`, so it exits before initializing the
 FCB/list globals (`0x34e`, `0x372`, `0x37c`, `0x380`). A temporary broad model
 for all InitFS `NewPtr` sites reached `0xf42c` but later fell back to the monitor
-path by 50M, so do **not** commit that broad allocation shortcut. The next clean
-fix should either faithfully initialize enough Memory Manager zone state for
-real InitFS allocations or narrowly model the InitFS-created list structures with
-verified invariants, then re-test MountVol's `0x142e0` scan.
+path by 50M, so do **not** commit that broad allocation shortcut. A second
+experiment manually seeded low-memory circular/free-node list structures for
+`0x37c`/`0x380` plus minimal `0x34e`/`0x372`; this made the worker take a free
+node and reach the I/O helper (`0x14620`, returning `d0=0`), but the frame/return
+path still fell into the monitor before returning to the expected worker
+continuation. So do **not** commit the manual list-seed shortcut either. The next
+clean fix should either faithfully initialize enough Memory Manager zone state
+for real InitFS allocations, or narrowly model the InitFS-created structures with
+all verified frame/list invariants (not just head links), then re-test
+MountVol's `0x142e0` scan.
 
 
 
