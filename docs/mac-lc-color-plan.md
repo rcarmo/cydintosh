@@ -1154,6 +1154,17 @@ So a partial zone header is not enough; the real fix needs the full block/free
 list invariants the ROM allocator expects, or a deliberately complete modeled
 InitFS structure set.
 
+Oracle comparison for `_InitFS` confirms the intended allocation is low-heap:
+when the reference hits `0xf39c` (`_NewPtr(0x0eb2)`), it returns `d0=0` and
+`a0=0x00007734`. That is not a high `0x0038xxxx` ApplZone pointer. Attempts to
+move our `TheZone`/`SysZone` to a low zone were informative but still not valid:
+`0x2800` overlaps existing master-pointer/scaffold state and is clobbered before
+`0xf39c`; `0x3800` survives and can pass the first `0xdbf8` validator if
+`zone+0x38/0x3c` are seeded, but then the allocator still falls into a later MM
+error/monitor path. This strongly suggests the missing contract is the **complete
+classic Memory Manager zone/free-block format**, not just the low-memory zone
+pointers.
+
 
 
 
