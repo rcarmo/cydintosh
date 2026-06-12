@@ -1234,17 +1234,19 @@ scaffold ranges:
 0x8da0: free by static ranges
 0x8de4: free by static ranges
 0x9018: CLEARED by relocating faithful post-reset dispatch/probe tables to 0x1d000..0x1d120
-0x9468: overlaps SRT 0x9400..0x94c0
+0x9468: CLEARED by relocating faithful SRT records to 0x1e000..0x1e0dc
 ```
 
 So the trap-table cap is necessary but not sufficient: the faithful low heap also
 requires relocating or eliminating remaining scaffold allocations in the
 `0x8800..0x9500` region, or choosing a deliberately modeled layout that does not
-pretend to match the oracle's exact low addresses. Two collisions are now
+pretend to match the oracle's exact low addresses. Three collisions are now
 cleared under `LC_FAITHFUL_DISK_BOOT`: the ROM resource master-pointer scratch
-slab moves from `0x8400..0x8700` to `0x1c000..0x1c300`, and the post-reset probe
-dispatch/ProductInfo tables move from `0x9000..0x9120` to `0x1d000..0x1d120`.
-Fixture mode keeps the old addresses. Validation after these layout fixes:
+slab moves from `0x8400..0x8700` to `0x1c000..0x1c300`, the post-reset probe
+dispatch/ProductInfo tables move from `0x9000..0x9120` to `0x1d000..0x1d120`,
+and the synthetic SRT records move from `0x9400..0x94c0` to
+`0x1e000..0x1e0dc`. Fixture mode keeps the old addresses. Validation after these
+layout fixes:
 
 - 50M fixture: `HOST_LC_OK`, all stop flags 0.
 - 50M faithful: `HOST_LC_OK`, `cycles=50231129`, `pc_after=0x4081431a`, all stop

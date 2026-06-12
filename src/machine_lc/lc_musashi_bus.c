@@ -231,8 +231,15 @@ static uint32_t lc_musashi_bus_post_reset_probe_table_base(void) {
 #define LC_SLOT_RECORD_STRIDE 0x00000020u
 #define LC_SLOT_RECORD_STATUS 0x0004u
 #define LC_POST_RESET_SRT_BASE 0x00009400u
+#define LC_FAITHFUL_POST_RESET_SRT_BASE 0x0001e000u
 #define LC_POST_RESET_SRT_RECORD_STRIDE 0x00000018u
 #define LC_POST_RESET_SRT_RECORD_COUNT 8u
+
+static uint32_t lc_musashi_bus_post_reset_srt_base(void) {
+    return getenv("LC_FAITHFUL_DISK_BOOT") != NULL
+               ? LC_FAITHFUL_POST_RESET_SRT_BASE
+               : LC_POST_RESET_SRT_BASE;
+}
 
 #ifndef LC_MUSASHI_TRACE_ROM_WATCHPOINTS
 #define LC_MUSASHI_TRACE_ROM_WATCHPOINTS 1
@@ -3812,34 +3819,35 @@ static void lc_musashi_bus_maybe_log_post_reset_srt_entry(uint32_t pc) {
 }
 
 static void lc_musashi_bus_seed_post_reset_srt_table(uint32_t pc, const char *reason) {
+    const uint32_t srt_base = lc_musashi_bus_post_reset_srt_base();
     if (active_bus == NULL || active_bus->ram == NULL ||
-        LC_POST_RESET_SRT_BASE + ((LC_POST_RESET_SRT_RECORD_COUNT + 1u) *
-                                  LC_POST_RESET_SRT_RECORD_STRIDE) + 4u >= active_bus->ram_size) {
+        srt_base + ((LC_POST_RESET_SRT_RECORD_COUNT + 1u) *
+                    LC_POST_RESET_SRT_RECORD_STRIDE) + 4u >= active_bus->ram_size) {
         return;
     }
     const uint32_t bytes = (LC_POST_RESET_SRT_RECORD_COUNT + 1u) * LC_POST_RESET_SRT_RECORD_STRIDE + 4u;
     for (uint32_t i = 0; i < bytes; i++) {
-        lc_musashi_bus_ram_write8(LC_POST_RESET_SRT_BASE + i, 0);
+        lc_musashi_bus_ram_write8(srt_base + i, 0);
     }
     for (uint32_t i = 0; i < LC_POST_RESET_SRT_RECORD_COUNT; i++) {
-        lc_musashi_bus_ram_write16(LC_POST_RESET_SRT_BASE + i * LC_POST_RESET_SRT_RECORD_STRIDE,
+        lc_musashi_bus_ram_write16(srt_base + i * LC_POST_RESET_SRT_RECORD_STRIDE,
                                    0xff01u);
     }
-    const uint32_t terminator = LC_POST_RESET_SRT_BASE +
+    const uint32_t terminator = srt_base +
                                 LC_POST_RESET_SRT_RECORD_COUNT * LC_POST_RESET_SRT_RECORD_STRIDE;
     lc_musashi_bus_ram_write16(terminator, 0xffffu);
     lc_musashi_bus_ram_write32(terminator + 2u, 0x00000000u);
-    lc_musashi_bus_ram_write32(0x00000d24u, LC_POST_RESET_SRT_BASE);
+    lc_musashi_bus_ram_write32(0x00000d24u, srt_base);
     // $0CBC is used by adjacent Slot Manager helper paths as a scratch/table
     // anchor.  Point it at the same RAM-owned synthetic SRT so later paths do
     // not consume the RAM-fill pattern as a pointer.
-    lc_musashi_bus_ram_write32(0x00000cbcu, LC_POST_RESET_SRT_BASE);
+    lc_musashi_bus_ram_write32(0x00000cbcu, srt_base);
     if (!post_reset_srt_table_seed_logged) {
         post_reset_srt_table_seed_logged = true;
         ESP_LOGW(TAG,
                  "LC seeded synthetic post-reset Slot Manager SRT table: pc=0x%08" PRIx32
-                 " reason=%s base=0x%08x terminator=0x%08" PRIx32,
-                 pc, reason != NULL ? reason : "unknown", LC_POST_RESET_SRT_BASE, terminator);
+                 " reason=%s base=0x%08" PRIx32 " terminator=0x%08" PRIx32,
+                 pc, reason != NULL ? reason : "unknown", srt_base, terminator);
     }
 }
 
@@ -3855,7 +3863,7 @@ static void lc_musashi_bus_maybe_seed_post_reset_srt_register(uint32_t pc) {
         return;
     }
     lc_musashi_bus_seed_post_reset_srt_table(pc, "slot-table-callback-missing");
-    m68k_set_reg(M68K_REG_A1, LC_POST_RESET_SRT_BASE);
+    m68k_set_reg(M68K_REG_A1, lc_musashi_bus_post_reset_srt_base());
 }
 
 static void lc_musashi_bus_maybe_guard_post_reset_srt_io_fill(uint32_t pc) {
