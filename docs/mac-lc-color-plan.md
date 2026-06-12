@@ -1217,6 +1217,14 @@ and jumped into zero RAM, so it is not a valid test. The missing contract likely
 spans the zone band plus low globals/trap/MM-table/frame state below `0x2000`,
 or must be reconstructed as true allocator invariants rather than copied bytes.
 
+Static review of the current scaffold also found a direct obstacle to using the
+oracle's `SysZone=0x2000`: the validated boot scaffold still pre-populates the
+toolbox trap table over `0x0e00..0x2e00`, which collides with a low SysZone at
+`0x2000`. Any future low-SysZone experiment must first make the trap-table/MM
+layout coherent (e.g. toolbox traps ending before the MM/SysZone region, and
+`0x1e00/0x1f00` reserved for MM dispatch tables), otherwise the scaffold itself
+will overwrite the zone before `_InitFS`.
+
 
 
 
