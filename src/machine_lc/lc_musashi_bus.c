@@ -187,6 +187,20 @@ static unsigned post_reset_low_trap_ring_index;
 
 #define LC_RESOURCE_ROM_MASTER_PTR_BASE 0x00008400u
 #define LC_RESOURCE_ROM_MASTER_PTR_LIMIT 0x00008700u
+#define LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_BASE 0x0001c000u
+#define LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_LIMIT 0x0001c300u
+
+static uint32_t lc_musashi_bus_resource_rom_master_ptr_base(void) {
+    return getenv("LC_FAITHFUL_DISK_BOOT") != NULL
+               ? LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_BASE
+               : LC_RESOURCE_ROM_MASTER_PTR_BASE;
+}
+
+static uint32_t lc_musashi_bus_resource_rom_master_ptr_limit(void) {
+    return getenv("LC_FAITHFUL_DISK_BOOT") != NULL
+               ? LC_FAITHFUL_RESOURCE_ROM_MASTER_PTR_LIMIT
+               : LC_RESOURCE_ROM_MASTER_PTR_LIMIT;
+}
 
 #define LC_POST_RESET_MASTER_PTR_BASE 0x00002800u
 #define LC_POST_RESET_MASTER_PTR_LIMIT 0x00003800u
@@ -3520,16 +3534,16 @@ static void lc_musashi_bus_post_reset_maybe_register_resource_map_handle(uint32_
         return;
     }
     lc_musashi_bus_post_reset_set_handle_record(top_map_handle, map_ptr, 0x00000320u);
-    for (uint32_t addr = LC_RESOURCE_ROM_MASTER_PTR_BASE;
-         addr < LC_RESOURCE_ROM_MASTER_PTR_LIMIT; addr += 4u) {
+    const uint32_t rom_master_base = lc_musashi_bus_resource_rom_master_ptr_base();
+    const uint32_t rom_master_limit = lc_musashi_bus_resource_rom_master_ptr_limit();
+    for (uint32_t addr = rom_master_base; addr < rom_master_limit; addr += 4u) {
         lc_musashi_bus_ram_write32(addr, 0);
     }
     post_reset_resource_map_handle_registered = true;
     ESP_LOGI(TAG,
              "LC registered RAM-backed Resource Manager map handle with Memory Manager: handle=0x%08" PRIx32
              " data=0x%08" PRIx32 " size=0x00000320 rom_master_ptrs=0x%08" PRIx32 "..0x%08" PRIx32,
-             top_map_handle, map_ptr, LC_RESOURCE_ROM_MASTER_PTR_BASE,
-             LC_RESOURCE_ROM_MASTER_PTR_LIMIT);
+             top_map_handle, map_ptr, rom_master_base, rom_master_limit);
 }
 
 static void lc_musashi_bus_post_reset_set_handle_locked(uint32_t handle, bool locked) {
@@ -4611,8 +4625,10 @@ static void lc_musashi_bus_maybe_apply_post_reset_memory_trap(uint32_t pc) {
         const uint32_t handle = m68k_get_reg(NULL, M68K_REG_A0);
         uint32_t zone = lc_musashi_bus_peek_ram32(LC_LOWMEM_THE_ZONE);
         const uint32_t rom_map_handle = lc_musashi_bus_peek_ram32(LC_LOWMEM_ROM_MAP_HNDL);
+        const uint32_t rom_master_base = lc_musashi_bus_resource_rom_master_ptr_base();
+        const uint32_t rom_master_limit = lc_musashi_bus_resource_rom_master_ptr_limit();
         if (handle != 0u && handle == rom_map_handle && active_bus != NULL &&
-            LC_RESOURCE_ROM_MASTER_PTR_LIMIT < active_bus->ram_size) {
+            rom_master_limit < active_bus->ram_size) {
             // ReDoMap uses HandleZone(RomMapHndl) only as the base for ROM
             // resource relative handles.  Those RelHandles are offsets 0x5c..
             // 0x24c in this LC ROM; returning the real zone base writes them
@@ -4620,7 +4636,7 @@ static void lc_musashi_bus_maybe_apply_post_reset_memory_trap(uint32_t pc) {
             // Manager scans.  Keep this ROM-map master-pointer slab RAM-backed
             // and outside the zone heap until a full ROZ/master-pointer block
             // model exists.
-            zone = LC_RESOURCE_ROM_MASTER_PTR_BASE;
+            zone = rom_master_base;
         }
         m68k_set_reg(M68K_REG_A0, zone);
         m68k_set_reg(M68K_REG_D0, 0);

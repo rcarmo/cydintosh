@@ -1229,7 +1229,7 @@ scaffold ranges:
 
 ```
 0x7734: free by static ranges
-0x85f4: overlaps RESOURCE_ROM_MASTER_PTR 0x8400..0x8700
+0x85f4: CLEARED by relocating faithful RESOURCE_ROM_MASTER_PTR slab to 0x1c000..0x1c300
 0x8884: overlaps boot disk param/DQE area 0x8800..0x8c00
 0x8da0: free by static ranges
 0x8de4: free by static ranges
@@ -1238,9 +1238,12 @@ scaffold ranges:
 ```
 
 So the trap-table cap is necessary but not sufficient: the faithful low heap also
-requires relocating or eliminating scaffold allocations in the `0x8400..0x9500`
-region, or choosing a deliberately modeled layout that does not pretend to match
-the oracle's exact low addresses. Validation after the trap-table layout fix:
+requires relocating or eliminating remaining scaffold allocations in the
+`0x8800..0x9500` region, or choosing a deliberately modeled layout that does not
+pretend to match the oracle's exact low addresses. The first collision is now
+cleared: under `LC_FAITHFUL_DISK_BOOT`, the ROM resource master-pointer scratch
+slab moves from `0x8400..0x8700` to `0x1c000..0x1c300`; fixture mode keeps the
+old addresses. Validation after the trap-table/resource-master layout fixes:
 
 - 50M fixture: `HOST_LC_OK`, all stop flags 0.
 - 50M faithful: `HOST_LC_OK`, `cycles=50231129`, `pc_after=0x4081431a`, all stop
