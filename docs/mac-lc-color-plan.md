@@ -1311,8 +1311,11 @@ non-faithful fixture handle convention. This does **not** change the default
 faithful path. It reaches `boot_2` (`0x00900002`, A025), handles the two
 boot-resource `GetHandleSize` calls (`0x4ff00 -> 648`, `0x4ff08 -> 31420`), and
 reaches copied `boot_3` far enough to set a dynamic A5 (`trap_pc=0x007f83c0`,
-`A5=0x007f947c`). Current backend frontier is later zero-RAM execution at
-`pc_after=0x00000104` after about 236M cycles, with no VRAM writes yet. This
+`A5=0x007f947c`). A backend-only guard realigns an odd ROM exception PC
+(`0x40802709 -> 0x40802708`), avoiding the immediate zero-RAM stop. Current
+backend frontier reaches the 500M budget with stop flags 0 at
+`pc_after=0x40802698`, but the stack is clearly unhealthy (`sp_after=0xffbc89d9`)
+and the path loops through the ROM exception/debug area; no VRAM writes yet. This
 backend lane is intentionally end-to-end oriented and should be iterated
 separately from the default faithful MountVol frontier.
 

@@ -6080,6 +6080,12 @@ void cpu_instr_callback(int pc) {
             previous_instruction_pc = current_instruction_pc;
             return;
         }
+        if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && current_instruction_pc == 0x40802709u) {
+            m68k_set_reg(M68K_REG_PC, 0x40802708u);
+            ESP_LOGW(TAG, "LC BACKEND: realigned odd ROM exception PC 0x40802709 -> 0x40802708");
+            previous_instruction_pc = current_instruction_pc;
+            return;
+        }
         // Video-default setup reaches a small SlotManager probe routine at
         // 0x2310 that the oracle avoids, but if entered it expects the built-in
         // video sResource contract to be present.  Model just the three
