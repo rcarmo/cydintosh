@@ -1313,13 +1313,16 @@ boot-resource `GetHandleSize` calls (`0x4ff00 -> 648`, `0x4ff08 -> 31420`), and
 reaches copied `boot_3` far enough to set a dynamic A5 (`trap_pc=0x007f83c0`,
 `A5=0x007f947c`). Boot_3 then probes optional file-like helpers through
 `_Open/_GetEOF/_Read/_Close`; the backend treats those invalid/non-PString file
-opens as `fnfErr` instead of accidentally opening the disk driver. A backend-only
-guard realigns an odd ROM exception PC (`0x40802709 -> 0x40802708`), avoiding the
+opens as `fnfErr` instead of accidentally opening the disk driver. Backend-only
+QuickDraw trap stack fixes now consume the ROM exception/debug path's one-long
+`A877`/`A86D` frames and the five-long `A8A3` frame. A backend-only guard also
+realigns an odd ROM exception PC (`0x40802709 -> 0x40802708`), avoiding the
 immediate zero-RAM stop. Current backend frontier reaches the 500M budget with
-stop flags 0 at `pc_after=0x40802702`, but the stack is clearly unhealthy
-(`sp_after=0xffbc89d3`) and the path loops through the ROM exception/debug area;
-no VRAM writes yet. This backend lane is intentionally end-to-end oriented and
-should be iterated separately from the default faithful MountVol frontier.
+stop flags 0 at `pc_after=0x408026a8`; stack is still suspicious but far less
+catastrophic than the earlier `0xffbc....` failure (`sp_after=0x00036bd5` in the
+validation run), and the path loops through the ROM exception/debug area; no VRAM
+writes yet. This backend lane is intentionally end-to-end oriented and should be
+iterated separately from the default faithful MountVol frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,

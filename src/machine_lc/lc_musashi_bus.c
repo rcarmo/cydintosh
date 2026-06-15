@@ -6494,6 +6494,12 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
+                case 0x086du: // _InitFonts/InitWindows-style one-long startup init in ROM exception path
+                    lc_musashi_bus_seed_video_contract();
+                    param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
                 case 0x086eu: { // _InitGraf(globalPtr:l) → void
                     // boot_3 pushes the current QD globals pointer before A86E;
                     // if this long is left on the stack, the following InitPalettes
@@ -6739,6 +6745,7 @@ void cpu_instr_callback(int pc) {
                     handled = true;
                     break;
                 }
+                case 0x0877u: // QuickDraw one-long picture/region helper in ROM exception path
                 case 0x0884u: // QuickDraw _DrawString(str:l) → void
                 case 0x0893u: // QuickDraw _MoveTo(h:w, v:w) → void
                 case 0x0899u: // QuickDraw _SetPenState(pnState:l) → void
@@ -6768,6 +6775,11 @@ void cpu_instr_callback(int pc) {
                     param_bytes = 4;
                     result_bytes = 2;
                     result_value = 0;
+                    handled = true;
+                    break;
+                case 0x08a3u: // QuickDraw multi-rect/region helper used by ROM exception path
+                    param_bytes = 20;
+                    result_bytes = 0;
                     handled = true;
                     break;
                 case 0x08a5u: // QuickDraw _FillRect(rect:l, pattern:l) → void
