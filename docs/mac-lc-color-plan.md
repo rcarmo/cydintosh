@@ -1247,29 +1247,49 @@ FCB allocations (`0xf790` and `0xf7b4`). The subsequent `0xfc38 -> 0x135fe` path
 needs a small local File Manager record allocation at `0x13612`; model only that
 `NewPtr(54)` site, not broad InitFS allocation.
 
-Validation:
+Validation after the MountVol/File Manager state repair:
 
-- 50M fixture: `HOST_LC_OK`, all stop flags 0.
-- 50M faithful: `HOST_LC_OK`, `cycles=50536523`, `pc_after=0x40814250`, all stop
+- 50M fixture: `HOST_LC_OK`, `cycles=50039791`, `pc_after=0x408426d0`, all stop
+  flags 0, fixture VRAM writes still 4.
+- 50M faithful: `HOST_LC_OK`, `cycles=50279201`, `pc_after=0x40811f3c`, all stop
   flags 0.
-- 500M faithful: `HOST_LC_OK`, `cycles=505370513`, `pc_after=0x40814250`, all
+- 500M faithful: `HOST_LC_OK`, `cycles=502790373`, `pc_after=0x40811fbe`, all
   stop flags 0.
 
-The new frontier moves back into the `0x14224` File Manager worker scan, ending
-around `0x14250/0x14254`. This is after both FCB allocations and the `0x135fe`
-record allocation, and replaces the earlier `0x144de/0x144e0` cleanup-loop
-frontier.
+This clears the old `0x14250/0x14254` File Manager worker frontier and the
+subsequent high-count MountVol retry loop. The faithful path now performs one
+boot-block disk read, two modeled FCB allocations (`0x60`, `0xbe`), two modeled
+`0x13612` records (`0xb700`, `0xb744`), and one narrow `0x11f0e` context repair.
+The new frontier is the `0x11f0e` File Manager helper body (`0x11f3c` at 50M,
+`0x11fbe` at 500M), still before real desktop/VRAM rendering.
 
-Branch trace after the FCB helper Z fix: MountVol gets through both FCB
-allocations (`0xf790` and `0xf7b4`) and reaches `0xf7d4..`. It stores `$0378`
-and `$0380` into the VCB, calls `0xfc38`, and enters `0x135fe`, which fills the
-selected FCB entry and calls the `0x14224` worker with `A0=A3` and `A1` as the
-working-list pointer. A local model for only the `0x13612` `NewPtr(54)` inside
-`0x135fe` is now committed, which lets this path reach the current `0x14250`
-frontier. A broader attempt to provide a standalone free `$0380` work list was
-rejected because it looped back into boot/`_InitFS` repeatedly, consuming
-synthetic FCB offsets. The remaining `$0380/0xfc38/0x135fe` model must therefore
-be coherent with the full surrounding File Manager state.
+The accepted repair keeps the File Manager state coherent across MountVol's MDB,
+FCB, and work-list helpers:
+
+- Move the first modeled MDB work-list from synthetic `0x1f000` to oracle-like
+  `0x9018`, so the MDB buffer data begins at `0x9040`.
+- Model MountVol's VCB `_NewPtr(178)` at `0xf690` as `0xb640`, matching the
+  oracle and fixing the later `0xf768..0xf780` VCB/MDB arithmetic.
+- Preserve the MDB worker return state at `0xf6fa`/`0x1440a`/`0x144cc` so
+  MountVol sees `A0=0x9040`, `A1=0x9018`, `A2=0xb640`, `D1/D2=2` where the
+  oracle does.
+- Seed the `0xfc38` work-list at `0x9468` with both worker key offsets
+  (`node+0x12` and `node+0x16`) and normalize internal-record `A2` values back to
+  the real VCB (`0xb640`) to avoid reseeding the list with `vcb=0x9490`.
+- Reuse the two oracle-shaped FCB slots/records instead of monotonically handing
+  out synthetic offsets forever: FCB offsets `0x60`/`0xbe`, records
+  `0xb700`/`0xb744`.
+- At the internal `0x135fe` worker return, restore the oracle-like context enough
+  for the `0x1363a` validation path to run (`D3` low word as the FCB offset,
+  `A3=FCBSPtr`, `A4` as the record, `A5=MDB`).
+
+Rejected during this tranche: static FCB-address replay at `0x7734`, blindly
+seeding `0x9490+0x20`, a direct skip of the internal `0x135fe` worker, splitting
+`0x144cc` to return the internal cleanup helper to `0x136a6`, and moving the
+`0x11f0e` context repair to the real body at `0x11f1e`; all regressed to monitor
+or zero-RAM/bad-ROM paths. The remaining dependency appears to be the exact
+`0x11f0e` helper context/body semantics rather than the old MountVol worker
+scan.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,

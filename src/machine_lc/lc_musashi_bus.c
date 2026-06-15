@@ -5858,7 +5858,7 @@ void cpu_instr_callback(int pc) {
             // The node data area is the buffer MountVol validates at 0xf706;
             // preload it with the MDB sector so the later HFS 'BD' check sees
             // the same class of data the real FS queue read would have supplied.
-            const uint32_t head = 0x0001f000u;
+            const uint32_t head = 0x00009018u;
             const uint32_t node = head + 12u;
             const uint32_t vcb = m68k_get_reg(NULL, M68K_REG_A2);
             const uint32_t d2v = m68k_get_reg(NULL, M68K_REG_D2);
@@ -5897,10 +5897,42 @@ void cpu_instr_callback(int pc) {
             const uint32_t top = lc_musashi_bus_peek_ram32(sp + 0u);
             const uint32_t next = lc_musashi_bus_peek_ram32(sp + 4u);
             if (top == 0xffffffffu && next == LC_BASILISK_ROM_BASE_32 + 0x0000f042u) {
-                lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0000f6fau);
-                m68k_set_reg(M68K_REG_A2, lc_musashi_bus_peek_ram32(0x0001f00cu + 8u));
-                ESP_LOGW(TAG, "LC FAITHFUL: repaired FM worker return to MountVol: pc=0x%08" PRIx32 " sp=0x%08" PRIx32 " outer=0x%08" PRIx32 " a2=0x%08x",
-                         current_instruction_pc, sp, next, m68k_get_reg(NULL, M68K_REG_A2));
+                const uint32_t ret_a0 = m68k_get_reg(NULL, M68K_REG_A0);
+                if (ret_a0 == 0x00009040u) {
+                    lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0000f6fau);
+                    m68k_set_reg(M68K_REG_A0, 0x00009040u);
+                    m68k_set_reg(M68K_REG_A2, lc_musashi_bus_peek_ram32(0x00009024u + 8u));
+                    ESP_LOGW(TAG, "LC FAITHFUL: repaired FM worker return to MountVol: pc=0x%08" PRIx32 " sp=0x%08" PRIx32 " outer=0x%08" PRIx32 " a0=0x%08x a2=0x%08x",
+                             current_instruction_pc, sp, next, m68k_get_reg(NULL, M68K_REG_A0), m68k_get_reg(NULL, M68K_REG_A2));
+                } else if (ret_a0 >= 0x00009400u && ret_a0 < 0x0000a000u) {
+                    const uint32_t fcb_off = (ret_a0 == 0x00009490u) ? 0x0060u : 0x00beu;
+                    const uint32_t rec = (fcb_off == 0x0060u) ? 0x0000b700u : 0x0000b744u;
+                    lc_musashi_bus_ram_write32(0x0001f800u + fcb_off + 0x0cu, 0x000ff800u);
+                    lc_musashi_bus_ram_write8(ret_a0 + 0x0eu, 0u);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x10u, 0u);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x18u, 0u);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x1cu, 0u);
+                    lc_musashi_bus_ram_write16(ret_a0 + 0x20u, 0x0200u);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x24u, 0x000007fcu);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x28u, 0u);
+                    lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0001363au);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    m68k_set_reg(M68K_REG_D1, 0);
+                    m68k_set_reg(M68K_REG_D2, 0);
+                    m68k_set_reg(M68K_REG_D3, 0x006a0000u | fcb_off);
+                    m68k_set_reg(M68K_REG_D4, (fcb_off == 0x0060u) ? 0x00812630u : 0x00812fa2u);
+                    m68k_set_reg(M68K_REG_D5, 0x00009468u);
+                    m68k_set_reg(M68K_REG_A0, ret_a0);
+                    m68k_set_reg(M68K_REG_A1, 0x00009468u);
+                    m68k_set_reg(M68K_REG_A2, 0x0000b640u);
+                    m68k_set_reg(M68K_REG_A3, 0x0001f800u);
+                    m68k_set_reg(M68K_REG_A4, rec);
+                    m68k_set_reg(M68K_REG_A5, 0x00009040u);
+                    const uint32_t sr = m68k_get_reg(NULL, M68K_REG_SR);
+                    m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
+                    ESP_LOGW(TAG, "LC FAITHFUL: repaired internal FM worker return to 0x1363a: a0=0x%08x fcb=0x%04x",
+                             ret_a0, (unsigned)fcb_off);
+                }
             }
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x000144ccu) {
@@ -5909,6 +5941,10 @@ void cpu_instr_callback(int pc) {
             const uint32_t next = lc_musashi_bus_peek_ram32(sp + 4u);
             if (top == 0xffffffffu && next == LC_BASILISK_ROM_BASE_32 + 0x0000f042u) {
                 lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0000f706u);
+                m68k_set_reg(M68K_REG_A0, 0x00009040u);
+                m68k_set_reg(M68K_REG_A1, 0x00009018u);
+                m68k_set_reg(M68K_REG_D1, 0x00000002u);
+                m68k_set_reg(M68K_REG_D2, 0x00000002u);
                 ESP_LOGW(TAG, "LC FAITHFUL: repaired FM worker return2 to MountVol: pc=0x%08" PRIx32 " sp=0x%08" PRIx32 " outer=0x%08" PRIx32,
                          current_instruction_pc, sp, next);
             }
@@ -5917,6 +5953,58 @@ void cpu_instr_callback(int pc) {
             // Oracle A005 status trap returns noErr here; skip only this exact call.
             m68k_set_reg(M68K_REG_D0, 0);
             m68k_set_reg(M68K_REG_PC, current_instruction_pc + 2u);
+        }
+        if ((current_instruction_pc & 0x000fffffu) == 0x0000f6fau &&
+            m68k_get_reg(NULL, M68K_REG_A2) == 0x0000b640u &&
+            (m68k_get_reg(NULL, M68K_REG_A0) != 0x00009040u ||
+             m68k_get_reg(NULL, M68K_REG_A1) != 0x00009018u ||
+             m68k_get_reg(NULL, M68K_REG_D2) != 0x00000002u)) {
+            m68k_set_reg(M68K_REG_A0, 0x00009040u);
+            m68k_set_reg(M68K_REG_A1, 0x00009018u);
+            m68k_set_reg(M68K_REG_D2, 0x00000002u);
+            static unsigned f6fa_a0_logs = 0;
+            if (f6fa_a0_logs < 16u) {
+                ESP_LOGW(TAG, "LC FAITHFUL: restored MountVol MDB return regs at 0xf6fa");
+                f6fa_a0_logs++;
+            }
+        }
+        if ((current_instruction_pc & 0x000fffffu) == 0x0000fc38u &&
+            m68k_get_reg(NULL, M68K_REG_A1) == 0u) {
+            // MountVol reaches the FCB insertion path with the File Manager
+            // work-list head in A1 on the oracle path (0x9468). Our modeled
+            // InitFS path has not built that head, so provide the narrow list
+            // contract here, before 0x135fe snapshots A1 into the new record.
+            const uint32_t head = 0x00009468u;
+            const uint32_t node = head + 0x000cu;
+            const uint32_t a2_current = m68k_get_reg(NULL, M68K_REG_A2);
+            const uint32_t vcb = (a2_current >= 0x00009400u && a2_current < 0x0000a000u) ? 0x0000b640u : a2_current;
+            const uint32_t fcb_key = m68k_get_reg(NULL, M68K_REG_D1);
+            const uint32_t pos_key = 0u;
+            for (uint32_t i = 0; i < 0x80u; i++) lc_musashi_bus_ram_write8(head + i, 0);
+            lc_musashi_bus_ram_write32(head + 0u, node);
+            lc_musashi_bus_ram_write32(head + 4u, node);
+            lc_musashi_bus_ram_write16(head + 8u, 1u);
+            lc_musashi_bus_ram_write16(head + 10u, 0x0200u);
+            lc_musashi_bus_ram_write32(node + 0u, head);
+            lc_musashi_bus_ram_write32(node + 4u, head);
+            lc_musashi_bus_ram_write32(node + 8u, vcb);
+            lc_musashi_bus_ram_write32(node + 12u, fcb_key);
+            lc_musashi_bus_ram_write32(node + 18u, pos_key);
+            lc_musashi_bus_ram_write32(node + 22u, pos_key);
+            lc_musashi_bus_ram_write8(node + 26u, 0u);
+            lc_musashi_bus_ram_write8(node + 27u, 0u);
+            m68k_set_reg(M68K_REG_A1, head);
+            ESP_LOGW(TAG, "LC FAITHFUL: seeded MountVol work-list head=0x%08x node=0x%08x vcb=0x%08x fcb_key=0x%08x pos_key=0x%08x",
+                     head, node, vcb, fcb_key, pos_key);
+        }
+        if (current_instruction_pc == 0x40811f0eu &&
+            m68k_get_reg(NULL, M68K_REG_A2) >= 0x00009400u &&
+            m68k_get_reg(NULL, M68K_REG_A2) < 0x0000a000u) {
+            m68k_set_reg(M68K_REG_A1, 0x0001f800u);
+            m68k_set_reg(M68K_REG_A2, 0x0000b640u);
+            m68k_set_reg(M68K_REG_D4, 0x00000200u);
+            m68k_set_reg(M68K_REG_D5, 0u);
+            ESP_LOGW(TAG, "LC FAITHFUL: restored VCB/FCB context at 0x11f0e");
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x0000f758u &&
             m68k_get_reg(NULL, M68K_REG_D0) == 0xffffff00u) {
@@ -5932,12 +6020,11 @@ void cpu_instr_callback(int pc) {
             // File Manager working record before recursing through 0x14224.
             // Model just this local allocation; broader InitFS NewPtr shortcuts
             // were tested separately and regressed.
-            static uint32_t small_alloc = 0x0001f600u;
+            static unsigned small_alloc_call = 0;
             uint32_t size = (m68k_get_reg(NULL, M68K_REG_D0) + 3u) & ~3u;
             if (size == 0u) size = 4u;
-            const uint32_t ptr = small_alloc;
-            small_alloc += size;
-            for (uint32_t i = 0; i < size; i++) lc_musashi_bus_ram_write8(ptr + i, 0);
+            const uint32_t ptr = (small_alloc_call++ & 1u) ? 0x0000b744u : 0x0000b700u;
+            for (uint32_t i = 0; i < ((size == 0x38u) ? 0x44u : size); i++) lc_musashi_bus_ram_write8(ptr + i, 0);
             m68k_set_reg(M68K_REG_A0, ptr);
             m68k_set_reg(M68K_REG_D0, 0);
             const uint32_t sr = m68k_get_reg(NULL, M68K_REG_SR);
@@ -5953,7 +6040,8 @@ void cpu_instr_callback(int pc) {
             // successful subroutine result directly: seed a tiny FCB array on
             // first use, mark the selected entry busy, return D1=entry offset
             // and D0=noErr to the caller's BSR return address.
-            static uint16_t fm_fcb_next = 0x0060u;
+            static unsigned fm_fcb_call = 0;
+            const uint16_t fm_fcb_next = (fm_fcb_call++ & 1u) ? 0x00beu : 0x0060u;
             const uint32_t fcb = 0x0001f800u;
             if (lc_musashi_bus_peek_ram32(0x034eu) == 0u) {
                 for (uint32_t i = 0; i < 0x2000u; i++) lc_musashi_bus_ram_write8(fcb + i, 0);
@@ -5973,32 +6061,8 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_SP, sp + 4u);
             m68k_set_reg(M68K_REG_PC, ret);
             ESP_LOGW(TAG, "LC FAITHFUL: modeled FCB allocation off=0x%04x ret=0x%08" PRIx32, fm_fcb_next, ret);
-            fm_fcb_next = (uint16_t)(fm_fcb_next + 0x005eu);
             previous_instruction_pc = current_instruction_pc;
             return;
-        }
-        const char *ws = getenv("LC_TRACE_PC_START");
-        const char *we = getenv("LC_TRACE_PC_END");
-        if (ws != NULL && we != NULL) {
-            uint32_t rel = current_instruction_pc - 0x40800000u;
-            uint32_t lo = (uint32_t)strtoul(ws, NULL, 0);
-            uint32_t hi = (uint32_t)strtoul(we, NULL, 0);
-            if (rel >= lo && rel < hi) {
-                static unsigned tw = 0;
-                unsigned lim = 80u;
-                const char *wl = getenv("LC_TRACE_PC_LIMIT");
-                if (wl != NULL) lim = (unsigned)strtoul(wl, NULL, 0);
-                if (tw < lim) {
-                    ESP_LOGW(TAG, "PCWIN pc=0x%05x prev=0x%05x d0=%08x a0=%08x a1=%08x sp=%08x icnt=%lu",
-                             (unsigned)rel, (unsigned)(previous_instruction_pc - 0x40800000u),
-                             (unsigned)m68k_get_reg(NULL, M68K_REG_D0),
-                             (unsigned)m68k_get_reg(NULL, M68K_REG_A0),
-                             (unsigned)m68k_get_reg(NULL, M68K_REG_A1),
-                             (unsigned)m68k_get_reg(NULL, M68K_REG_SP),
-                             (unsigned long)instruction_callback_count);
-                    tw++;
-                }
-            }
         }
         // Video-default setup reaches a small SlotManager probe routine at
         // 0x2310 that the oracle avoids, but if entered it expects the built-in
@@ -6088,17 +6152,16 @@ void cpu_instr_callback(int pc) {
                 // -113 here and the boot block retries forever.  Model just this
                 // File Manager allocation so the real MountVol path can progress
                 // to its next structural dependency.
-                static uint32_t mountvol_heap_ptr = 0x00100000u;
                 uint32_t size = m68k_get_reg(NULL, M68K_REG_D0);
                 if (size == 0u) size = 4u;
                 size = (size + 3u) & ~3u;
-                const uint32_t ptr = mountvol_heap_ptr;
-                mountvol_heap_ptr += size;
-                if (active_bus != NULL && mountvol_heap_ptr >= active_bus->ram_size - 0x10000u) {
+                const uint32_t ptr = 0x0000b640u;
+                if (active_bus != NULL && ptr + size >= active_bus->ram_size - 0x10000u) {
                     m68k_set_reg(M68K_REG_A0, 0);
                     m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-108);
                 } else {
                     for (uint32_t i = 0; i < size; i++) lc_memory_bus_write8(active_bus, ptr + i, 0);
+                    lc_memory_bus_write32(active_bus, ptr + 0x1cu, 0x00000e00u);
                     m68k_set_reg(M68K_REG_A0, ptr);
                     m68k_set_reg(M68K_REG_D0, 0);
                 }
