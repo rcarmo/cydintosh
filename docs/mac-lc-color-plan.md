@@ -1315,7 +1315,9 @@ reaches copied `boot_3` far enough to set a dynamic A5 (`trap_pc=0x007f83c0`,
 `_Open/_GetEOF/_Read/_Close`; the backend treats those invalid/non-PString file
 opens as `fnfErr` instead of accidentally opening the disk driver. Backend-only
 QuickDraw trap stack fixes now consume the ROM exception/debug path's one-long
-`A877`/`A86D` frames and the five-long `A8A3` frame. A backend-only guard also
+`A877`/`A86D` frames and the five-long `A8A3` frame. Boot_3's `A22E` allocation
+trap is modeled as a small clear allocation in the backend lane (instead of being
+misclassified as `A02E` BlockMove by the OS trap mask). A backend-only guard also
 realigns an odd ROM exception PC (`0x40802709 -> 0x40802708`), avoiding the
 immediate zero-RAM stop. Current backend frontier reaches the 500M budget with
 stop flags 0 at `pc_after=0x408026a8`; stack is still suspicious but far less

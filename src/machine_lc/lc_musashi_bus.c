@@ -6268,6 +6268,26 @@ void cpu_instr_callback(int pc) {
                 break;
             }
             case 0xa02eu: { // _BlockMove: A0=src, A1=dst, D0=count
+                if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_word == 0xa22eu) {
+                    static uint32_t backend_boot3_heap = 0x00bf7000u;
+                    uint32_t size = (m68k_get_reg(NULL, M68K_REG_D0) + 3u) & ~3u;
+                    if (size == 0u) size = 4u;
+                    uint32_t ptr = backend_boot3_heap;
+                    backend_boot3_heap += size;
+                    if (active_bus != NULL && active_bus->ram != NULL && ptr + size < active_bus->ram_size) {
+                        for (uint32_t i = 0; i < size; i++) lc_musashi_bus_ram_write8(ptr + i, 0);
+                        m68k_set_reg(M68K_REG_A0, ptr);
+                        m68k_set_reg(M68K_REG_A1, ptr);
+                        m68k_set_reg(M68K_REG_D0, 0);
+                    } else {
+                        m68k_set_reg(M68K_REG_A0, 0);
+                        m68k_set_reg(M68K_REG_A1, 0);
+                        m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-108);
+                    }
+                    ESP_LOGW(TAG, "LC BACKEND: modeled boot_3 A22E alloc ptr=0x%08x size=0x%08x", (unsigned)ptr, (unsigned)size);
+                    handled = true;
+                    break;
+                }
                 uint32_t src = m68k_get_reg(NULL, M68K_REG_A0);
                 uint32_t dst = m68k_get_reg(NULL, M68K_REG_A1);
                 uint32_t cnt = m68k_get_reg(NULL, M68K_REG_D0);
