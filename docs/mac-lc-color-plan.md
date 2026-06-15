@@ -1318,10 +1318,11 @@ QuickDraw trap stack fixes now consume the ROM exception/debug path's one-long
 `A877`/`A86D` frames and the five-long `A8A3` frame. Boot_3's `A22E` allocation
 trap is modeled as a small clear allocation in the backend lane (instead of being
 misclassified as `A02E` BlockMove by the OS trap mask). The backend boot_2
-handoff also seeds the low exception-vector table to the ROM exception dispatcher
-before jumping into copied boot code, preventing exception vectors from falling
-through low-memory data. Current backend frontier reaches the 500M budget with
-stop flags 0 at `pc_after=0x40802316`; no VRAM writes yet. This backend lane is
+handoff also seeds the low exception-vector table to the ROM's per-vector BSR
+stubs (`0x26f0 + 2*(vector-1)`) while preserving the A-line vector, preventing
+exceptions from falling through low-memory data or bypassing the ROM's vector
+number calculation. Current backend frontier reaches the 500M budget with stop
+flags 0 at `pc_after=0x40802786`; no VRAM writes yet. This backend lane is
 intentionally end-to-end oriented and should be iterated separately from the
 default faithful MountVol frontier.
 
