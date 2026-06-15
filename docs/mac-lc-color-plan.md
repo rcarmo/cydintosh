@@ -1251,9 +1251,9 @@ Validation after the MountVol/File Manager state repair:
 
 - 50M fixture: `HOST_LC_OK`, `cycles=50039791`, `pc_after=0x408426d0`, all stop
   flags 0, fixture VRAM writes still 4.
-- 50M faithful: `HOST_LC_OK`, `cycles=50279217`, `pc_after=0x40811fa4`, all stop
+- 50M faithful: `HOST_LC_OK`, `cycles=50279213`, `pc_after=0x40811fc6`, all stop
   flags 0.
-- 500M faithful: `HOST_LC_OK`, `cycles=502790381`, `pc_after=0x40811fc6`, all
+- 500M faithful: `HOST_LC_OK`, `cycles=502790361`, `pc_after=0x40811fae`, all
   stop flags 0.
 
 This clears the old `0x14250/0x14254` File Manager worker frontier and the
@@ -1262,9 +1262,13 @@ boot-block disk read, two modeled FCB allocations (`0x60`, `0xbe`), two modeled
 `0x13612` records (`0xb700`, `0xb744`), and one narrow `0x11f0e` context repair.
 A follow-up FCB-slot repair seeds the words read by `0x11f26` (`FCB+0x60+6 =
 0x12`, `FCB+0xbe+6 = 0x80e`) both at allocation time and again at `0x11f0e`,
-because `0xfc38` clears the field before the helper consumes it. With that,
-the new frontier is the `0x11f0e` helper return/epilogue (`0x11fa4` at 50M,
-`0x11fc6` at 500M), still before real desktop/VRAM rendering.
+because `0xfc38` clears the field before the helper consumes it. A subsequent
+small work-list topology repair adds one safe synthetic busy node (`0x1f500`,
+flag byte `0x20`) ahead of the matching `0x9474` node, mirroring the oracle's
+busy-node chain under head `0x9468` without using unsafe oracle node address
+`0xb418`. With that, the frontier remains inside the `0x11f0e` helper return/
+epilogue loop, now around `0x11fc6` at 50M and `0x11fae` at 500M, still before
+real desktop/VRAM rendering.
 
 The accepted repair keeps the File Manager state coherent across MountVol's MDB,
 FCB, and work-list helpers:
@@ -1279,6 +1283,9 @@ FCB, and work-list helpers:
 - Seed the `0xfc38` work-list at `0x9468` with both worker key offsets
   (`node+0x12` and `node+0x16`) and normalize internal-record `A2` values back to
   the real VCB (`0xb640`) to avoid reseeding the list with `vcb=0x9490`.
+- Insert a safe busy dummy node before the matching node in that work-list so the
+  `0x142e0` scan sees the same class of busy-node topology the oracle has before
+  it reaches a usable/matching node.
 - Reuse the two oracle-shaped FCB slots/records instead of monotonically handing
   out synthetic offsets forever: FCB offsets `0x60`/`0xbe`, records
   `0xb700`/`0xb744`.

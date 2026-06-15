@@ -5975,18 +5975,23 @@ void cpu_instr_callback(int pc) {
             // InitFS path has not built that head, so provide the narrow list
             // contract here, before 0x135fe snapshots A1 into the new record.
             const uint32_t head = 0x00009468u;
+            const uint32_t busy = 0x0001f500u;
             const uint32_t node = head + 0x000cu;
             const uint32_t a2_current = m68k_get_reg(NULL, M68K_REG_A2);
             const uint32_t vcb = (a2_current >= 0x00009400u && a2_current < 0x0000a000u) ? 0x0000b640u : a2_current;
             const uint32_t fcb_key = m68k_get_reg(NULL, M68K_REG_D1);
             const uint32_t pos_key = 0u;
-            for (uint32_t i = 0; i < 0x80u; i++) lc_musashi_bus_ram_write8(head + i, 0);
-            lc_musashi_bus_ram_write32(head + 0u, node);
+            for (uint32_t i = 0; i < 0x100u; i++) lc_musashi_bus_ram_write8(head + i, 0);
+            for (uint32_t i = 0; i < 0x60u; i++) lc_musashi_bus_ram_write8(busy + i, 0);
+            lc_musashi_bus_ram_write32(head + 0u, busy);
             lc_musashi_bus_ram_write32(head + 4u, node);
             lc_musashi_bus_ram_write16(head + 8u, 1u);
             lc_musashi_bus_ram_write16(head + 10u, 0x0200u);
+            lc_musashi_bus_ram_write32(busy + 0u, node);
+            lc_musashi_bus_ram_write32(busy + 4u, head);
+            lc_musashi_bus_ram_write8(busy + 26u, 0x20u);
             lc_musashi_bus_ram_write32(node + 0u, head);
-            lc_musashi_bus_ram_write32(node + 4u, head);
+            lc_musashi_bus_ram_write32(node + 4u, busy);
             lc_musashi_bus_ram_write32(node + 8u, vcb);
             lc_musashi_bus_ram_write32(node + 12u, fcb_key);
             lc_musashi_bus_ram_write32(node + 18u, pos_key);
@@ -5994,8 +5999,8 @@ void cpu_instr_callback(int pc) {
             lc_musashi_bus_ram_write8(node + 26u, 0u);
             lc_musashi_bus_ram_write8(node + 27u, 0u);
             m68k_set_reg(M68K_REG_A1, head);
-            ESP_LOGW(TAG, "LC FAITHFUL: seeded MountVol work-list head=0x%08x node=0x%08x vcb=0x%08x fcb_key=0x%08x pos_key=0x%08x",
-                     head, node, vcb, fcb_key, pos_key);
+            ESP_LOGW(TAG, "LC FAITHFUL: seeded MountVol work-list head=0x%08x busy=0x%08x node=0x%08x vcb=0x%08x fcb_key=0x%08x pos_key=0x%08x",
+                     head, busy, node, vcb, fcb_key, pos_key);
         }
         if (current_instruction_pc == 0x40811f0eu &&
             m68k_get_reg(NULL, M68K_REG_A2) >= 0x00009400u &&
