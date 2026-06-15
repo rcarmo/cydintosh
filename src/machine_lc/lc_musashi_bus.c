@@ -6074,6 +6074,7 @@ void cpu_instr_callback(int pc) {
         }
         if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && current_instruction_pc == 0x00000968u) {
             lc_musashi_bus_stage_boot_resources();
+            for (uint32_t v = 0x08u; v < 0x100u; v += 4u) lc_musashi_bus_ram_write32(v, LC_BASILISK_ROM_BASE_32 + 0x000026a0u);
             m68k_set_reg(M68K_REG_A3, 0x0004ff00u);
             m68k_set_reg(M68K_REG_PC, 0x00900000u);
             ESP_LOGW(TAG, "LC BACKEND: direct boot_2 handoff at boot block 0x968");
