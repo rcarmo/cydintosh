@@ -1251,17 +1251,20 @@ Validation after the MountVol/File Manager state repair:
 
 - 50M fixture: `HOST_LC_OK`, `cycles=50039791`, `pc_after=0x408426d0`, all stop
   flags 0, fixture VRAM writes still 4.
-- 50M faithful: `HOST_LC_OK`, `cycles=50279201`, `pc_after=0x40811f3c`, all stop
+- 50M faithful: `HOST_LC_OK`, `cycles=50279217`, `pc_after=0x40811fa4`, all stop
   flags 0.
-- 500M faithful: `HOST_LC_OK`, `cycles=502790373`, `pc_after=0x40811fbe`, all
+- 500M faithful: `HOST_LC_OK`, `cycles=502790381`, `pc_after=0x40811fc6`, all
   stop flags 0.
 
 This clears the old `0x14250/0x14254` File Manager worker frontier and the
 subsequent high-count MountVol retry loop. The faithful path now performs one
 boot-block disk read, two modeled FCB allocations (`0x60`, `0xbe`), two modeled
 `0x13612` records (`0xb700`, `0xb744`), and one narrow `0x11f0e` context repair.
-The new frontier is the `0x11f0e` File Manager helper body (`0x11f3c` at 50M,
-`0x11fbe` at 500M), still before real desktop/VRAM rendering.
+A follow-up FCB-slot repair seeds the words read by `0x11f26` (`FCB+0x60+6 =
+0x12`, `FCB+0xbe+6 = 0x80e`) both at allocation time and again at `0x11f0e`,
+because `0xfc38` clears the field before the helper consumes it. With that,
+the new frontier is the `0x11f0e` helper return/epilogue (`0x11fa4` at 50M,
+`0x11fc6` at 500M), still before real desktop/VRAM rendering.
 
 The accepted repair keeps the File Manager state coherent across MountVol's MDB,
 FCB, and work-list helpers:
@@ -1282,6 +1285,8 @@ FCB, and work-list helpers:
 - At the internal `0x135fe` worker return, restore the oracle-like context enough
   for the `0x1363a` validation path to run (`D3` low word as the FCB offset,
   `A3=FCBSPtr`, `A4` as the record, `A5=MDB`).
+- Seed the two FCB slot `+6` words that `0x11f0e` uses for its extent/run
+  calculation (`0x12` for the first slot, `0x80e` for the second).
 
 Rejected during this tranche: static FCB-address replay at `0x7734`, blindly
 seeding `0x9490+0x20`, a direct skip of the internal `0x135fe` worker, splitting

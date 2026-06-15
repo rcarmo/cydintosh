@@ -6000,6 +6000,8 @@ void cpu_instr_callback(int pc) {
         if (current_instruction_pc == 0x40811f0eu &&
             m68k_get_reg(NULL, M68K_REG_A2) >= 0x00009400u &&
             m68k_get_reg(NULL, M68K_REG_A2) < 0x0000a000u) {
+            lc_musashi_bus_ram_write16(0x0001f800u + 0x0060u + 0x06u, 0x0012u);
+            lc_musashi_bus_ram_write16(0x0001f800u + 0x00beu + 0x06u, 0x080eu);
             m68k_set_reg(M68K_REG_A1, 0x0001f800u);
             m68k_set_reg(M68K_REG_A2, 0x0000b640u);
             m68k_set_reg(M68K_REG_D4, 0x00000200u);
@@ -6051,6 +6053,7 @@ void cpu_instr_callback(int pc) {
             const uint32_t sp = m68k_get_reg(NULL, M68K_REG_SP);
             const uint32_t ret = lc_musashi_bus_peek_ram32(sp);
             lc_musashi_bus_ram_write32(fcb + fm_fcb_next, 0xffffffffu);
+            lc_musashi_bus_ram_write16(fcb + fm_fcb_next + 0x06u, (fm_fcb_next == 0x0060u) ? 0x0012u : 0x080eu);
             m68k_set_reg(M68K_REG_A1, fcb);
             m68k_set_reg(M68K_REG_D1, fm_fcb_next);
             m68k_set_reg(M68K_REG_D0, 0);
