@@ -1303,6 +1303,19 @@ or zero-RAM/bad-ROM paths. The remaining dependency appears to be the exact
 `0x11f0e` helper context/body semantics rather than the old MountVol worker
 scan.
 
+Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
+than waiting for real MountVol to finish, intercept the boot-block MountVol call,
+stage the existing boot resources, make the boot-block `InitResources` call
+return a valid refNum, and hand off directly to `boot_2` using the old
+non-faithful fixture handle convention. This does **not** change the default
+faithful path. It reaches `boot_2` (`0x00900002`, A025), handles the two
+boot-resource `GetHandleSize` calls (`0x4ff00 -> 648`, `0x4ff08 -> 31420`), and
+reaches copied `boot_3` far enough to set a dynamic A5 (`trap_pc=0x007f83c0`,
+`A5=0x007f947c`). Current backend frontier is later zero-RAM execution at
+`pc_after=0x00000104` after about 236M cycles, with no VRAM writes yet. This
+backend lane is intentionally end-to-end oriented and should be iterated
+separately from the default faithful MountVol frontier.
+
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
 so the real ROM MM handler returns `-113`. Seeding a basic zone header plus the

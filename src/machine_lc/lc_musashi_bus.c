@@ -6072,6 +6072,14 @@ void cpu_instr_callback(int pc) {
             previous_instruction_pc = current_instruction_pc;
             return;
         }
+        if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && current_instruction_pc == 0x00000968u) {
+            lc_musashi_bus_stage_boot_resources();
+            m68k_set_reg(M68K_REG_A3, 0x0004ff00u);
+            m68k_set_reg(M68K_REG_PC, 0x00900000u);
+            ESP_LOGW(TAG, "LC BACKEND: direct boot_2 handoff at boot block 0x968");
+            previous_instruction_pc = current_instruction_pc;
+            return;
+        }
         // Video-default setup reaches a small SlotManager probe routine at
         // 0x2310 that the oracle avoids, but if entered it expects the built-in
         // video sResource contract to be present.  Model just the three
@@ -6186,6 +6194,23 @@ void cpu_instr_callback(int pc) {
                 return;
             }
 
+            if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL &&
+                !is_toolbox && (trap_word & 0x00ffu) == 0x0fu) {
+                lc_musashi_bus_stage_boot_resources();
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                ESP_LOGW(TAG, "LC BACKEND: MountVol for boot_2 handoff");
+            }
+
+            if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
+                (trap_word & 0xf0ffu) == 0xa025u) {
+                uint32_t h = m68k_get_reg(NULL, M68K_REG_A0);
+                uint32_t sz = (h == 0x0004ff00u) ? 648u : (h == 0x0004ff08u ? 31420u : 0x10000u);
+                m68k_set_reg(M68K_REG_D0, sz);
+                handled = true;
+                ESP_LOGW(TAG, "LC BACKEND: GetHandleSize h=0x%08x sz=%u", (unsigned)h, (unsigned)sz);
+            }
+
             // Faithful-disk-boot: let the ROM's own A-trap dispatcher run boot 1's
             // File Manager OS traps (InitFS/MountVol/UnmountVol) so the real ROM
             // File Manager mounts the HFS volume via the disk driver, instead of
@@ -6193,7 +6218,7 @@ void cpu_instr_callback(int pc) {
             // letting the real handler run here clobbers the low-memory boot code
             // immediately after the trap site.  We seeded the real FM handlers
             // into the OS trap table above; just don't intercept those here.
-            if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL && !is_toolbox) {
+            if (!handled && getenv("LC_FAITHFUL_DISK_BOOT") != NULL && !is_toolbox) {
                 const uint16_t lb = trap_word & 0x00ffu;
                 if (lb == 0x6cu || lb == 0x0fu || lb == 0x0eu ||                 // InitFS/MountVol/UnmountVol
                     lb == 0x19u || lb == 0x2cu || lb == 0x63u ||                 // InitZone/InitApplZone/MaxApplZone
@@ -7001,7 +7026,7 @@ void cpu_instr_callback(int pc) {
                     // Return -1 during the early boot-block call so BMI at $968
                     // skips the GetResource code path (which is overwritten by
                     // BlockMove); copied boot_3 uses HOpenResFile instead.
-                    result_value = 0xFFFFu; // -1 as unsigned 16-bit
+                    result_value = (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_pc == 0x00000964u) ? 2u : 0xFFFFu;
                     handled = true;
                     break;
                 case 0x0997u: { // _OpenResFile(fileName:l) → refNum:w
