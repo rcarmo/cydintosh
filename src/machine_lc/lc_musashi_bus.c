@@ -881,35 +881,49 @@ static void lc_musashi_bus_maybe_repair_copied_boot3_bytes(uint32_t pc) {
     if (active_bus == NULL || active_bus->ram == NULL) {
         return;
     }
-    static const uint32_t copy_bases[] = {0x00bf8544u, 0x00be8934u};
-    for (size_t i = 0; i < sizeof(copy_bases) / sizeof(copy_bases[0]); i++) {
+    static const uint32_t legacy_copy_bases[] = {0x00bf8544u, 0x00be8934u};
+    static const uint32_t backend_copy_bases[] = {0x00bf852fu, 0x00bf8544u, 0x00be891fu, 0x00be8934u};
+    const bool backend_handoff = getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL;
+    const uint32_t *copy_bases = backend_handoff ? backend_copy_bases : legacy_copy_bases;
+    const size_t copy_base_count = backend_handoff
+                                       ? (sizeof(backend_copy_bases) / sizeof(backend_copy_bases[0]))
+                                       : (sizeof(legacy_copy_bases) / sizeof(legacy_copy_bases[0]));
+    const uint32_t repair_limit = backend_handoff ? 0x1230u : 0x1170u;
+    for (size_t i = 0; i < copy_base_count; i++) {
         const uint32_t base = copy_bases[i];
         const uint32_t region = base + 0x1130u;
-        if (pc < region || pc >= region + 0x40u) {
+        if (pc < region || pc >= base + repair_limit) {
             continue;
         }
         const uint32_t expected_branch_addr = base + 0x1134u;
         const uint32_t expected_andi_addr = base + 0x113au;
+        const uint32_t expected_script_arg_addr = base + 0x11b6u;
+        const uint32_t expected_script_trap_addr = base + 0x11c0u;
+        const uint32_t expected_post_script_addr = base + 0x11f4u;
         if (lc_musashi_bus_peek_ram16(expected_branch_addr) == 0x6c24u &&
-            lc_musashi_bus_peek_ram16(expected_andi_addr) == 0x0242u) {
+            lc_musashi_bus_peek_ram16(expected_andi_addr) == 0x0242u &&
+            (!backend_handoff ||
+             (lc_musashi_bus_peek_ram16(expected_script_arg_addr) == 0x3f3cu &&
+              lc_musashi_bus_peek_ram16(expected_script_trap_addr) == 0xa8b5u &&
+              lc_musashi_bus_peek_ram16(expected_post_script_addr) == 0x31fcu))) {
             return;
         }
         uint32_t boot3 = lc_musashi_bus_peek_ram32(0x0004ff08u);
-        if (boot3 == 0u || boot3 + 0x1170u >= active_bus->ram_size) {
+        if (boot3 == 0u || boot3 + repair_limit >= active_bus->ram_size) {
             boot3 = 0x00902000u;
         }
-        if (boot3 + 0x1170u >= active_bus->ram_size || region + 0x40u >= active_bus->ram_size) {
+        if (boot3 + repair_limit >= active_bus->ram_size || base + repair_limit >= active_bus->ram_size) {
             return;
         }
-        for (uint32_t off = 0x1130u; off < 0x1170u; off++) {
+        for (uint32_t off = 0x1130u; off < repair_limit; off++) {
             lc_musashi_bus_ram_write8(base + off, active_bus->ram[boot3 + off]);
         }
         static unsigned repair_logs = 0;
         if (repair_logs < 8u) {
             ESP_LOGW(TAG,
-                     "LC repaired copied boot_3 heap-compact bytes: pc=0x%08" PRIx32
+                     "LC repaired copied boot_3 heap%s bytes: pc=0x%08" PRIx32
                      " base=0x%08" PRIx32 " src=0x%08" PRIx32,
-                     pc, base, boot3);
+                     backend_handoff ? "/script" : "", pc, base, boot3);
             repair_logs++;
         }
         return;
@@ -6223,6 +6237,60 @@ void cpu_instr_callback(int pc) {
                 ESP_LOGW(TAG, "LC BACKEND: GetHandleSize h=0x%08x sz=%u", (unsigned)h, (unsigned)sz);
             }
 
+            if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
+                (trap_word & 0xf0ffu) == 0xa02cu &&
+                trap_pc >= 0x00bf99d0u && trap_pc < 0x00bf9a00u) {
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                ESP_LOGW(TAG, "LC BACKEND: modeled boot_3 MaxApplZone at pc=0x%08x", (unsigned)trap_pc);
+            }
+
+            if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
+                ((trap_word & 0xf0ffu) == 0xa029u || (trap_word & 0xf0ffu) == 0xa02au) &&
+                trap_pc >= 0x00bfb000u && trap_pc < 0x00bfc000u) {
+                m68k_set_reg(M68K_REG_D0, 0);
+                handled = true;
+                ESP_LOGW(TAG, "LC BACKEND: modeled boot_3 %s at pc=0x%08x handle=0x%08x",
+                         ((trap_word & 0x00ffu) == 0x29u) ? "HLock" : "HUnlock",
+                         (unsigned)trap_pc, (unsigned)m68k_get_reg(NULL, M68K_REG_A0));
+            }
+
+            if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
+                (trap_word & 0xf0ffu) == 0xa01eu &&
+                trap_pc >= 0x00bf8bc0u && trap_pc < 0x00bf8d00u) {
+                static uint32_t backend_boot3_heap = 0x00530000u;
+                uint32_t size = m68k_get_reg(NULL, M68K_REG_D0);
+                if (size == 0u) size = 4u;
+                size = (size + 3u) & ~3u;
+                uint32_t ptr = backend_boot3_heap;
+                backend_boot3_heap += size;
+                if (active_bus == NULL || active_bus->ram == NULL ||
+                    backend_boot3_heap >= active_bus->ram_size - 0x10000u) {
+                    m68k_set_reg(M68K_REG_A0, 0);
+                    m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-108);
+                    lc_musashi_bus_ram_write16(LC_LOWMEM_MEM_ERR, (uint16_t)(int16_t)-108);
+                } else {
+                    for (uint32_t i = 0; i < size; i++) lc_memory_bus_write8(active_bus, ptr + i, 0);
+                    m68k_set_reg(M68K_REG_A0, ptr);
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    lc_musashi_bus_ram_write16(LC_LOWMEM_MEM_ERR, 0);
+                }
+                m68k_set_reg(M68K_REG_PC, return_pc);
+                m68k_set_reg(M68K_REG_SP, sp + 8u);
+                {
+                    const uint16_t d0w = (uint16_t)m68k_get_reg(NULL, M68K_REG_D0);
+                    uint16_t new_sr = saved_sr & 0xfff0u;
+                    if (d0w == 0u) new_sr |= 0x0004u;
+                    if ((d0w & 0x8000u) != 0u) new_sr |= 0x0008u;
+                    m68k_set_reg(M68K_REG_SR, new_sr);
+                }
+                ESP_LOGW(TAG, "LC BACKEND: modeled boot_3 NewPtr trap=0x%04x pc=0x%08x ptr=0x%08x size=0x%08x",
+                         (unsigned)trap_word, (unsigned)trap_pc,
+                         (unsigned)m68k_get_reg(NULL, M68K_REG_A0), (unsigned)size);
+                previous_instruction_pc = current_instruction_pc;
+                return;
+            }
+
             // Faithful-disk-boot: let the ROM's own A-trap dispatcher run boot 1's
             // File Manager OS traps (InitFS/MountVol/UnmountVol) so the real ROM
             // File Manager mounts the HFS volume via the disk driver, instead of
@@ -6789,6 +6857,49 @@ void cpu_instr_callback(int pc) {
                     break;
                 case 0x089bu: // QuickDraw _PenSize(width:w,height:w) → void
                     param_bytes = 4;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+
+                case 0x0924u: // Window Manager _FrontWindow()
+                    if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_pc == 0x00bffb17u) {
+                        m68k_set_reg(M68K_REG_A0, 0);
+                    }
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08d8u: // QuickDraw _NewRgn()
+                    if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_pc == 0x00bffb1bu) {
+                        static uint32_t qd_boot_rgn_handle = 0x00540000u;
+                        static uint32_t qd_boot_rgn_data = 0x00541000u;
+                        const uint32_t handle = qd_boot_rgn_handle;
+                        const uint32_t data = qd_boot_rgn_data;
+                        qd_boot_rgn_handle += 4u;
+                        qd_boot_rgn_data += 0x40u;
+                        if (active_bus != NULL && active_bus->ram != NULL && data + 0x10u < active_bus->ram_size) {
+                            for (uint32_t i = 0; i < 0x40u; i++) lc_memory_bus_write8(active_bus, data + i, 0);
+                            lc_musashi_bus_ram_write32(handle, data);
+                            lc_musashi_bus_ram_write16(data + 0u, 0x000au);
+                        }
+                        m68k_set_reg(M68K_REG_A0, handle);
+                    }
+                    param_bytes = 0;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08dfu: // QuickDraw _RectRgn(rgn:l, rect:l) in copied boot progress helper
+                    param_bytes = (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_pc == 0x00bffb23u) ? 8u : 0u;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x090du: // Window Manager _PaintBehind(window:l, rgn:l) in copied boot progress helper
+                    param_bytes = (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_pc == 0x00bffb27u) ? 8u : 0u;
+                    result_bytes = 0;
+                    handled = true;
+                    break;
+                case 0x08d9u: // QuickDraw _DisposeRgn(rgn:l) in copied boot progress helper
+                    param_bytes = (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && trap_pc == 0x00bffb2bu) ? 4u : 0u;
                     result_bytes = 0;
                     handled = true;
                     break;

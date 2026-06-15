@@ -1321,10 +1321,19 @@ misclassified as `A02E` BlockMove by the OS trap mask). The backend boot_2
 handoff also seeds the low exception-vector table to the ROM's per-vector BSR
 stubs (`0x26f0 + 2*(vector-1)`) while preserving the A-line vector, preventing
 exceptions from falling through low-memory data or bypassing the ROM's vector
-number calculation. Current backend frontier reaches the 500M budget with stop
-flags 0 at `pc_after=0x40802786`; no VRAM writes yet. This backend lane is
-intentionally end-to-end oriented and should be iterated separately from the
-default faithful MountVol frontier.
+number calculation. The backend also models the copied boot_3 helper's local
+`NewPtr`/`MaxApplZone`/`HLock`/`HUnlock` contracts and repairs the active copied
+boot_3 heap/script byte window using the real boot_3 resource bytes (active base
+`0x00bf852f`, backend-gated so default fixture/faithful paths keep the legacy
+repair). Validation for this clean tranche: fixture 50M remains green with the
+fixture VRAM writes, faithful 50M/500M remain green, and backend 50M/500M reach
+cycle budget with all stop flags 0. Current backend frontier still reaches
+`pc_after=0x40802786` at 500M with no VRAM writes. Pinned first exception after
+this tranche: vector 11/F-line from low-memory `frame_pc=0x0000010d`, operand
+`0xffe4`, so the remaining issue is still a boot_3 handoff/control-flow state
+problem rather than an individual QuickDraw trap stack-size problem. This backend
+lane is intentionally end-to-end oriented and should be iterated separately from
+the default faithful MountVol frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
