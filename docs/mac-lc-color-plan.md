@@ -1311,13 +1311,15 @@ non-faithful fixture handle convention. This does **not** change the default
 faithful path. It reaches `boot_2` (`0x00900002`, A025), handles the two
 boot-resource `GetHandleSize` calls (`0x4ff00 -> 648`, `0x4ff08 -> 31420`), and
 reaches copied `boot_3` far enough to set a dynamic A5 (`trap_pc=0x007f83c0`,
-`A5=0x007f947c`). A backend-only guard realigns an odd ROM exception PC
-(`0x40802709 -> 0x40802708`), avoiding the immediate zero-RAM stop. Current
-backend frontier reaches the 500M budget with stop flags 0 at
-`pc_after=0x40802698`, but the stack is clearly unhealthy (`sp_after=0xffbc89d9`)
-and the path loops through the ROM exception/debug area; no VRAM writes yet. This
-backend lane is intentionally end-to-end oriented and should be iterated
-separately from the default faithful MountVol frontier.
+`A5=0x007f947c`). Boot_3 then probes optional file-like helpers through
+`_Open/_GetEOF/_Read/_Close`; the backend treats those invalid/non-PString file
+opens as `fnfErr` instead of accidentally opening the disk driver. A backend-only
+guard realigns an odd ROM exception PC (`0x40802709 -> 0x40802708`), avoiding the
+immediate zero-RAM stop. Current backend frontier reaches the 500M budget with
+stop flags 0 at `pc_after=0x40802702`, but the stack is clearly unhealthy
+(`sp_after=0xffbc89d3`) and the path loops through the ROM exception/debug area;
+no VRAM writes yet. This backend lane is intentionally end-to-end oriented and
+should be iterated separately from the default faithful MountVol frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,

@@ -6239,9 +6239,15 @@ void cpu_instr_callback(int pc) {
             switch (trap_word & 0xf0ffu) { // mask out flag bits for OS traps
             case 0xa000u: { // _Open: A0=paramBlock
                 uint32_t pb_o = m68k_get_reg(NULL, M68K_REG_A0);
-                // Write ioRefNum=-5 (Sony driver) at pb+24
-                lc_musashi_bus_ram_write16(pb_o + 24u, (uint16_t)(int16_t)-5);
-                m68k_set_reg(M68K_REG_D0, 0); // noErr
+                if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && pb_o >= 0x007f0000u && pb_o < 0x00810000u) {
+                    lc_musashi_bus_ram_write16(pb_o + 16u, (uint16_t)(int16_t)-43);
+                    m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)-43); // fnfErr
+                    ESP_LOGW(TAG, "LC BACKEND: boot_3 file Open returns fnfErr pb=0x%08x", (unsigned)pb_o);
+                } else {
+                    // Write ioRefNum=-5 (Sony driver) at pb+24
+                    lc_musashi_bus_ram_write16(pb_o + 24u, (uint16_t)(int16_t)-5);
+                    m68k_set_reg(M68K_REG_D0, 0); // noErr
+                }
                 handled = true;
                 break;
             }
