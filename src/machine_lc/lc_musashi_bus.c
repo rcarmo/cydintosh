@@ -5925,10 +5925,12 @@ void cpu_instr_callback(int pc) {
                     lc_musashi_bus_ram_write8(ret_a0 + 0x0eu, 0u);
                     lc_musashi_bus_ram_write32(ret_a0 + 0x10u, 0u);
                     lc_musashi_bus_ram_write32(ret_a0 + 0x18u, 0u);
-                    lc_musashi_bus_ram_write32(ret_a0 + 0x1cu, 0u);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x1cu, 0x00000200u);
                     lc_musashi_bus_ram_write16(ret_a0 + 0x20u, 0x0200u);
                     lc_musashi_bus_ram_write32(ret_a0 + 0x24u, 0x000007fcu);
                     lc_musashi_bus_ram_write32(ret_a0 + 0x28u, 0u);
+                    lc_musashi_bus_ram_write32(ret_a0 + 0x50u, 0x0000b800u);
+                    for (uint32_t bi = 0; bi < 0x200u; bi++) lc_musashi_bus_ram_write8(0x0000b800u + bi, 0xffu);
                     lc_musashi_bus_ram_write32(sp, LC_BASILISK_ROM_BASE_32 + 0x0001363au);
                     m68k_set_reg(M68K_REG_D0, 0);
                     m68k_set_reg(M68K_REG_D1, 0);

@@ -1294,6 +1294,14 @@ FCB, and work-list helpers:
   `A3=FCBSPtr`, `A4` as the record, `A5=MDB`).
 - Seed the two FCB slot `+6` words that `0x11f0e` uses for its extent/run
   calculation (`0x12` for the first slot, `0x80e` for the second).
+- Seed the modeled internal File Manager record's allocation-block size and
+  bitmap pointer (`record+0x1c=0x200`, `record+0x50=0xb800` with a simple
+  nonzero bitmap).  Without this, `0x11f14` loads `D7=record+0x1c=0`, and the
+  helper at `0x11f9c` follows a null bitmap pointer into low-memory vector data
+  while computing extent/allocation bits.  This is a coherent state repair, not
+  a frontier completion: fixture 50M, faithful 50M/500M, and backend 50M/500M
+  remain `HOST_LC_OK` with stop flags clear, but faithful still cycles in the
+  same `0x11fxx` helper class before desktop/VRAM rendering.
 
 Rejected during this tranche: static FCB-address replay at `0x7734`, blindly
 seeding `0x9490+0x20`, a direct skip of the internal `0x135fe` worker, splitting
