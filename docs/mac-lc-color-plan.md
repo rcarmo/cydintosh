@@ -1344,16 +1344,18 @@ control transfer from `0x00bf971d`. The following pinned fault entered a high-RA
 segment jump table (`0x00ffdd24`) and executed the offset word after `_LoadSeg`
 (`A9F0`) as code. The backend now models this table faithfully enough to load the
 requested `scod` resource by signed segment id (e.g. `seg=-16469`, entry offset
-`0x009a`) and transfer to `resourceBase+entryOffset` instead of returning to the
-offset word. Validation for this clean tranche: fixture 50M remains green with
+`0x009a`) and transfer to `resourceBase+4+entryOffset` (the 4-byte `scod` header
+is part of the copied resource) instead of returning to the offset word. It also
+loads the next dependent `scod` segment (`seg=-16463`, entry `0x48c0`) through the
+same path. Validation for this clean tranche: fixture 50M remains green with
 fixture VRAM writes, faithful 50M/500M remain green, and backend 50M/500M reach
 cycle budget with all stop flags 0. Current backend still has no VRAM writes;
-backend 50M reaches `pc_after=0x408026a4` and backend 500M reaches
-`pc_after=0x4080274a`, still in the ROM exception/debug path. The remaining issue
-is still broader boot_3 handoff/control-flow state rather than an individual
-QuickDraw trap stack-size problem. This backend lane is intentionally end-to-end
-oriented and should be iterated separately from the default faithful MountVol
-frontier.
+backend 50M now runs inside loaded `scod` at `pc_after=0x0052cc1a`, and backend
+500M remains in loaded `scod` at `pc_after=0x0052cc0c` rather than the ROM
+exception/debug dispatcher. The remaining issue is still broader boot_3
+handoff/control-flow state rather than an individual QuickDraw trap stack-size
+problem. This backend lane is intentionally end-to-end oriented and should be
+iterated separately from the default faithful MountVol frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,

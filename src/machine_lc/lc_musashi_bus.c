@@ -6587,8 +6587,8 @@ void cpu_instr_callback(int pc) {
                     seg_addr = host_find_system_resource(active_bus->ram, active_bus->ram_size,
                                                         0x73636f64u, seg_id, &seg_size); // 'scod'
                 }
-                if (seg_addr != 0u && (uint32_t)entry_off < seg_size) {
-                    const uint32_t target = seg_addr + (uint32_t)entry_off;
+                if (seg_addr != 0u && (uint32_t)entry_off + 4u < seg_size) {
+                    const uint32_t target = seg_addr + 4u + (uint32_t)entry_off;
                     m68k_set_reg(M68K_REG_D0, 0);
                     m68k_set_reg(M68K_REG_SP, sp + 8u + 2u);
                     m68k_set_reg(M68K_REG_PC, target);
