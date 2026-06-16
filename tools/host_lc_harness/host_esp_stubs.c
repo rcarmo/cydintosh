@@ -268,6 +268,16 @@ static uint32_t sysrsrc_size = 0;
 static uint32_t sysrsrc_copy_cursor = SYSRSRC_COPY_BASE;
 
 typedef struct {
+    uint32_t type;
+    int16_t id;
+    uint32_t addr;
+    uint32_t size;
+} host_sysrsrc_copy_entry_t;
+
+static host_sysrsrc_copy_entry_t *sysrsrc_copies = NULL;
+static size_t sysrsrc_copy_count = 0;
+
+typedef struct {
     uint32_t parent_id;
     uint32_t cnid;
     uint8_t is_dir;
@@ -439,7 +449,10 @@ void host_load_system_rsrc(uint8_t *ram, size_t ram_size) {
     size_t n = fread(buf, 1, sz, f);
     fclose(f);
     free(sysrsrc_buf);
+    free(sysrsrc_copies);
     sysrsrc_buf = buf;
+    sysrsrc_copies = NULL;
+    sysrsrc_copy_count = 0;
     sysrsrc_size = (uint32_t)n;
     sysrsrc_copy_cursor = SYSRSRC_COPY_BASE;
     fprintf(stderr, "HOST: loaded System.rsrc (%zu bytes) host-side; guest copies start at $%06X\n",
@@ -470,6 +483,14 @@ uint32_t host_find_system_resource(const uint8_t *ram, size_t ram_size,
                                    uint32_t res_type, int16_t res_id,
                                    uint32_t *out_size) {
     if (sysrsrc_size == 0 || sysrsrc_buf == NULL || ram == NULL) return 0;
+    for (size_t i = 0; i < sysrsrc_copy_count; i++) {
+        const host_sysrsrc_copy_entry_t *copy = &sysrsrc_copies[i];
+        if (copy->type == res_type && copy->id == res_id &&
+            copy->addr < ram_size && copy->size <= ram_size - copy->addr) {
+            if (out_size) *out_size = copy->size;
+            return copy->addr;
+        }
+    }
     const uint8_t *rsrc = sysrsrc_buf;
     uint32_t data_offset = (uint32_t)rsrc[0]<<24 | rsrc[1]<<16 | rsrc[2]<<8 | rsrc[3];
     uint32_t map_offset = (uint32_t)rsrc[4]<<24 | rsrc[5]<<16 | rsrc[6]<<8 | rsrc[7];
@@ -502,6 +523,16 @@ uint32_t host_find_system_resource(const uint8_t *ram, size_t ram_size,
             uint32_t next = guest_addr + dlen;
             if (next > SYSRSRC_COPY_LIMIT || next > ram_size) return 0;
             memcpy((uint8_t *)ram + guest_addr, rsrc + abs_off + 4u, dlen);
+            host_sysrsrc_copy_entry_t *copies = (host_sysrsrc_copy_entry_t *)realloc(
+                sysrsrc_copies, (sysrsrc_copy_count + 1u) * sizeof(*sysrsrc_copies));
+            if (copies != NULL) {
+                sysrsrc_copies = copies;
+                sysrsrc_copies[sysrsrc_copy_count].type = res_type;
+                sysrsrc_copies[sysrsrc_copy_count].id = res_id;
+                sysrsrc_copies[sysrsrc_copy_count].addr = guest_addr;
+                sysrsrc_copies[sysrsrc_copy_count].size = dlen;
+                sysrsrc_copy_count++;
+            }
             sysrsrc_copy_cursor = next;
             return guest_addr;
         }

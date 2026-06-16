@@ -6647,15 +6647,41 @@ void cpu_instr_callback(int pc) {
                 }
                 if (seg_addr != 0u && (uint32_t)entry_off + 2u < seg_size) {
                     const uint32_t target = seg_addr + 2u + (uint32_t)entry_off;
+                    const uint32_t caller_return = lc_musashi_bus_peek_ram32(sp + 10u);
+                    const uint32_t frame = m68k_get_reg(NULL, M68K_REG_A6);
+                    const uint32_t frame_return = (active_bus != NULL && active_bus->ram != NULL &&
+                                                   frame + 7u < active_bus->ram_size)
+                                                      ? lc_musashi_bus_peek_ram32(frame + 4u) : 0u;
+                    if (caller_return == 0u) {
+                        // Basilisk/Classic Segment Loader jump-table cells are
+                        // normally entered by JSR, so after LoadSeg removes the
+                        // A-line exception frame and segment word the loaded
+                        // code's RTS sees the original caller return at sp+10.
+                        // The copied boot_3 top-level startup chain executes a
+                        // run of scod jump-table cells without a real caller
+                        // return.  Supply the missing Process/Segment Manager
+                        // continuation in the caller slot and A0 for tail-call
+                        // entries like scod -16468:0x0116, while leaving
+                        // ordinary JSR-entered cells unchanged.  Some entries are
+                        // inner labels that
+                        // also tear down an existing A6 frame, so mirror the same
+                        // continuation into an empty frame return.
+                        lc_musashi_bus_ram_write32(sp + 10u, trap_pc + 4u);
+                        m68k_set_reg(M68K_REG_A0, trap_pc + 4u);
+                        if (frame_return == 0u && frame + 7u < active_bus->ram_size) {
+                            lc_musashi_bus_ram_write32(frame + 4u, trap_pc + 4u);
+                        }
+                    }
                     m68k_set_reg(M68K_REG_D0, 0);
                     m68k_set_reg(M68K_REG_SP, sp + 8u + 2u);
                     m68k_set_reg(M68K_REG_PC, target);
                     m68k_set_reg(M68K_REG_SR, saved_sr);
                     handled = true;
                     ESP_LOGW(TAG,
-                             "LC BACKEND: loaded scod segment seg=%d size=0x%08x entry=0x%04x target=0x%08x from=0x%08x",
+                             "LC BACKEND: loaded scod segment seg=%d size=0x%08x entry=0x%04x target=0x%08x from=0x%08x caller_return=0x%08x frame_return=0x%08x",
                              (int)seg_id, (unsigned)seg_size, (unsigned)entry_off,
-                             (unsigned)target, (unsigned)trap_pc);
+                             (unsigned)target, (unsigned)trap_pc, (unsigned)caller_return,
+                             (unsigned)frame_return);
                     previous_instruction_pc = current_instruction_pc;
                     return;
                 }

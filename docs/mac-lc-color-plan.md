@@ -1352,16 +1352,22 @@ read-only HFS catalog parser for the real disk image (MDB + catalog B-tree) and
 routes backend `HFSDispatch(PBGetCatInfo)` selector 9 through it. In the current
 `scod -16469` app-discovery scan this enumerates the real Extensions folder
 (CNID 175), including the actual `Desktop Printer Spooler` `appe/dtps` entry
-(CNID 196), instead of returning synthetic PB fields. Validation for this clean
-tranche: fixture 50M remains green with fixture VRAM writes, faithful 50M/500M
-remain green, and backend 50M/500M reach cycle budget with all stop flags 0.
-Current backend still has no VRAM writes; backend now completes the loaded
-`scod` Extensions-folder scan and returns to the next control-flow issue
-(`pc_after=0x408026a4` at 50M, `0x4080274a` at 500M). The remaining issue is
-still broader boot_3 handoff/control-flow state rather than an individual
-QuickDraw trap stack-size problem. This backend lane is intentionally end-to-end
-oriented and should be iterated separately from the default faithful MountVol
-frontier.
+(CNID 196), instead of returning synthetic PB fields. A follow-up Segment
+Manager fidelity step now caches host-side System resource copies by type/id, so
+repeat `_LoadSeg` calls for the same `scod` return the same guest address instead
+of duplicating code at a new scratch base each time. The backend `_LoadSeg` model
+also fills the missing no-caller top-level jump-table continuation at `sp+10`,
+sets `A0` for tail-call entries such as `scod -16468:0x0116`, and mirrors the
+continuation into an empty active A6 frame return while preserving ordinary
+JSR-entered segment cells. Validation for this clean tranche: fixture 50M remains
+green with fixture VRAM writes, faithful 50M/500M remain green, and backend
+50M/500M reach cycle budget with all stop flags 0. Current backend still has no
+VRAM writes; backend now completes the loaded `scod` Extensions-folder scan and
+walks further through the top-level `scod -16468` startup chain (`pc_after=
+0x408026ce` at 50M, `0x40802746` at 500M). The remaining issue is still broader
+boot_3 handoff/Segment Manager caller state rather than an individual QuickDraw
+trap stack-size problem. This backend lane is intentionally end-to-end oriented
+and should be iterated separately from the default faithful MountVol frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
