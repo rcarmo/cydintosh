@@ -6241,7 +6241,7 @@ void cpu_instr_callback(int pc) {
 
             if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
                 (trap_word & 0xf0ffu) == 0xa02cu &&
-                trap_pc >= 0x00bf99d0u && trap_pc < 0x00bf9a00u) {
+                ((trap_pc >= 0x00bf99d0u && trap_pc < 0x00bf9a00u) || trap_pc == 0x00bf9279u)) {
                 m68k_set_reg(M68K_REG_D0, 0);
                 handled = true;
                 ESP_LOGW(TAG, "LC BACKEND: modeled boot_3 MaxApplZone at pc=0x%08x", (unsigned)trap_pc);
@@ -6823,7 +6823,7 @@ void cpu_instr_callback(int pc) {
                     // later return PC into SR-prefixed values such as $2700924e.
                     param_bytes = 4;
                     result_bytes = 2;
-                    static const uint32_t boot3_bases[] = {0x00bf8544u, 0x00be8934u, 0x007f8544u};
+                    static const uint32_t boot3_bases[] = {0x00bf852fu, 0x00bf8544u, 0x00be891fu, 0x00be8934u, 0x007f852fu, 0x007f8544u};
                     for (size_t bi = 0; bi < sizeof(boot3_bases) / sizeof(boot3_bases[0]); bi++) {
                         const uint32_t base = boot3_bases[bi];
                         if (trap_pc >= base) {

@@ -1336,16 +1336,20 @@ boot_3 heap/script byte window using the real boot_3 resource bytes (active base
 repair). A follow-up backend-gated `_TextServicesDispatch` (`AA54`) stack fix now
 matches the active copied boot_3 selector-14 helper: consume the long pointer
 only, leaving the word cookie/scratch for the caller cleanup so the helper does
-not RTS through saved `D3=0x00800000`. Validation for this clean tranche:
-fixture 50M remains green with fixture VRAM writes, faithful 50M/500M remain
-green, and backend 50M/500M reach cycle budget with all stop flags 0. Current
-backend frontier still reaches `pc_after=0x40802786` at 500M with no VRAM writes.
-Pinned first exception before the AA54 stack fix was vector 11/F-line from
-low-memory `frame_pc=0x0000010d`, operand `0xffe4`; after the fix the backend
-still enters the ROM exception/debug path, so the remaining issue is broader
-boot_3 handoff/control-flow state rather than an individual QuickDraw trap
-stack-size problem. This backend lane is intentionally end-to-end oriented and
-should be iterated separately from the default faithful MountVol frontier.
+not RTS through saved `D3=0x00800000`. A second gated base-list repair teaches the
+`_ScriptUtil` stack-shape model about the active copied bases (`0x00bf852f`,
+`0x00be891f`, `0x007f852f`) and models the active helper's `MaxApplZone` site at
+`0x00bf9279`; this eliminates the previously pinned bad `RTS -> 0x92310080`
+control transfer from `0x00bf971d`. Validation for this clean tranche: fixture
+50M remains green with fixture VRAM writes, faithful 50M/500M remain green, and
+backend 50M/500M reach cycle budget with all stop flags 0. Current backend still
+has no VRAM writes; backend 50M now stops at `pc_after=0x40802786` and backend
+500M still lands in the ROM exception/debug path around `0x408026a8`. The next
+pinned first exception after eliminating `0x92310080` is from `frame_pc=0x00ffdd4a`,
+so the remaining issue is still broader boot_3 handoff/control-flow state rather
+than an individual QuickDraw trap stack-size problem. This backend lane is
+intentionally end-to-end oriented and should be iterated separately from the
+default faithful MountVol frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
