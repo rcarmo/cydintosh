@@ -6574,6 +6574,35 @@ void cpu_instr_callback(int pc) {
                     break;
                 }
             }
+            if (!handled && is_toolbox && getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL &&
+                (trap_word & 0x0bffu) == 0x09f0u &&
+                trap_pc >= 0x00ff0000u && trap_pc < 0x01000000u) {
+                const int16_t seg_id = (int16_t)lc_musashi_bus_peek_ram16(sp + 8u);
+                const uint16_t entry_off = lc_memory_bus_read16(active_bus, trap_pc + 2u);
+                uint32_t seg_size = 0;
+                uint32_t seg_addr = 0;
+                if (active_bus != NULL && active_bus->ram != NULL) {
+                    extern uint32_t host_find_system_resource(const uint8_t *, size_t,
+                                                              uint32_t, int16_t, uint32_t *);
+                    seg_addr = host_find_system_resource(active_bus->ram, active_bus->ram_size,
+                                                        0x73636f64u, seg_id, &seg_size); // 'scod'
+                }
+                if (seg_addr != 0u && (uint32_t)entry_off < seg_size) {
+                    const uint32_t target = seg_addr + (uint32_t)entry_off;
+                    m68k_set_reg(M68K_REG_D0, 0);
+                    m68k_set_reg(M68K_REG_SP, sp + 8u + 2u);
+                    m68k_set_reg(M68K_REG_PC, target);
+                    m68k_set_reg(M68K_REG_SR, saved_sr);
+                    handled = true;
+                    ESP_LOGW(TAG,
+                             "LC BACKEND: loaded scod segment seg=%d size=0x%08x entry=0x%04x target=0x%08x from=0x%08x",
+                             (int)seg_id, (unsigned)seg_size, (unsigned)entry_off,
+                             (unsigned)target, (unsigned)trap_pc);
+                    previous_instruction_pc = current_instruction_pc;
+                    return;
+                }
+            }
+
             // Toolbox traps — Pascal calling convention:
             // Before trap: stack has [result_space] [params...] from bottom up.
             // After our exception frame removal, SP points to params.
