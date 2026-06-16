@@ -6932,15 +6932,27 @@ void cpu_instr_callback(int pc) {
                     result_bytes = 0;
                     handled = true;
                     break;
-                case 0x0a54u: // _TextServicesDispatch selector in D0
+                case 0x0a54u: { // _TextServicesDispatch selector in D0
                     // boot_3 selector 14 passes a long pointer plus a word cookie,
-                    // then performs ADDQ #6,SP itself.  Treat absent TextServices
-                    // as a no-op dispatcher and leave the caller-owned frame intact.
+                    // then performs ADDQ #6,SP itself.  The backend active-copy
+                    // helper needs TextServices to consume the long pointer only;
+                    // this leaves the word cookie plus local scratch for caller
+                    // cleanup, so RTS sees the real return address.
                     param_bytes = 0;
+                    if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL) {
+                        static const uint32_t boot3_bases[] = {0x00bf852fu, 0x00be891fu};
+                        for (size_t bi = 0; bi < sizeof(boot3_bases) / sizeof(boot3_bases[0]); bi++) {
+                            if (trap_pc >= boot3_bases[bi] && trap_pc - boot3_bases[bi] == 0x11e6u) {
+                                param_bytes = 4;
+                                break;
+                            }
+                        }
+                    }
                     result_bytes = 0;
                     result_value = 0;
                     handled = true;
                     break;
+                }
                 case 0x08ecu: // QuickDraw _CopyBits(srcBits:l,dstBits:l,srcRect:l,dstRect:l,mode:w,maskRgn:l) → void
                     // boot_3 allocates local bitmap/rect scratch, pushes the 22-byte
                     // CopyBits argument list, calls A8EC, then separately releases
