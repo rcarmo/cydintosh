@@ -6232,6 +6232,63 @@ void cpu_instr_callback(int pc) {
             }
 
             if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
+                trap_word == 0xa260u && m68k_get_reg(NULL, M68K_REG_D0) == 9u) {
+                const uint32_t pb = m68k_get_reg(NULL, M68K_REG_A0);
+                uint32_t cnid = 0, type = 0, creator = 0, data_len = 0, rsrc_len = 0, parent_id = 0;
+                uint16_t fd_flags = 0;
+                uint8_t is_dir = 0, name_len = 0, attr = 0;
+                char name[32] = {0};
+                uint32_t dir_id = (active_bus != NULL && active_bus->ram != NULL && pb + 51u < active_bus->ram_size)
+                                      ? lc_musashi_bus_peek_ram32(pb + 48u) : 0u;
+                const uint16_t index = (active_bus != NULL && active_bus->ram != NULL && pb + 29u < active_bus->ram_size)
+                                           ? lc_musashi_bus_peek_ram16(pb + 28u) : 0u;
+                if (dir_id == 0u && index != 0u) dir_id = 175u; // Extensions folder for backend app-discovery scan
+                extern int host_hfs_get_cat_info(uint32_t, uint16_t, uint32_t *, uint8_t *, uint8_t *, char *,
+                                                 uint8_t *, uint32_t *, uint32_t *, uint16_t *, uint32_t *, uint32_t *, uint32_t *) __attribute__((weak));
+                int result = -43;
+                if (host_hfs_get_cat_info != NULL) {
+                    result = host_hfs_get_cat_info(dir_id, index, &cnid, &is_dir, &name_len, name,
+                                                   &attr, &type, &creator, &fd_flags, &data_len, &rsrc_len, &parent_id);
+                }
+                if (result == 0 && active_bus != NULL && active_bus->ram != NULL && pb + 108u < active_bus->ram_size) {
+                    const uint32_t name_ptr = lc_musashi_bus_peek_ram32(pb + 18u);
+                    lc_musashi_bus_ram_write8(pb + 30u, attr);
+                    lc_musashi_bus_ram_write32(pb + 32u, type);
+                    lc_musashi_bus_ram_write32(pb + 36u, creator);
+                    lc_musashi_bus_ram_write16(pb + 40u, fd_flags);
+                    lc_musashi_bus_ram_write32(pb + 48u, cnid);
+                    lc_musashi_bus_ram_write32(pb + 54u, data_len);
+                    lc_musashi_bus_ram_write32(pb + 58u, data_len);
+                    lc_musashi_bus_ram_write32(pb + 64u, rsrc_len);
+                    lc_musashi_bus_ram_write32(pb + 68u, rsrc_len);
+                    lc_musashi_bus_ram_write32(pb + 100u, parent_id);
+                    if (name_ptr != 0u && name_ptr + 32u < active_bus->ram_size) {
+                        lc_musashi_bus_ram_write8(name_ptr, name_len);
+                        for (uint32_t i = 0; i < name_len; i++) lc_musashi_bus_ram_write8(name_ptr + 1u + i, (uint8_t)name[i]);
+                    }
+                }
+                m68k_set_reg(M68K_REG_D0, (uint32_t)(uint16_t)(int16_t)result);
+                m68k_set_reg(M68K_REG_PC, return_pc);
+                m68k_set_reg(M68K_REG_SP, sp + 8u);
+                {
+                    const uint16_t d0w = (uint16_t)result;
+                    uint16_t new_sr = saved_sr & 0xfff0u;
+                    if (d0w == 0u) new_sr |= 0x0004u;
+                    if ((d0w & 0x8000u) != 0u) new_sr |= 0x0008u;
+                    m68k_set_reg(M68K_REG_SR, new_sr);
+                }
+                static unsigned hfs_cat_log = 0;
+                if (hfs_cat_log < 80u) {
+                    ESP_LOGW(TAG, "LC BACKEND: HFSDispatch PBGetCatInfo dir=%u index=%u result=%d cnid=%u type=0x%08x creator=0x%08x name='%.*s'",
+                             (unsigned)dir_id, (unsigned)index, result, (unsigned)cnid,
+                             (unsigned)type, (unsigned)creator, (int)name_len, name);
+                    hfs_cat_log++;
+                }
+                previous_instruction_pc = current_instruction_pc;
+                return;
+            }
+
+            if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && !is_toolbox &&
                 (trap_word & 0xf0ffu) == 0xa025u) {
                 uint32_t h = m68k_get_reg(NULL, M68K_REG_A0);
                 uint32_t sz = (h == 0x0004ff00u) ? 648u : (h == 0x0004ff08u ? 31420u : 0x10000u);

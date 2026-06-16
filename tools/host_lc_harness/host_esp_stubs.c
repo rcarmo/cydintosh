@@ -267,6 +267,164 @@ static uint8_t *sysrsrc_buf = NULL;
 static uint32_t sysrsrc_size = 0;
 static uint32_t sysrsrc_copy_cursor = SYSRSRC_COPY_BASE;
 
+typedef struct {
+    uint32_t parent_id;
+    uint32_t cnid;
+    uint8_t is_dir;
+    uint8_t finder_flags_hi;
+    uint8_t finder_flags_lo;
+    uint32_t type;
+    uint32_t creator;
+    uint32_t data_len;
+    uint32_t rsrc_len;
+    uint8_t name_len;
+    char name[32];
+} host_hfs_cat_entry_t;
+
+static host_hfs_cat_entry_t *host_hfs_entries;
+static size_t host_hfs_entry_count;
+static bool host_hfs_catalog_loaded;
+
+static uint16_t host_be16(const uint8_t *p) { return (uint16_t)(((uint16_t)p[0] << 8) | p[1]); }
+static uint32_t host_be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
+
+static bool host_hfs_add_entry(const host_hfs_cat_entry_t *entry) {
+    if (host_hfs_entry_count >= 2048u) return false;
+    host_hfs_cat_entry_t *next = (host_hfs_cat_entry_t *)realloc(host_hfs_entries, (host_hfs_entry_count + 1u) * sizeof(*host_hfs_entries));
+    if (next == NULL) return false;
+    host_hfs_entries = next;
+    host_hfs_entries[host_hfs_entry_count++] = *entry;
+    return true;
+}
+
+static void host_hfs_parse_catalog_once(void) {
+    if (host_hfs_catalog_loaded) return;
+    host_hfs_catalog_loaded = true;
+    uint32_t disk_size = 0;
+    if (!host_file_size(host_disk_path, &disk_size) || disk_size < 4096u) return;
+    uint8_t *disk = (uint8_t *)malloc(disk_size);
+    if (disk == NULL) return;
+    FILE *fp = fopen(host_disk_path, "rb");
+    if (fp == NULL) { free(disk); return; }
+    size_t got = fread(disk, 1, disk_size, fp);
+    fclose(fp);
+    if (got != disk_size) { free(disk); return; }
+
+    const uint8_t *mdb = disk + 1024u;
+    if (host_be16(mdb + 0u) != 0x4244u) { free(disk); return; }
+    const uint32_t alblk_size = host_be32(mdb + 0x14u);
+    const uint16_t albl_start = host_be16(mdb + 0x1cu);
+    const uint32_t cat_size = host_be32(mdb + 0x92u);
+    if (alblk_size == 0u || cat_size == 0u || cat_size > disk_size) { free(disk); return; }
+    uint8_t *cat = (uint8_t *)malloc(cat_size);
+    if (cat == NULL) { free(disk); return; }
+    uint32_t cat_pos = 0;
+    for (uint32_t i = 0; i < 3u; i++) {
+        const uint16_t start = host_be16(mdb + 0x96u + i * 4u);
+        const uint16_t count = host_be16(mdb + 0x96u + i * 4u + 2u);
+        if (count == 0u) continue;
+        const uint64_t src = (uint64_t)albl_start * 512u + (uint64_t)start * alblk_size;
+        uint64_t len = (uint64_t)count * alblk_size;
+        if (src >= disk_size) continue;
+        if (src + len > disk_size) len = disk_size - src;
+        if (cat_pos + len > cat_size) len = cat_size - cat_pos;
+        memcpy(cat + cat_pos, disk + src, (size_t)len);
+        cat_pos += (uint32_t)len;
+        if (cat_pos >= cat_size) break;
+    }
+    free(disk);
+    if (cat_pos < 512u) { free(cat); return; }
+
+    const uint8_t *node0 = cat;
+    const uint16_t n0recs = host_be16(node0 + 10u);
+    if (n0recs == 0u) { free(cat); return; }
+    const uint16_t hdr_off = host_be16(node0 + 512u - 2u);
+    if (hdr_off + 22u > 512u) { free(cat); return; }
+    const uint8_t *hdr = node0 + hdr_off;
+    const uint32_t first_leaf = host_be32(hdr + 10u);
+    const uint16_t node_size = host_be16(hdr + 18u);
+    if (node_size == 0u || node_size > 4096u) { free(cat); return; }
+
+    uint32_t node_num = first_leaf;
+    unsigned guard = 0;
+    while (node_num != 0u && ++guard < 10000u) {
+        uint64_t node_off = (uint64_t)node_num * node_size;
+        if (node_off + node_size > cat_size) break;
+        const uint8_t *node = cat + node_off;
+        const uint32_t f_link = host_be32(node + 0u);
+        const int8_t node_type = (int8_t)node[8];
+        const uint16_t nrecs = host_be16(node + 10u);
+        if (node_type != (int8_t)0xff) break;
+        for (uint16_t r = 0; r < nrecs; r++) {
+            const uint16_t rec_off = host_be16(node + node_size - 2u * (r + 1u));
+            const uint16_t next_off = host_be16(node + node_size - 2u * (r + 2u));
+            if (rec_off >= node_size || next_off > node_size || next_off <= rec_off) continue;
+            const uint8_t *rec = node + rec_off;
+            const uint8_t key_len = rec[0];
+            if (key_len < 6u || rec_off + key_len + 4u >= next_off) continue;
+            const uint32_t parent_id = host_be32(rec + 2u);
+            const uint8_t name_len = rec[6] > 31u ? 31u : rec[6];
+            const uint32_t data_off = (uint32_t)((1u + key_len + 1u) & ~1u);
+            if (rec_off + data_off + 2u >= next_off) continue;
+            const uint8_t *data = rec + data_off;
+            host_hfs_cat_entry_t entry;
+            memset(&entry, 0, sizeof(entry));
+            entry.parent_id = parent_id;
+            entry.name_len = name_len;
+            memcpy(entry.name, rec + 7u, name_len);
+            entry.name[name_len] = 0;
+            if (data[0] == 1u && rec_off + data_off + 10u <= next_off) {
+                entry.is_dir = 1u;
+                entry.cnid = host_be32(data + 6u);
+            } else if (data[0] == 2u && rec_off + data_off + 42u <= next_off) {
+                entry.is_dir = 0u;
+                entry.type = host_be32(data + 4u);
+                entry.creator = host_be32(data + 8u);
+                entry.finder_flags_hi = data[12u];
+                entry.finder_flags_lo = data[13u];
+                entry.cnid = host_be32(data + 20u);
+                entry.data_len = host_be32(data + 26u);
+                entry.rsrc_len = host_be32(data + 36u);
+            } else {
+                continue;
+            }
+            (void)host_hfs_add_entry(&entry);
+        }
+        node_num = f_link;
+    }
+    free(cat);
+    fprintf(stderr, "HOST: parsed HFS catalog entries=%zu from %s\n", host_hfs_entry_count, host_disk_path);
+}
+
+int host_hfs_get_cat_info(uint32_t dir_id, uint16_t index, uint32_t *cnid, uint8_t *is_dir,
+                          uint8_t *name_len, char *name, uint8_t *attr,
+                          uint32_t *type, uint32_t *creator, uint16_t *fd_flags,
+                          uint32_t *data_len, uint32_t *rsrc_len, uint32_t *parent_id) {
+    host_hfs_parse_catalog_once();
+    if (index == 0u || host_hfs_entry_count == 0u) return -43;
+    uint16_t seen = 0;
+    for (size_t i = 0; i < host_hfs_entry_count; i++) {
+        const host_hfs_cat_entry_t *e = &host_hfs_entries[i];
+        if (e->parent_id != dir_id) continue;
+        seen++;
+        if (seen != index) continue;
+        if (cnid) *cnid = e->cnid;
+        if (is_dir) *is_dir = e->is_dir;
+        if (name_len) *name_len = e->name_len;
+        if (name) memcpy(name, e->name, 32u);
+        if (attr) *attr = e->is_dir ? 0x10u : 0u;
+        if (type) *type = e->type;
+        if (creator) *creator = e->creator;
+        if (fd_flags) *fd_flags = ((uint16_t)e->finder_flags_hi << 8u) | e->finder_flags_lo;
+        if (data_len) *data_len = e->data_len;
+        if (rsrc_len) *rsrc_len = e->rsrc_len;
+        if (parent_id) *parent_id = e->parent_id;
+        return 0;
+    }
+    return -43;
+}
+
+
 void host_load_system_rsrc(uint8_t *ram, size_t ram_size) {
     (void)ram;
     (void)ram_size;

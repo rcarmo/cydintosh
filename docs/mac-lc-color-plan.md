@@ -1347,16 +1347,21 @@ requested `scod` resource by signed segment id (e.g. `seg=-16469`, entry offset
 `0x009a`) and transfer to `resourceBase+2+entryOffset`; this lands on the real
 entry instruction (`moveq #0,d0`) instead of the offset word or a following
 operand. It also loads the next dependent `scod` segment (`seg=-16463`, entry
-`0x48c0`) through the same path. Validation for this clean tranche: fixture 50M
-remains green with fixture VRAM writes, faithful 50M/500M remain green, and
-backend 50M/500M reach cycle budget with all stop flags 0. Current backend still
-has no VRAM writes; backend 50M now runs inside loaded `scod` at
-`pc_after=0x0052cc00`, and backend 500M remains in loaded `scod` at
-`pc_after=0x0052cbee` rather than the ROM exception/debug dispatcher. The
-remaining issue is still broader boot_3 handoff/control-flow state rather than an
-individual QuickDraw trap stack-size problem. This backend lane is intentionally
-end-to-end oriented and should be iterated separately from the default faithful
-MountVol frontier.
+`0x48c0`) through the same path. A follow-up backend layer adds a host-side,
+read-only HFS catalog parser for the real disk image (MDB + catalog B-tree) and
+routes backend `HFSDispatch(PBGetCatInfo)` selector 9 through it. In the current
+`scod -16469` app-discovery scan this enumerates the real Extensions folder
+(CNID 175), including the actual `Desktop Printer Spooler` `appe/dtps` entry
+(CNID 196), instead of returning synthetic PB fields. Validation for this clean
+tranche: fixture 50M remains green with fixture VRAM writes, faithful 50M/500M
+remain green, and backend 50M/500M reach cycle budget with all stop flags 0.
+Current backend still has no VRAM writes; backend now completes the loaded
+`scod` Extensions-folder scan and returns to the next control-flow issue
+(`pc_after=0x408026a4` at 50M, `0x4080274a` at 500M). The remaining issue is
+still broader boot_3 handoff/control-flow state rather than an individual
+QuickDraw trap stack-size problem. This backend lane is intentionally end-to-end
+oriented and should be iterated separately from the default faithful MountVol
+frontier.
 
 Additional MM-zone trace: at `0xf39c`, lowmem points both `TheZone`/`SysZone` at
 `0x00380000`, but the zone header there is zero in the current validated code,
