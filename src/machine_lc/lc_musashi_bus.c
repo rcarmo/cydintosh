@@ -5830,6 +5830,15 @@ static void lc_musashi_bus_maybe_pulse_reset_scc_timer_irq(uint32_t pc) {
     }
 }
 
+static bool lc_musashi_bus_has_real_fcb_array(void) {
+    if (active_bus == NULL || active_bus->ram == NULL) {
+        return false;
+    }
+    const uint32_t fcb = lc_musashi_bus_peek_ram32(0x034eu); // FCBSPtr
+    return fcb != 0u && fcb != 0x0001f800u &&
+           fcb >= 0x00002000u && fcb + 0x20u < active_bus->ram_size;
+}
+
 void cpu_instr_callback(int pc) {
     instruction_callback_count++;
     current_instruction_pc = (uint32_t)pc;
@@ -6021,13 +6030,19 @@ void cpu_instr_callback(int pc) {
         if (current_instruction_pc == 0x40811f0eu &&
             m68k_get_reg(NULL, M68K_REG_A2) >= 0x00009400u &&
             m68k_get_reg(NULL, M68K_REG_A2) < 0x0000a000u) {
-            lc_musashi_bus_ram_write16(0x0001f800u + 0x0060u + 0x06u, 0x0012u);
-            lc_musashi_bus_ram_write16(0x0001f800u + 0x00beu + 0x06u, 0x080eu);
-            m68k_set_reg(M68K_REG_A1, 0x0001f800u);
-            m68k_set_reg(M68K_REG_A2, 0x0000b640u);
-            m68k_set_reg(M68K_REG_D4, 0x00000200u);
-            m68k_set_reg(M68K_REG_D5, 0u);
-            ESP_LOGW(TAG, "LC FAITHFUL: restored VCB/FCB context at 0x11f0e");
+            if (!lc_musashi_bus_has_real_fcb_array()) {
+                lc_musashi_bus_ram_write16(0x0001f800u + 0x0060u + 0x06u, 0x0012u);
+                lc_musashi_bus_ram_write16(0x0001f800u + 0x00beu + 0x06u, 0x080eu);
+                m68k_set_reg(M68K_REG_A1, 0x0001f800u);
+                m68k_set_reg(M68K_REG_A2, 0x0000b640u);
+                m68k_set_reg(M68K_REG_D4, 0x00000200u);
+                m68k_set_reg(M68K_REG_D5, 0u);
+                ESP_LOGW(TAG, "LC FAITHFUL: restored synthetic VCB/FCB context at 0x11f0e");
+            } else {
+                ESP_LOGW(TAG,
+                         "LC FAITHFUL: skipped synthetic 0x11f0e FCB override; real FCBSPtr=0x%08" PRIx32,
+                         lc_musashi_bus_peek_ram32(0x034eu));
+            }
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x0000f758u &&
             m68k_get_reg(NULL, M68K_REG_D0) == 0xffffff00u) {
@@ -6060,9 +6075,14 @@ void cpu_instr_callback(int pc) {
         if ((current_instruction_pc & 0x000fffffu) == 0x0000fc18u) {
             // InitFS has not built the FCB array, but MountVol reaches the ROM
             // helper that allocates FCB slots from it. Model this helper's
-            // successful subroutine result directly: seed a tiny FCB array on
-            // first use, mark the selected entry busy, return D1=entry offset
-            // and D0=noErr to the caller's BSR return address.
+            // successful subroutine result directly only while no real FCBSPtr
+            // exists; once InitFS has built a guest FCB array, let the ROM helper
+            // use it instead of forcing the old 0x1f800 synthetic array.
+            if (lc_musashi_bus_has_real_fcb_array()) {
+                ESP_LOGW(TAG,
+                         "LC FAITHFUL: skipped synthetic FCB allocation helper; real FCBSPtr=0x%08" PRIx32,
+                         lc_musashi_bus_peek_ram32(0x034eu));
+            } else {
             static unsigned fm_fcb_call = 0;
             const uint16_t fm_fcb_next = (fm_fcb_call++ & 1u) ? 0x00beu : 0x0060u;
             const uint32_t fcb = 0x0001f800u;
@@ -6087,6 +6107,7 @@ void cpu_instr_callback(int pc) {
             ESP_LOGW(TAG, "LC FAITHFUL: modeled FCB allocation off=0x%04x ret=0x%08" PRIx32, fm_fcb_next, ret);
             previous_instruction_pc = current_instruction_pc;
             return;
+            }
         }
         if (getenv("LC_BACKEND_BOOT2_HANDOFF") != NULL && current_instruction_pc == 0x00000968u) {
             lc_musashi_bus_stage_boot_resources();

@@ -1311,6 +1311,15 @@ or zero-RAM/bad-ROM paths. The remaining dependency appears to be the exact
 `0x11f0e` helper context/body semantics rather than the old MountVol worker
 scan.
 
+2026-06-17 safety gate: the synthetic `0x11f0e` VCB/FCB context repair and the
+`0xfc18` synthetic FCB allocation helper now stand down when `$034E` (`FCBSPtr`)
+points at a real guest FCB array instead of the legacy `0x1f800` synthetic slab.
+This does not advance the current stable faithful rail by itself (stable still
+has no real `$034E`, so the synthetic fallback remains active), but it prevents
+future real InitFS/System Zone work from being masked by the old fake-FCB hook.
+Validation for the guard: fixture 50M keeps VRAM writes=4 and stop flags clear;
+faithful 50M/500M remain `HOST_LC_OK` with zero-RAM/monitor/zero-ROM clear.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call
