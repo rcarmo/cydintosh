@@ -5846,6 +5846,20 @@ void cpu_instr_callback(int pc) {
     current_instruction_pc = (uint32_t)pc;
     lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
     if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
+        if (current_instruction_pc == 0x40800164u) {
+            // BasiliskII oracle reaches the CPU-byte stores with D7=0x000e0004:
+            // move.b D7,$012F writes CPU type 4, then SWAP leaves D7=0x0004000e
+            // for the subsequent $0CB3 write.  The direct scaffold currently
+            // derives D7=0x00050002, making the ROM trap-table tail skip its
+            // 0x85030 A-line stub.  Normalize at the same ROM instruction that
+            // consumes the value instead of post-fixing the trap table.
+            static bool cpu_byte_logged = false;
+            if (!cpu_byte_logged) {
+                ESP_LOGW(TAG, "LC FAITHFUL: normalized CPU-byte D7 before $012f store");
+                cpu_byte_logged = true;
+            }
+            m68k_set_reg(M68K_REG_D7, 0x000e0004u);
+        }
         // Faithful MM-dispatch install: ROM routine 0xcc60 (header ptr [0x54])
         // installs the Memory Manager core handlers at 0x1ee0/0x1ee4/0x1ee8
         // (0xdce4/0xdc2e/0xdd1e, relocated by ROMBase) before the first

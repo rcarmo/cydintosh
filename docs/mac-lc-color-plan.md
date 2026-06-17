@@ -1335,6 +1335,14 @@ zone value that caused real `_NewPtr` experiments to fail against the wrong
 current zone. Validation remained unchanged: fixture 50M has VRAM writes=4 and
 faithful 50M/500M keep `HOST_LC_OK` with zero-RAM/monitor/zero-ROM clear.
 
+The faithful RESET path also normalizes the D7 value consumed by ROM `0x164`
+(`move.b D7,$012f; swap D7; move.b D7,$0cb3`) to the BasiliskII oracle value
+`0x000e0004`, yielding `$012f=4` and post-swap `D7=0x0004000e`. This lets the
+ROM trap-table tail at `0x8500c` take the oracle branch that installs
+`[$06f4]=ROM+0x85030` instead of leaving `A1` at the end of the RAM trap table.
+Fixture mode is untouched; faithful 50M/500M validation remains green with stop
+flags clear.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call
