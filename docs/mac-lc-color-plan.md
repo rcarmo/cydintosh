@@ -1325,6 +1325,16 @@ fake-FCB/File-Manager scaffolds. Validation for the guard: fixture 50M keeps
 VRAM writes=4 and stop flags clear; faithful 50M/500M remain `HOST_LC_OK` with
 zero-RAM/monitor/zero-ROM clear.
 
+Follow-up faithful low-memory cleanup: the RESET scaffold no longer pre-seeds
+`$0118/$02A6` to the fake high application zone (`0x00380000`) under
+`LC_FAITHFUL_DISK_BOOT`. Fixture mode keeps the old values, but faithful mode now
+leaves those globals for the real ROM/System Zone path. This does not by itself
+advance stable faithful boot because the current shortcut still misses the real
+`A019`/`0xcfba` InitZone call before InitFS, but it removes a misleading fake
+zone value that caused real `_NewPtr` experiments to fail against the wrong
+current zone. Validation remained unchanged: fixture 50M has VRAM writes=4 and
+faithful 50M/500M keep `HOST_LC_OK` with zero-RAM/monitor/zero-ROM clear.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call

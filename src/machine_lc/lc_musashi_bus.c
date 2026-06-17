@@ -1862,8 +1862,10 @@ static bool lc_musashi_bus_handle_basilisk_emul_op(int opcode) {
             lc_musashi_bus_ram_write32(0x00000130u, (uint32_t)active_bus->ram_size); // HighMem
             lc_musashi_bus_ram_write32(0x00000900u, 0x00002800u); // SysZone start
             lc_musashi_bus_ram_write32(0x00000904u, 0x00380000u); // SysZone end (ApplZone)
-            lc_musashi_bus_ram_write32(0x000002a6u, 0x00380000u); // CurStackBase
-            lc_musashi_bus_ram_write32(0x00000118u, 0x00380000u); // ApplZone
+            if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
+                lc_musashi_bus_ram_write32(0x000002a6u, 0x00380000u); // CurStackBase
+                lc_musashi_bus_ram_write32(0x00000118u, 0x00380000u); // ApplZone
+            }
             // Drive Queue Header (empty)
             lc_musashi_bus_ram_write16(0x00000308u, 0); // DrvQHdr.qFlags
             // Set up a drive queue entry at $8A40 for boot disk (drive 1, refNum -63)
