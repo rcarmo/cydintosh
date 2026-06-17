@@ -1343,6 +1343,17 @@ ROM trap-table tail at `0x8500c` take the oracle branch that installs
 Fixture mode is untouched; faithful 50M/500M validation remains green with stop
 flags clear.
 
+Faithful mode now also leaves ROM `0x014c` intact instead of NOPing the
+`JSR 0x1292` trap-table clear/setup call. Fixture mode keeps the old NOP because
+it relies on the synthetic table. With this faithful gate, the stable rail no
+longer reaches the old `0x11f0e` fake-FCB helper frontier in 50M/500M runs;
+there is no synthetic FCB override log, no zero-RAM/monitor/zero-ROM stop, and
+`pc_after` moves to the `0x4080208c/0x4080209c` ROM startup path. This is a
+structural upstream step toward the oracle InitOS/System Zone lane: it lets the
+ROM execute the same early trap-table setup call that eventually reaches the
+real `A019`/`0xcfba` InitZone path, instead of starting boot with a pre-cleared
+synthetic table only.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call

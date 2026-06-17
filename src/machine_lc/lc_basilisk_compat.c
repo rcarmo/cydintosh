@@ -540,7 +540,9 @@ esp_err_t lc_basilisk_apply_rom32_patches(uint8_t *rom, size_t rom_size,
     put16(rom, rom_size, 0x09c0u, LC_B2_M68K_RTS, summary); // Don't init IWM.
     put16(rom, rom_size, 0x09a0u, LC_B2_M68K_RTS, summary); // Don't init SCSI.
     put16(rom, rom_size, 0x0a30u, LC_B2_M68K_RTS, summary); // Don't init SCC.
-    patch_nops(rom, rom_size, 0x014cu, 2u, summary);       // Don't clear trap table ($1292 clears $100-$2000).
+    if (getenv("LC_FAITHFUL_DISK_BOOT") == NULL) {
+        patch_nops(rom, rom_size, 0x014cu, 2u, summary);   // Don't clear trap table ($1292 clears $100-$2000).
+    }
     // The $160-$1d3 block is the dispatch/SCC/VIA init.  Our default scaffold
     // NOPs the whole thing, which also skips the trap-dispatch build (InitOS at
     // 0x999e / 0x9a9a) — so the ROM never builds its real trap table.  Under
