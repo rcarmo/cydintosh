@@ -1314,11 +1314,16 @@ scan.
 2026-06-17 safety gate: the synthetic `0x11f0e` VCB/FCB context repair and the
 `0xfc18` synthetic FCB allocation helper now stand down when `$034E` (`FCBSPtr`)
 points at a real guest FCB array instead of the legacy `0x1f800` synthetic slab.
-This does not advance the current stable faithful rail by itself (stable still
-has no real `$034E`, so the synthetic fallback remains active), but it prevents
-future real InitFS/System Zone work from being masked by the old fake-FCB hook.
-Validation for the guard: fixture 50M keeps VRAM writes=4 and stop flags clear;
-faithful 50M/500M remain `HOST_LC_OK` with zero-RAM/monitor/zero-ROM clear.
+A follow-up guard applies the same rule to the nearby MountVol scaffolds that
+force the VCB/MDB return registers (`0xf6fa`), seed the work-list head
+(`0xfc38`), model the local File Manager record allocation (`0x13612`), repair
+the post-MDB CCR (`0xf758`), and intercept MountVol's VCB `_NewPtr` at
+`0xf690`. This does not advance the current stable faithful rail by itself
+(stable still has no real `$034E`, so the synthetic fallback remains active),
+but it prevents future real InitFS/System Zone work from being masked by the old
+fake-FCB/File-Manager scaffolds. Validation for the guard: fixture 50M keeps
+VRAM writes=4 and stop flags clear; faithful 50M/500M remain `HOST_LC_OK` with
+zero-RAM/monitor/zero-ROM clear.
 
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,

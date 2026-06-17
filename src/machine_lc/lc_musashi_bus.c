@@ -5980,6 +5980,7 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_PC, current_instruction_pc + 2u);
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x0000f6fau &&
+            !lc_musashi_bus_has_real_fcb_array() &&
             m68k_get_reg(NULL, M68K_REG_A2) == 0x0000b640u &&
             (m68k_get_reg(NULL, M68K_REG_A0) != 0x00009040u ||
              m68k_get_reg(NULL, M68K_REG_A1) != 0x00009018u ||
@@ -5994,6 +5995,7 @@ void cpu_instr_callback(int pc) {
             }
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x0000fc38u &&
+            !lc_musashi_bus_has_real_fcb_array() &&
             m68k_get_reg(NULL, M68K_REG_A1) == 0u) {
             // MountVol reaches the FCB insertion path with the File Manager
             // work-list head in A1 on the oracle path (0x9468). Our modeled
@@ -6045,6 +6047,7 @@ void cpu_instr_callback(int pc) {
             }
         }
         if ((current_instruction_pc & 0x000fffffu) == 0x0000f758u &&
+            !lc_musashi_bus_has_real_fcb_array() &&
             m68k_get_reg(NULL, M68K_REG_D0) == 0xffffff00u) {
             // Oracle's helper at 0x117ea returns here with Z set even though D0
             // is 0xffffff00; preserve that branch condition so MountVol follows
@@ -6053,7 +6056,8 @@ void cpu_instr_callback(int pc) {
             m68k_set_reg(M68K_REG_SR, (sr & 0xfff0u) | 0x0004u);
             ESP_LOGW(TAG, "LC FAITHFUL: repaired post-MDB helper CCR at 0xf758");
         }
-        if ((current_instruction_pc & 0x000fffffu) == 0x00013612u) {
+        if ((current_instruction_pc & 0x000fffffu) == 0x00013612u &&
+            !lc_musashi_bus_has_real_fcb_array()) {
             // The 0xfc38 insertion path calls NewPtr(54) to create a small
             // File Manager working record before recursing through 0x14224.
             // Model just this local allocation; broader InitFS NewPtr shortcuts
@@ -6210,6 +6214,7 @@ void cpu_instr_callback(int pc) {
 
 
             if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL &&
+                !lc_musashi_bus_has_real_fcb_array() &&
                 (trap_word & 0xf0ffu) == 0xa01eu &&
                 (trap_pc & 0x000fffffu) == 0x0000f690u) {
                 // MountVol allocates its VCB with _NewPtr(178) at 0xf690.
