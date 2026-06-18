@@ -1364,6 +1364,27 @@ startup geometry globals `$0190/$018E/$02F0/$02F4`; leaving the clear pattern
 clear artifact from the faithful startup rail. Fixture mode is unchanged;
 faithful 50M/500M stay `HOST_LC_OK` with stop flags clear.
 
+Follow-up rejected experiments at the `0x4080208c/0x4080209c` frontier:
+
+- Reasserting a synthetic boot DQE after `0x1292` got past the queue search but
+  fell back into the old fake-FCB/MountVol lane, undoing the purpose of the
+  structural reset work.
+- Converting the cleared drive queue header to an empty list (`qHead=qTail=0`),
+  or adding a status-sentinel DQE matching the immediate `d3=-1,d1=0xdada` key,
+  avoided the invalid `0xffffffff` walk but spun in the `0x9ab8` trap-table
+  builder path. So the drive queue itself is a symptom, not the root fix.
+- Restoring the real BasiliskII-style `0x114c..0x1182` boot-resource
+  continuation while removing the synthetic boot loader regressed into the ROM
+  diagnostic monitor. Keeping `0x1134` skipped still regressed, so the real
+  continuation needs additional upstream Resource/driver/stack state before it
+  is safe.
+
+Current interpretation: the `0x02040/0x02088` drive-queue search is reached from
+an early startup status path before the ROM has a coherent drive queue / boot
+resource environment. The next useful work is to fix the upstream ownership of
+that Resource/driver/stack state so the real `0x1134..0x1182` continuation can
+run, rather than adding another queue sentinel.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call
