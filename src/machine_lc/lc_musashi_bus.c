@@ -5865,6 +5865,13 @@ void cpu_instr_callback(int pc) {
                 startup_bytes_seeded = true;
             }
         }
+        if (current_instruction_pc == 0x408001f4u && m68k_get_reg(NULL, M68K_REG_D0) == 0u) {
+            // The low-memory A-line dispatcher restores D0 after the A05D stub.
+            // Same-ROM BasiliskII reaches this continuation with D0=1 before
+            // CompBootStack/InitZone setup at 0x4b0, so repair the visible
+            // trap result at the real post-trap PC rather than inside the stub.
+            m68k_set_reg(M68K_REG_D0, 1u);
+        }
         if (current_instruction_pc == 0x40800164u) {
             // BasiliskII oracle reaches the CPU-byte stores with D7=0x000e0004:
             // move.b D7,$012F writes CPU type 4, then SWAP leaves D7=0x0004000e
