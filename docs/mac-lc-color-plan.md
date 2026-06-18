@@ -1359,10 +1359,12 @@ after `0x1292` clears low memory, matching the BasiliskII oracle values
 `0x63/0x88`. These bytes feed the ROM helper at `0x0780`, which derives the
 startup geometry globals `$0190/$018E/$02F0/$02F4`; leaving the clear pattern
 `0xff/0xff` made the helper derive `0x1e/0x3c/0x3c/0x3c` instead of oracle-like
-`0x0c/0x18/0x20/0x20`. This is still not enough to advance past the
-`0x4080208c/0x4080209c` drive-queue frontier, but it removes another low-memory
-clear artifact from the faithful startup rail. Fixture mode is unchanged;
-faithful 50M/500M stay `HOST_LC_OK` with stop flags clear.
+`0x0c/0x18/0x20/0x20`. Faithful `_SwapMMUMode` (`A05D`) now returns `D0=1` in
+the same early startup dispatcher path, also matching the same-ROM BasiliskII
+oracle. These are still not enough to advance past the `0x4080208c/0x4080209c`
+drive-queue frontier, but they remove low-memory/trap-return artifacts from the
+faithful startup rail. Fixture mode is unchanged; faithful 50M/500M stay
+`HOST_LC_OK` with stop flags clear.
 
 Follow-up rejected experiments at the `0x4080208c/0x4080209c` frontier:
 

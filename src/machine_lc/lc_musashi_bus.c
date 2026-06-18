@@ -4856,7 +4856,11 @@ static void lc_musashi_bus_maybe_stub_post_reset_swap_mmu_dispatch(uint32_t pc) 
     // to low RAM.  Seed the exact return slot consumed by that epilogue with the
     // post-trap PC.
     lc_musashi_bus_ram_write32(sp + 24u, 0x408001f4u);
-    m68k_set_reg(M68K_REG_D0, 0);
+    // BasiliskII's LC ROM path sees _SwapMMUMode return D0=1 here; the value
+    // is carried into the subsequent startup stack/zone setup.  Returning 0 was
+    // stable but off-oracle and shifted later helper state during real-startup
+    // experiments.
+    m68k_set_reg(M68K_REG_D0, 1);
     if (!post_reset_swap_mmu_dispatch_stub_logged) {
         post_reset_swap_mmu_dispatch_stub_logged = true;
         ESP_LOGW(TAG,
