@@ -1385,6 +1385,15 @@ resource environment. The next useful work is to fix the upstream ownership of
 that Resource/driver/stack state so the real `0x1134..0x1182` continuation can
 run, rather than adding another queue sentinel.
 
+Additional finding: the legacy synthetic boot loader at ROM `$1182` overlaps the
+real helper at `$11a0..$11c8`, and that helper is called early from `$4192`.
+This explains how the direct scaffold can enter boot blocks before the ROM has
+finished startup. Moving the synthetic loader to `$1144` avoids the overlap but
+executes too early after `INSTALL_DRIVERS` and monitor-regresses, so it was
+reverted. A keeper fix must either let the real `$114c..$1182` continuation run
+with correct Resource/driver/stack state, or place any fallback loader behind the
+same semantic gate without corrupting `$11a0`.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call
