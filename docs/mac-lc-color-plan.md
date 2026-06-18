@@ -1354,6 +1354,16 @@ ROM execute the same early trap-table setup call that eventually reaches the
 real `A019`/`0xcfba` InitZone path, instead of starting boot with a pre-cleared
 synthetic table only.
 
+The faithful path now also re-seeds low-memory bytes `$0206/$0209` immediately
+after `0x1292` clears low memory, matching the BasiliskII oracle values
+`0x63/0x88`. These bytes feed the ROM helper at `0x0780`, which derives the
+startup geometry globals `$0190/$018E/$02F0/$02F4`; leaving the clear pattern
+`0xff/0xff` made the helper derive `0x1e/0x3c/0x3c/0x3c` instead of oracle-like
+`0x0c/0x18/0x20/0x20`. This is still not enough to advance past the
+`0x4080208c/0x4080209c` drive-queue frontier, but it removes another low-memory
+clear artifact from the faithful startup rail. Fixture mode is unchanged;
+faithful 50M/500M stay `HOST_LC_OK` with stop flags clear.
+
 Gated selected-backend lane (`LC_BACKEND_BOOT2_HANDOFF=1`, experimental): rather
 than waiting for real MountVol to finish, intercept the boot-block MountVol call,
 stage the existing boot resources, make the boot-block `InitResources` call

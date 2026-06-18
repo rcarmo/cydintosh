@@ -5846,6 +5846,21 @@ void cpu_instr_callback(int pc) {
     current_instruction_pc = (uint32_t)pc;
     lc_musashi_bus_maybe_repair_copied_boot3_bytes(current_instruction_pc);
     if (getenv("LC_FAITHFUL_DISK_BOOT") != NULL) {
+        if (current_instruction_pc == 0x40800150u) {
+            static bool startup_bytes_seeded = false;
+            if (!startup_bytes_seeded) {
+                // 0x1292 clears low memory through $2000.  BasiliskII's later
+                // startup helper at 0x0780 expects these two configuration bytes
+                // to have oracle values (0x63, 0x88), which produce the normal
+                // $0190/$018e/$02f0/$02f4 geometry values.  The direct scaffold
+                // otherwise leaves the clear pattern (0xff), steering startup into
+                // the wrong drive-queue/status path.
+                lc_musashi_bus_ram_write8(0x0206u, 0x63u);
+                lc_musashi_bus_ram_write8(0x0209u, 0x88u);
+                ESP_LOGW(TAG, "LC FAITHFUL: seeded startup geometry bytes $206/$209 after low-memory clear");
+                startup_bytes_seeded = true;
+            }
+        }
         if (current_instruction_pc == 0x40800164u) {
             // BasiliskII oracle reaches the CPU-byte stores with D7=0x000e0004:
             // move.b D7,$012F writes CPU type 4, then SWAP leaves D7=0x0004000e
